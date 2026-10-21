@@ -45,6 +45,28 @@ internal object Queries {
         },
     )
 
+    /** Up to [limit] documents [select] finds, in its order. */
+    fun select(select: Select<*>, limit: Int): Statement<Unit, List<Row>> = (
+        Fragment("SELECT rowid, json(data) FROM ${select.collection.table}") + where(select.where) +
+            orderBy(select.orders) + Fragment(" LIMIT ?;", listOf(SqlValue.Integer(limit.toLong())))
+        ).statement(rows { Row(DocumentId(getLong(0)), getText(1)) })
+
+    /** How many documents [select] finds. */
+    fun count(select: Select<*>): Statement<Unit, Long> =
+        (Fragment("SELECT count(*) FROM ${select.collection.table}") + where(select.where) + ";").statement {
+            check(step()) { "count(*) returned no row" }
+            getLong(0)
+        }
+
+    private fun where(condition: Condition?): Fragment =
+        if (condition == null) Fragment.Empty else Fragment(" WHERE ") + condition.render()
+
+    // rowid comes last, so equal keys keep insertion order and every order is total.
+    private fun orderBy(orders: List<Order>): Fragment = Fragment(
+        (orders.map { "${it.path.sql} ${if (it.descending) "DESC" else "ASC"}" } + "rowid ASC")
+            .joinToString(", ", prefix = " ORDER BY "),
+    )
+
     /** Input is the new document's JSON text, replacing every document matching [condition]; the result is how many. */
     fun update(collection: Collection, condition: Condition): Statement<String, Int> =
         changeWith(Fragment("UPDATE ${collection.table} SET data = jsonb(?) WHERE ") + condition.render())
