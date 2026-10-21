@@ -47,6 +47,9 @@ jobs:
       - name: Run JVM tests
         run: ./kotlin test -p jvm
 
+      - name: Run the notes sample
+        run: ./kotlin run -m notes
+
       - name: Save build output
         if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4
