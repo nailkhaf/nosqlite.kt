@@ -11,7 +11,7 @@ public suspend fun Collection.insert(value: JsonObject): DocumentId =
 
 context(_: WriteScope)
 internal suspend fun Collection.insertJson(json: String): DocumentId = context(connection()) {
-    Queries.insert(this).execute(json).also { changed(1) }
+    mapConstraintErrors { Queries.insert(this).execute(json) }.also { changed(1) }
 }
 
 /** Deletes the document [id]; the result is the number of documents deleted, 0 or 1. */

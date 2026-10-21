@@ -16,6 +16,25 @@ internal object Queries {
         """.trimIndent(),
     )
 
+    /** Input is the collection name, result is the names of the indexes on its table. */
+    val indexNames: Statement<String, List<String>> = Statement(
+        sql = "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = ? AND name NOT LIKE 'sqlite_%';",
+        encode = { collection -> bindText(1, collection) },
+        decode = rows { getText(0) },
+    )
+
+    fun createIndex(index: Index): Command<Unit> = command(
+        "CREATE ${if (index.isUnique) "UNIQUE " else ""}INDEX IF NOT EXISTS \"${index.name}\" " +
+            "ON ${index.collection.table} ${index.definition};",
+    )
+
+    fun dropIndex(name: String): Command<Unit> = command("DROP INDEX IF EXISTS \"$name\";")
+
+    /** Up to [limit] documents matching [condition], with their ids. */
+    fun selectWhere(collection: Collection, condition: Condition, limit: Int): Statement<Unit, List<Row>> =
+        (Fragment("SELECT rowid, json(data) FROM ${collection.table} WHERE ") + condition.render() + " LIMIT $limit;")
+            .statement(rows { Row(DocumentId(getLong(0)), getText(1)) })
+
     /** Input is the document's JSON text, stored as JSONB; the result is its new rowid. */
     fun insert(collection: Collection): Statement<String, DocumentId> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?)) RETURNING rowid;",
@@ -39,12 +58,19 @@ internal object Queries {
     )
 }
 
+/** A stored document as a query reads it: its id and its JSON text. */
+internal class Row(val id: DocumentId, val json: String)
+
 /** Counts the rows a `RETURNING` clause gives back: the rows a statement changed. */
 internal fun SQLiteStatement.countRows(): Int {
     var count = 0
     while (step()) count++
     return count
 }
+
+/** The document in [row] decoded with [deserializer]. */
+internal fun <T> Collection.decode(row: Row, deserializer: DeserializationStrategy<T>): T =
+    decode(row.json, deserializer, row.id)
 
 /** [json] decoded with [deserializer]; a failure names the document. */
 internal fun <T> Collection.decode(json: String, deserializer: DeserializationStrategy<T>, id: DocumentId?): T = try {

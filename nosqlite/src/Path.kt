@@ -36,7 +36,7 @@ public class Path<in T, out V> internal constructor(
 }
 
 /** The field this property is stored under. */
-public fun <T, V> path(property: KProperty1<T, V>): Path<T, V> = Path(listOf(property.name))
+public fun <T, V> path(property: KProperty1<T, V>): Path<T, V> = property.toPath()
 
 /** The field at [serialPath], serial names separated by dots, for properties renamed with `@SerialName`. */
 public fun <V> path(serialPath: String): Path<Any?, V> = Path(serialPath.split('.'), serialNames = true)
@@ -50,7 +50,7 @@ public operator fun <A, B : Any, C> Path<A, B?>.div(next: KProperty1<B, C>): Pat
     Path(names + next.name, serialNames)
 
 @PublishedApi
-internal fun <V> KProperty1<*, V>.toPath(): Path<Any?, V> = Path(listOf(name))
+internal fun <T, V> KProperty1<T, V>.toPath(): Path<T, V> = Path(listOf(name))
 
 /** The SQLite JSON path: `$.a.b`, with keys that aren't plain identifiers quoted. */
 internal val Path<*, *>.jsonPath: String

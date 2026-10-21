@@ -92,7 +92,14 @@ public suspend fun <R> Database.read(block: suspend context(ReadScope) () -> R):
  */
 public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R): R = pool().write(block)
 
+// Indexes are matched by name, which hashes their definition: what is no longer declared is dropped, what is new created.
 context(_: Connection)
 internal suspend fun createSchema(collection: Collection) {
     Queries.createTable(collection).execute()
+    val current = Queries.indexNames.execute(collection.name).filter { it.startsWith(INDEX_PREFIX) }.toSet()
+    val wanted = collection.indexes.associateBy { it.name }
+    current.subtract(wanted.keys).forEach { Queries.dropIndex(it).execute() }
+    wanted.filterKeys { it !in current }.values.forEach { index ->
+        collection.mapConstraintErrors { Queries.createIndex(index).execute() }
+    }
 }
