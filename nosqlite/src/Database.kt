@@ -2,6 +2,9 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -18,7 +21,12 @@ import kotlin.concurrent.Volatile
  * Nothing touches the file until the first [read] or [write], which creates the collections' tables in one write
  * transaction before anything else runs.
  */
-public class Database internal constructor(private val connections: ConnectionPool) {
+public class Database internal constructor(
+    private val connections: ConnectionPool,
+    // One counter per collection, bumped after each committed write that changed it. A StateFlow conflates, so an
+    // observer that is busy reading misses nothing: it sees the latest version when it is done.
+    private val versions: Map<String, MutableStateFlow<Long>>,
+) {
     private val schemaLock = Mutex()
 
     @Volatile
@@ -41,6 +49,16 @@ public class Database internal constructor(private val connections: ConnectionPo
         return connections
     }
 
+    /** How many committed writes changed [collection]; a new value is emitted after each one. */
+    internal fun version(collection: Collection): StateFlow<Long> {
+        if (catalog.collections[collection.name] !==
+            collection
+        ) {
+            throw NosqliteException.CollectionNotDeclared(collection.name)
+        }
+        return versions.getValue(collection.name)
+    }
+
     /** Closes every connection that was opened; the database can't be used afterwards. */
     public suspend fun close(): Unit = connections.close()
 
@@ -61,7 +79,9 @@ public fun Database(
     schema: SchemaBuilder.() -> Unit,
 ): Database {
     val catalog = Catalog(SchemaBuilder().apply(schema).collections)
-    return Database(ConnectionPool(location, driver, catalog = catalog))
+    val versions = catalog.collections.mapValues { MutableStateFlow(0L) }
+    val bump = { changed: Set<String> -> changed.forEach { versions[it]?.update { version -> version + 1 } } }
+    return Database(ConnectionPool(location, driver, onCommit = bump, catalog = catalog), versions)
 }
 
 /** Opens the database file at [path] with the collections [schema] declares. */

@@ -1,5 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.serializer
 
@@ -40,6 +41,16 @@ public class UniqueIndex<K> internal constructor(
     /** The document whose key is [key], decoded as [T]; `null` when there is none. */
     context(_: ReadScope)
     public suspend inline operator fun <reified T> get(key: K): T? = find(key, serializer<T>())
+
+    /**
+     * The document whose key is [key] in [db], now and after every committed write to its collection;
+     * `null` while there is none.
+     */
+    public inline fun <reified T> observe(db: Database, key: K): Flow<T?> = observe(db, key, serializer<T>())
+
+    @PublishedApi
+    internal fun <T> observe(db: Database, key: K, serializer: KSerializer<T>): Flow<T?> =
+        db.observe(collection) { find(key, serializer) }
 
     @PublishedApi
     context(_: ReadScope)
