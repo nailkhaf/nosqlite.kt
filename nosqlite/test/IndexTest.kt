@@ -1,7 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
@@ -29,8 +28,7 @@ internal class IndexTest {
     private val ada = user("ada", 36)
     private val alan = user("alan", 41)
 
-    private suspend fun Database.insert(user: User): DocumentId =
-        write { Users.insert(Database.Json.encodeToJsonElement(User.serializer(), user) as JsonObject) }
+    private suspend fun Database.insert(user: User): DocumentId = write { Users.insert(user) }
 
     private suspend fun Database.indexNames(): Set<String?> =
         querySql("SELECT name FROM sqlite_schema WHERE type = 'index'").map { it.single() }.toSet()
@@ -185,7 +183,7 @@ internal class IndexTest {
     fun `serial path indexes a renamed property`() = runTest {
         val db = Database { +People }
         val doc = Renamed("Ada Lovelace", Renamed.Inner("1815"))
-        db.write { People.insert(Database.Json.encodeToJsonElement(Renamed.serializer(), doc) as JsonObject) }
+        db.write { People.insert(doc) }
 
         val found = db.read { People.byFullName.get<Renamed>("Ada Lovelace") }
 

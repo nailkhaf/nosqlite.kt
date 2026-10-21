@@ -45,17 +45,32 @@ internal object Queries {
         },
     )
 
-    fun selectById(collection: Collection): Statement<DocumentId, String?> = Statement(
-        sql = "SELECT json(data) FROM ${collection.table} WHERE rowid = ?;",
-        encode = { id -> bindLong(1, id.value) },
-        decode = firstOrNull { getText(0) },
+    /** Input is the new document's JSON text, replacing every document matching [condition]; the result is how many. */
+    fun update(collection: Collection, condition: Condition): Statement<String, Int> =
+        changeWith(Fragment("UPDATE ${collection.table} SET data = jsonb(?) WHERE ") + condition.render())
+
+    /** Input is a JSON merge patch applied to every document matching [condition]; the result is how many. */
+    fun patch(collection: Collection, condition: Condition): Statement<String, Int> = changeWith(
+        Fragment("UPDATE ${collection.table} SET data = jsonb_patch(data, jsonb(?)) WHERE ") + condition.render(),
     )
 
-    fun deleteById(collection: Collection): Statement<DocumentId, Int> = Statement(
-        sql = "DELETE FROM ${collection.table} WHERE rowid = ? RETURNING rowid;",
-        encode = { id -> bindLong(1, id.value) },
-        decode = { countRows() },
-    )
+    /** Deletes every document matching [condition]; the result is how many. */
+    fun delete(collection: Collection, condition: Condition): Statement<Unit, Int> =
+        (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + " RETURNING rowid;")
+            .statement { countRows() }
+
+    // The JSON is bound first, ahead of the condition's own parameters.
+    private fun changeWith(fragment: Fragment): Statement<String, Int> {
+        val returning = fragment + " RETURNING rowid;"
+        return Statement(
+            sql = returning.sql,
+            encode = { json ->
+                bindText(1, json)
+                bind(returning.params, startIndex = 2)
+            },
+            decode = { countRows() },
+        )
+    }
 }
 
 /** A stored document as a query reads it: its id and its JSON text. */

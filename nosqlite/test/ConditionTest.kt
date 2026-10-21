@@ -1,7 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -85,9 +84,9 @@ internal class ConditionTest {
     fun `conditions match stored documents`() = runTest {
         val db = Database { +Users }
         db.write {
-            Users.insert(user("ann", 17, tags = listOf("kotlin", "sql"), role = Role.Admin).json())
-            Users.insert(user("bob", 30, active = false, score = 2.5, nickname = "bobby").json())
-            Users.insert(user("cid", 45, last = "Jones", tags = listOf("kotlin")).json())
+            Users.insert(user("ann", 17, tags = listOf("kotlin", "sql"), role = Role.Admin))
+            Users.insert(user("bob", 30, active = false, score = 2.5, nickname = "bobby"))
+            Users.insert(user("cid", 45, last = "Jones", tags = listOf("kotlin")))
         }
         val expected = listOf(
             matching("bob", "cid") { User::age gte 18 },
@@ -122,6 +121,4 @@ internal class ConditionTest {
             }
         }
     }
-
-    private fun User.json() = Database.Json.encodeToJsonElement(User.serializer(), this) as JsonObject
 }

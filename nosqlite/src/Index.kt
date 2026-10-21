@@ -63,6 +63,7 @@ internal fun fnv1a64(text: String): String {
 }
 
 /** The condition that finds [key] in this index, the partial index's own condition included. */
+@PublishedApi
 internal fun <K> UniqueIndex<K>.lookup(key: K): Condition {
     val match = Condition.Compare(path, Comparison.Eq, sqlValue(keySerializer, key))
     return where?.let { Condition.And(match, it) } ?: match

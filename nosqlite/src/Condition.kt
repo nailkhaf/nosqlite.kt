@@ -19,6 +19,7 @@ public sealed class Condition {
     internal class And(val left: Condition, val right: Condition) : Condition()
     internal class Or(val left: Condition, val right: Condition) : Condition()
     internal class Not(val condition: Condition) : Condition()
+    internal class Id(val id: DocumentId) : Condition()
 
     override fun toString(): String = render(inline = true).sql
 }
@@ -181,5 +182,10 @@ internal fun Condition.render(inline: Boolean = false): Fragment {
         is Condition.Or -> Fragment("(") + left.render(inline) + " OR " + right.render(inline) + ")"
 
         is Condition.Not -> Fragment("NOT (") + condition.render(inline) + ")"
+
+        is Condition.Id -> Fragment("rowid = ") + value(SqlValue.Integer(id.value))
     }
 }
+
+@PublishedApi
+internal fun idCondition(id: DocumentId): Condition = Condition.Id(id)
