@@ -16,9 +16,13 @@ import kotlinx.coroutines.withContext
 /**
  * One write connection and, for a file, [Location.File.maxReaders] `query_only` read connections in WAL mode.
  * Each is opened when first needed and handed to one coroutine at a time; an in-memory database has no readers,
- * its one connection serves both.
+ * its one connection serves both. [onCommit] gets the tables each committed write transaction changed.
  */
-internal class ConnectionPool(location: Location = Location.InMemory, driver: SQLiteDriver = BundledSQLiteDriver()) {
+internal class ConnectionPool(
+    location: Location = Location.InMemory,
+    driver: SQLiteDriver = BundledSQLiteDriver(),
+    val onCommit: (Set<String>) -> Unit = {},
+) {
     init {
         require(!driver.hasConnectionPool) { "SQLiteDriver with its own connection pool is not supported" }
     }
