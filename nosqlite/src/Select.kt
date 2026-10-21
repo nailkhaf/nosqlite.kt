@@ -86,10 +86,13 @@ context(_: ReadScope)
 public suspend fun <T> Select<T>.list(limit: Int): List<T> {
     require(limit >= 0) { "Negative limit: $limit" }
     return context(collection.connection()) {
-        Queries.select(this, limit).execute().map { collection.decode(it, serializer) }
+        Queries.select(this, limit).execute().map(::decode)
     }
 }
 
 /** How many documents match. */
 context(_: ReadScope)
 public suspend fun Select<*>.count(): Long = context(collection.connection()) { Queries.count(this).execute() }
+
+/** The document in [row] decoded as this select's type. */
+internal fun <T> Select<T>.decode(row: Row): T = collection.decode(row, serializer)
