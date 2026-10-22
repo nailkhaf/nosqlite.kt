@@ -25,5 +25,6 @@ public fun <T> Lookup.Unique<T>.observe(db: Database): Flow<T?> = db.observe(ind
 
 // Each new version is read in its own transaction; the StateFlow conflates the versions written meanwhile.
 private fun <R> Database.observe(collection: Collection<*>, read: suspend context(ReadScope) () -> R): Flow<R> = flow {
-    emitAll(version(collection).map { read(read) })
+    if (collection.name !in versions.value) throw NosqliteException.CollectionNotDeclared(collection.name)
+    emitAll(versions.map { it.getValue(collection.name) }.distinctUntilChanged().map { read(read) })
 }.distinctUntilChanged()

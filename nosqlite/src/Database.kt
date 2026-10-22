@@ -3,7 +3,6 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 
@@ -34,17 +33,14 @@ public class Database(
         connections
     }
 
-    // A StateFlow conflates, so an observer that is busy reading misses nothing: it sees the latest version after.
-    private val versions = collections.associate { it.name to MutableStateFlow(0L) }
+    // Committed writes per collection name. A StateFlow conflates, so an observer that is busy reading misses
+    // nothing: it sees the latest version when it is done.
+    internal val versions = MutableStateFlow(collections.associate { it.name to 0L })
 
     internal suspend fun pool(): ConnectionPool = ready.get()
 
-    /** How many committed writes changed [collection]; a new value is emitted after each one. */
-    internal fun version(collection: Collection<*>): StateFlow<Long> =
-        versions[collection.name] ?: throw NosqliteException.CollectionNotDeclared(collection.name)
-
     internal fun committed(changed: Set<String>) {
-        changed.forEach { name -> versions.getValue(name).update { it + 1 } }
+        versions.update { all -> all + changed.associateWith { all.getValue(it) + 1 } }
     }
 
     /** Closes every connection that was opened; the database can't be used afterwards. */

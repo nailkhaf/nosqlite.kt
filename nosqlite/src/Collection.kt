@@ -99,9 +99,9 @@ public suspend fun Collection<JsonObject>.patch(patch: JsonObject, condition: Wh
 
 /** The number of documents a write touched, recording a change when there were any. */
 context(_: WriteScope)
-private fun List<DocumentId>.changed(collection: Collection<*>): Int {
-    if (isNotEmpty()) collection.changed()
-    return size
+private fun Int.changed(collection: Collection<*>): Int {
+    if (this > 0) collection.changed()
+    return this
 }
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.

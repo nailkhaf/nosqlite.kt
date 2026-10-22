@@ -72,7 +72,7 @@ internal class WriteTest {
     }
 
     @Test
-    fun `write statements return the ids they touched`() = runTest {
+    fun `write statements count the documents they touched`() = runTest {
         val db = seeded()
         val adults = where { "age" gte 18 }
         val patch = buildJsonObject { put("age", 50) }.toString()
@@ -80,9 +80,9 @@ internal class WriteTest {
 
         db.pool().writeSql {
             context(this) {
-                assertEquals(listOf(DocumentId(2), DocumentId(3)), Queries.patch(Users, patch, adults).execute())
-                assertEquals(listOf(DocumentId(1)), Queries.update(Users, replace, where { "id" eq "ann" }).execute())
-                assertEquals(listOf(DocumentId(2), DocumentId(3)), Queries.delete(Users, adults).execute())
+                assertEquals(2, Queries.patch(Users, patch, adults).execute())
+                assertEquals(1, Queries.update(Users, replace, where { "id" eq "ann" }).execute())
+                assertEquals(2, Queries.delete(Users, adults).execute())
             }
         }
     }

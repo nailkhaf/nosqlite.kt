@@ -134,8 +134,8 @@ internal class ObserveTest {
             Notes.insert(note)
         }
 
-        assertEquals(1, db.version(Users).value)
-        assertEquals(1, db.version(Notes).value)
+        assertEquals(1, db.versions.value.getValue(Users.name))
+        assertEquals(1, db.versions.value.getValue(Notes.name))
     }
 
     @Test
@@ -147,7 +147,7 @@ internal class ObserveTest {
         db.write { Notes.update(note) { "text" eq "bye" } }
         db.write { Notes.delete { "text" eq "hi" } }
 
-        assertEquals(4, db.version(Notes).value)
+        assertEquals(4, db.versions.value.getValue(Notes.name))
     }
 
     @Test
@@ -165,7 +165,7 @@ internal class ObserveTest {
         db.write { Users.update(User("x", 1)) { "id" eq "nobody" } }
         db.write { Users.byId("nobody").delete() }
 
-        assertEquals(1, db.version(Users).value)
+        assertEquals(1, db.versions.value.getValue(Users.name))
     }
 
     @Test
@@ -182,8 +182,19 @@ internal class ObserveTest {
             }
         }
 
-        assertEquals(0, db.version(Users).value)
-        assertEquals(1, db.version(Notes).value)
+        assertEquals(0, db.versions.value.getValue(Users.name))
+        assertEquals(1, db.versions.value.getValue(Notes.name))
+    }
+
+    @Test
+    fun `observe of a closed database fails`() = runTest {
+        val db = database()
+        db.write { Users.insert(User("ada", 36)) }
+        db.close()
+
+        val error = assertFailsWith<IllegalStateException> { Users.observe(db).first() }
+
+        assertEquals("Database is closed", error.message)
     }
 
     @Test
