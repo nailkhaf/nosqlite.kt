@@ -6,12 +6,8 @@ import kotlinx.serialization.serializer
 
 /** Inserts [value] as a new document; the result is its id. */
 context(_: WriteScope)
-public suspend fun Collection.insert(value: JsonObject): DocumentId =
-    insertJson(Database.Json.encodeToString(JsonObject.serializer(), value))
-
-context(_: WriteScope)
-internal suspend fun Collection.insertJson(json: String): DocumentId = context(connection()) {
-    Queries.insert(this).execute(json)
+public suspend fun Collection.insert(value: JsonObject): DocumentId = context(connection()) {
+    Queries.insert(this).execute(Database.Json.encodeToString(JsonObject.serializer(), value))
 }
 
 /** Deletes the document [id]; the result is the number of documents deleted, 0 or 1. */
