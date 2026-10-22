@@ -58,13 +58,16 @@ internal class FieldTest {
 
     @Test
     fun `property indexes are the same as field name indexes`() {
-        val byStrings = object : Collection<User>("users", User.serializer()) {
+        // Read through the base type: Kotlin/Native fails to link an internal member read through a test object.
+        val byStrings: Collection<User> = object : Collection<User>("users", User.serializer()) {
             val byEmail = unique("email")
             val byName = index("name.last", "name.first")
             val activeNickname = unique("nickname", where = { "active".isTrue() })
         }
 
-        assertEquals(byStrings.indexes.map { it.name }, Users.indexes.map { it.name })
+        val byProperties: Collection<User> = Users
+
+        assertEquals(byStrings.indexes.map { it.name }, byProperties.indexes.map { it.name })
     }
 
     @Test
