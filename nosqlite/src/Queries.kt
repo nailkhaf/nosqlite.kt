@@ -28,15 +28,17 @@ internal object Queries {
     fun dropIndex(name: String): Command<Unit> = command("DROP INDEX \"$name\";")
 
     // rowid comes last, so documents with equal keys keep insertion order and pages never overlap.
-    fun select(collection: Collection<*>, query: Query): Statement<Unit, List<Row>> {
+    fun select(collection: Collection<*>, query: Query): Statement<Unit, List<Row>> =
+        selectSql(collection, query).statement(rows(row))
+
+    fun selectSql(collection: Collection<*>, query: Query): Fragment {
         val order = (query.orderBy.map { "${it.path.sql} ${if (it.descending) "DESC" else "ASC"}" } + "rowid")
             .joinToString(", ", prefix = " ORDER BY ")
         val page = Fragment(
             "$order LIMIT ? OFFSET ?;",
             listOf(SqlValue.Integer(query.limit.toLong()), SqlValue.Integer(query.offset.toLong())),
         )
-        return (Fragment("SELECT rowid, json(data) FROM ${collection.table}") + where(query.condition) + page)
-            .statement(rows(row))
+        return Fragment("SELECT rowid, json(data) FROM ${collection.table}") + where(query.condition) + page
     }
 
     fun count(collection: Collection<*>, condition: Where?): Statement<Unit, Long> =
@@ -85,6 +87,6 @@ private const val RETURNING = " RETURNING rowid;"
 
 private val id: SQLiteStatement.() -> DocumentId = { DocumentId(getLong(0)) }
 
-private val row: SQLiteStatement.() -> Row = { Row(DocumentId(getLong(0)), getText(1)) }
-
 internal class Row(val id: DocumentId, val json: String)
+
+internal val row: SQLiteStatement.() -> Row = { Row(DocumentId(getLong(0)), getText(1)) }
