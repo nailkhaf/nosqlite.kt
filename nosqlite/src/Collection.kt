@@ -58,7 +58,7 @@ public open class Collection<T>(public val name: String, internal val serializer
 
     // A property renamed with @SerialName is stored under its serial name, which a property reference can't name.
     private fun Field<T, *>.checkedPath(): String {
-        path.split('.').fold(serializer.descriptor) { descriptor, key ->
+        keys.fold(serializer.descriptor) { descriptor, key ->
             val index = descriptor.getElementIndex(key)
             require(index != CompositeDecoder.UNKNOWN_NAME) {
                 "'$this' is not a serial field of '$name': name a field renamed with @SerialName by its serial name"
