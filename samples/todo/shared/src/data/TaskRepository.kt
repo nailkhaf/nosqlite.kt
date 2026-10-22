@@ -2,6 +2,7 @@ package io.github.nailkhaf.todo.data
 
 import io.github.nailkhaf.nosqlite.Database
 import io.github.nailkhaf.nosqlite.Location
+import io.github.nailkhaf.nosqlite.asc
 import io.github.nailkhaf.nosqlite.delete
 import io.github.nailkhaf.nosqlite.insert
 import io.github.nailkhaf.nosqlite.invoke
@@ -16,7 +17,7 @@ class TaskRepository(location: Location) {
     private val db = Database(location) { +Tasks }
 
     /** Open tasks first, each group in the order it was added. */
-    val tasks: Flow<List<Task>> = with(db) { Tasks.observe { orderBy(asc("done")) } }
+    val tasks: Flow<List<Task>> = with(db) { Tasks.observe { orderBy { Task::done.asc } } }
 
     suspend fun add(title: String) {
         db.write { Tasks.insert(Task(Uuid.random(), title)) }
