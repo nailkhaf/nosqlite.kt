@@ -11,19 +11,23 @@ package io.github.nailkhaf.nosqlite
  */
 public class Key<T> internal constructor(internal val index: Index<T>, internal val values: List<SqlValue>) {
     internal val condition: Condition = index.paths.zip(values) { path, value ->
-        Condition.Compare(path, Comparison.Eq, value)
+        if (value == SqlValue.Null) Condition.IsNull(path) else Condition.Compare(path, Comparison.Eq, value)
     }.plus(listOfNotNull(index.where)).reduce { left, right -> Condition.And(left, right) }
 
     override fun toString(): String = "$index = ${values.map { it.literal }}"
 }
 
-/** The key for [values] of this index's fields, in order; leading fields alone match their prefix. */
-public operator fun <T> Index<T>.invoke(vararg values: Any): Key<T> {
+/**
+ * The key for [values] of this index's fields, in order; leading fields alone match their prefix. A `null` value
+ * matches a null or missing field, and SQLite lets any number of documents share it even in a unique index.
+ */
+public operator fun <T> Index<T>.invoke(vararg values: Any?): Key<T> {
     require(values.size in 1..paths.size) { "$this takes 1 to ${paths.size} values, not ${values.size}" }
     return Key(this, values.map(::keyValue))
 }
 
-private fun keyValue(value: Any): SqlValue = when (value) {
+private fun keyValue(value: Any?): SqlValue = when (value) {
+    null -> SqlValue.Null
     is String -> SqlValue.Text(value)
     is Number -> value.sqlValue
     is Boolean -> SqlValue.Integer(if (value) 1 else 0)
@@ -34,6 +38,7 @@ private fun keyValue(value: Any): SqlValue = when (value) {
 context(_: ReadScope)
 public suspend fun <T> Key<T>.get(): T? {
     require(index.isUnique && values.size == index.paths.size) { "get needs every field of a unique index: $this" }
+    require(SqlValue.Null !in values) { "get needs a key without nulls, many documents can share one: $this" }
     return index.collection.list(Query(condition, emptyList(), limit = 1, offset = 0)).firstOrNull()
 }
 

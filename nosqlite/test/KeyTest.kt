@@ -198,6 +198,22 @@ internal class KeyTest {
     }
 
     @Test
+    fun `a null key matches null and missing fields`() = runTest {
+        val db = database()
+
+        db.read {
+            assertEquals(listOf(alan, byron), Users.byNickname(null).list())
+            assertEquals(2, Users.byNickname(null).count())
+        }
+        val error = assertFailsWith<IllegalArgumentException> { db.read { Users.byNickname(null).get() } }
+        assertEquals(
+            "get needs a key without nulls, many documents can share one: unique index users(nickname) " +
+                "where data ->> '\$.active' = 1 = [NULL]",
+            error.message,
+        )
+    }
+
+    @Test
     fun `a key takes one value per field at most and plain values only`() {
         val none = assertFailsWith<IllegalArgumentException> { Users.byName() }
         val many = assertFailsWith<IllegalArgumentException> { Users.byName("Lovelace", "Ada", "King") }
