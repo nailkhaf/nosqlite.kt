@@ -4,7 +4,6 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
 
-/** Inserts [value] as a new document; the result is its id. */
 context(_: WriteScope)
 public suspend fun Collection.insert(value: JsonObject): DocumentId = withConnection {
     Queries.insert(this).execute(Database.Json.encodeToString(JsonObject.serializer(), value))

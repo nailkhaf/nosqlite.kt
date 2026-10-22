@@ -4,7 +4,6 @@ import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.SerializationException
 
-/** The SQL nosqlite runs, as statements that bind their input and decode their result. */
 internal object Queries {
 
     fun createTable(collection: Collection): Command<Unit> = command(
@@ -16,7 +15,6 @@ internal object Queries {
         """.trimIndent(),
     )
 
-    /** Input is the document's JSON text, stored as JSONB; the result is its new rowid. */
     fun insert(collection: Collection): Statement<String, DocumentId> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?)) RETURNING rowid;",
         encode = { json -> bindText(1, json) },
@@ -40,7 +38,6 @@ internal object Queries {
     )
 }
 
-/** [json] decoded with [deserializer]; a failure names the document. */
 internal fun <T> Collection.decode(json: String, deserializer: DeserializationStrategy<T>, id: DocumentId?): T = try {
     Database.Json.decodeFromString(deserializer, json)
 } catch (e: SerializationException) {

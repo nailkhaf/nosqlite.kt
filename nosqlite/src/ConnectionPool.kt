@@ -34,7 +34,6 @@ internal class ConnectionPool(location: Location = Location.InMemory, driver: SQ
     suspend fun <R> withReader(block: suspend (Connection) -> R): R =
         withContext(Dispatchers.IO) { (readers ?: writer).use(block) }
 
-    /** Closes the connections that were opened; one in use closes when its coroutine is done with it. */
     suspend fun close() {
         writer.close()
         readers?.close()

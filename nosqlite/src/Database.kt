@@ -20,7 +20,6 @@ public class Database(
     driver: SQLiteDriver = BundledSQLiteDriver(),
     schema: SchemaBuilder.() -> Unit,
 ) {
-    /** Opens the database file at [path] with the collections [schema] declares. */
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
 
     private val connections = ConnectionPool(location, driver)
@@ -32,7 +31,6 @@ public class Database(
         connections
     }
 
-    /** The connection pool, once the declared collections have their tables. */
     internal suspend fun pool(): ConnectionPool = ready.get()
 
     /** Closes every connection that was opened; the database can't be used afterwards. */
@@ -48,11 +46,9 @@ public class Database(
     }
 }
 
-/** Marks the `Database { }` block, so its receiver doesn't leak into nested lambdas. */
 @DslMarker
 public annotation class SchemaDsl
 
-/** Declares the collections of a database: `Database(path) { +Users }`. */
 @SchemaDsl
 public class SchemaBuilder internal constructor() {
     internal val collections = mutableListOf<Collection>()
