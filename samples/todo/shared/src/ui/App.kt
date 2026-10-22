@@ -3,16 +3,19 @@ package io.github.nailkhaf.todo.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,8 +40,26 @@ fun App(repository: TaskRepository) {
     val scope = rememberCoroutineScope()
 
     TodoTheme {
-        Surface(Modifier.fillMaxSize()) {
-            Column(Modifier.safeDrawingPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Scaffold(
+            bottomBar = {
+                if (tasks.any { it.done }) {
+                    TextButton(
+                        onClick = { scope.launch { repository.clearDone() } },
+                        modifier = Modifier
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .imePadding()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) { Text("Clear done") }
+                }
+            },
+        ) { innerPadding ->
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(start = 16.dp, top = 8.dp, end = 16.dp),
+            ) {
                 NewTaskField(onAdd = { title -> scope.launch { repository.add(title) } })
                 LazyColumn(Modifier.weight(1f)) {
                     items(tasks, key = { it.id.toString() }) { task ->
@@ -49,9 +70,6 @@ fun App(repository: TaskRepository) {
                             modifier = Modifier.animateItem(),
                         )
                     }
-                }
-                if (tasks.any { it.done }) {
-                    TextButton(onClick = { scope.launch { repository.clearDone() } }) { Text("Clear done") }
                 }
             }
         }
