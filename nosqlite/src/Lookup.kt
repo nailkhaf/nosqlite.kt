@@ -6,7 +6,7 @@ package io.github.nailkhaf.nosqlite
  * values for leading fields alone matching their prefix:
  * ```
  * Users.byId("ada").get()
- * Users.byAge(36).list { orderBy(asc("name.last")) }
+ * Users.byAge(36).list { orderBy { "name.last".asc } }
  * Users.byName("Lovelace").count()
  * ```
  */

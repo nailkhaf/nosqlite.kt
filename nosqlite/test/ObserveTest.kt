@@ -57,7 +57,7 @@ internal class ObserveTest {
     @Test
     fun `observe emits again after each committed write`() = runTest {
         val db = database()
-        val users = collect(with(db) { Users.observe { orderBy(asc("id")) } })
+        val users = collect(with(db) { Users.observe { orderBy { "id".asc } } })
 
         db.write { Users.insert(ada) }
         db.write { Users.byId.upsert(alan) }
@@ -118,7 +118,7 @@ internal class ObserveTest {
     @Test
     fun `observe a lookup with its query`() = runTest {
         val db = database()
-        val found = collect(with(db) { Users.byAge(36).observe { orderBy(desc("id")) } })
+        val found = collect(with(db) { Users.byAge(36).observe { orderBy { "id".desc } } })
 
         db.write {
             Users.insert(ada)

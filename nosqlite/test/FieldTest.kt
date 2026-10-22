@@ -51,7 +51,7 @@ internal class FieldTest {
 
     @Test
     fun `properties sort as their field names`() {
-        val query = query { orderBy(desc(User::age), asc(User::name / Name::last)) }
+        val query = query { orderBy { User::age.desc; (User::name / Name::last).asc } }
 
         assertEquals("[age desc, name.last asc]", query.orderBy.toString())
     }
@@ -110,7 +110,7 @@ internal class FieldTest {
         val found = db.read {
             Users.list {
                 where { (User::age gte 18) and (User::tags contains "math") }
-                orderBy(desc(User::name / Name::last))
+                orderBy { (User::name / Name::last).desc }
             }
         }
 

@@ -75,18 +75,18 @@ context(_: WhereScope)
 public fun KProperty1<*, *>.isNotNull(): Where = field.isNotNull()
 
 /** Smallest first; null and missing values come first. */
-context(_: QueryScope)
-public fun asc(field: Field<*, *>): Order = Order(Path(field.path), descending = false)
+context(scope: OrderScope)
+public val Field<*, *>.asc: Unit get() = scope.add(Order(Path(path), descending = false))
 
 /** Largest first; null and missing values come last. */
-context(_: QueryScope)
-public fun desc(field: Field<*, *>): Order = Order(Path(field.path), descending = true)
+context(scope: OrderScope)
+public val Field<*, *>.desc: Unit get() = scope.add(Order(Path(path), descending = true))
 
-context(_: QueryScope)
-public fun asc(property: KProperty1<*, *>): Order = asc(property.field)
+context(_: OrderScope)
+public val KProperty1<*, *>.asc: Unit get() = field.asc
 
-context(_: QueryScope)
-public fun desc(property: KProperty1<*, *>): Order = desc(property.field)
+context(_: OrderScope)
+public val KProperty1<*, *>.desc: Unit get() = field.desc
 
 private fun Field<*, *>.compare(comparison: Comparison, value: Any): Where =
     Where.Compare(Path(path), comparison, sqlValue(value))
