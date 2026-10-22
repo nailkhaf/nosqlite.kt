@@ -34,7 +34,7 @@ internal class QueryTest {
     fun `asc puts the smallest first and nulls first`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list { orderBy(asc("age")) } }
+        val users = db.read { Users.list { orderBy { "age".asc } } }
 
         assertEquals(listOf(linus, ada, grace, alan), users)
     }
@@ -43,7 +43,7 @@ internal class QueryTest {
     fun `desc puts the largest first and nulls last`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list { orderBy(desc("age")) } }
+        val users = db.read { Users.list { orderBy { "age".desc } } }
 
         assertEquals(listOf(alan, ada, grace, linus), users)
     }
@@ -52,7 +52,7 @@ internal class QueryTest {
     fun `equal keys keep insertion order`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list { where { "age" eq 36 }; orderBy(asc("age")) } }
+        val users = db.read { Users.list { where { "age" eq 36 }; orderBy { "age".asc } } }
 
         assertEquals(listOf(ada, grace), users)
     }
@@ -62,7 +62,7 @@ internal class QueryTest {
         val db = database()
 
         val users = db.read {
-            Users.list { orderBy(desc("age"), asc("name.last")) }
+            Users.list { orderBy { "age".desc; "name.last".asc } }
         }
 
         assertEquals(listOf(alan, grace, ada, linus), users)
@@ -72,7 +72,7 @@ internal class QueryTest {
     fun `nested fields sort`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list { orderBy(asc("name.last")) } }
+        val users = db.read { Users.list { orderBy { "name.last".asc } } }
 
         assertEquals(listOf(grace, ada, linus, alan), users)
     }
@@ -81,13 +81,13 @@ internal class QueryTest {
     fun `pages follow the order`() = runTest {
         val db = database()
         db.read {
-            assertEquals(listOf(alan, ada), Users.list { orderBy(desc("age")); limit(2) })
-            assertEquals(listOf(grace, linus), Users.list { orderBy(desc("age")); limit(2); offset(2) })
+            assertEquals(listOf(alan, ada), Users.list { orderBy { "age".desc }; limit(2) })
+            assertEquals(listOf(grace, linus), Users.list { orderBy { "age".desc }; limit(2); offset(2) })
             assertEquals(
                 listOf(ada),
                 Users.list {
                     where { "age".isNotNull() }
-                    orderBy(desc("age"))
+                    orderBy { "age".desc }
                     limit(1)
                     offset(1)
                 },
@@ -98,7 +98,7 @@ internal class QueryTest {
     @Test
     fun `sorting by an indexed field reads the index in order`() = runTest {
         val db = database()
-        val sql = Queries.select(Users, query { orderBy(asc("age")) }).sql
+        val sql = Queries.select(Users, query { orderBy { "age".asc } }).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
 
@@ -108,14 +108,14 @@ internal class QueryTest {
 
     @Test
     fun `invalid order fields are rejected`() {
-        val error = assertFailsWith<IllegalArgumentException> { query { orderBy(desc("first name")) } }
+        val error = assertFailsWith<IllegalArgumentException> { query { orderBy { "first name".desc } } }
 
         assertEquals("Invalid field 'first name': keys must be identifiers", error.message)
     }
 
     @Test
     fun `orders read as their field and direction`() {
-        val query = query { orderBy(asc("name.last"), desc("age")) }
+        val query = query { orderBy { "name.last".asc; "age".desc } }
 
         assertEquals("[name.last asc, age desc]", query.orderBy.toString())
     }
@@ -124,7 +124,7 @@ internal class QueryTest {
     fun `each part of a query is set once`() {
         val messages = listOf<QueryScope.() -> Unit>(
             { where { "age" gt 1 }; where { "age" lt 9 } },
-            { orderBy(asc("age")); orderBy(desc("age")) },
+            { orderBy { "age".asc }; orderBy { "age".desc } },
             { limit(1); limit(2) },
             { offset(1); offset(2) },
         ).map { assertFailsWith<IllegalStateException> { query(it) }.message }

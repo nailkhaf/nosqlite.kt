@@ -46,7 +46,10 @@ db.read {
     val lovelaces: List<User> = Users.byName("Lovelace").list()
     val adults: List<User> = Users.list {
         where { (User::age gte 18) and (User::tags contains "kotlin") }
-        orderBy(desc(User::age), asc(User::name / Name::last))
+        orderBy {
+            User::age.desc
+            (User::name / Name::last).asc
+        }
         limit(20)
     }
     val count: Long = Users.count { User::age gte 18 }
@@ -104,7 +107,10 @@ snapshot. The query builder sets each part at most once:
 ```kotlin
 Users.list {
     where { ("age" gte 18) and not("name.last" eq "Smith") }
-    orderBy(desc("age"), asc("name.last"))
+    orderBy {
+        "age".desc
+        "name.last".asc
+    }
     limit(20)
     offset(40)
 }
@@ -120,7 +126,7 @@ run other queries.
 ### Property references
 
 Fields can also be named by property references, which the compiler checks: `User::age gte 18`,
-`User::name / Name::last` for a nested field, `asc(User::age)` in `orderBy`, and `unique(User::email)` or
+`User::name / Name::last` for a nested field, `User::age.asc` in `orderBy`, and `unique(User::email)` or
 `index(User::name / Name::last)` in a collection. A property reference names the field by its property name, so an
 index on a property renamed with `@SerialName` fails when the collection is created; name that field by its string.
 Values must be of the property's type: `User::age gte 18` compiles, `User::age gte "18"` doesn't. Each typed call

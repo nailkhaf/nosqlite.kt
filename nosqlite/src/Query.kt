@@ -1,7 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
-/** A sort key: a field and its direction, made by [QueryScope.asc] and [QueryScope.desc]. */
-public class Order internal constructor(internal val path: Path, internal val descending: Boolean) {
+/** A sort key: a field and its direction. */
+internal class Order(val path: Path, val descending: Boolean) {
     override fun toString(): String = "$path ${if (descending) "desc" else "asc"}"
 }
 
@@ -13,7 +13,10 @@ internal class Query(val condition: Where?, val orderBy: List<Order>, val limit:
  * ```
  * Users.list {
  *     where { "age" gte 18 }
- *     orderBy(desc("age"), asc("name.last"))
+ *     orderBy {
+ *         "age".desc
+ *         "name.last".asc
+ *     }
  *     limit(20)
  *     offset(40)
  * }
@@ -32,9 +35,10 @@ public class QueryScope internal constructor() {
         this.condition = WhereScope().condition()
     }
 
-    public fun orderBy(vararg orders: Order) {
+    /** Sort keys in order, each a field followed by `.asc` or `.desc`. */
+    public fun orderBy(keys: OrderScope.() -> Unit) {
         check(orderBy == null) { "orderBy is already set" }
-        orderBy = orders.toList()
+        orderBy = OrderScope().apply(keys).keys.toList()
     }
 
     public fun limit(limit: Int) {
@@ -49,13 +53,23 @@ public class QueryScope internal constructor() {
         this.offset = offset
     }
 
+    internal fun build(): Query = Query(condition, orderBy.orEmpty(), limit ?: Int.MAX_VALUE, offset ?: 0)
+}
+
+/** Collects sort keys: `"age".desc` sorts by age, largest first. */
+@QueryDsl
+public class OrderScope internal constructor() {
+    internal val keys: MutableList<Order> = mutableListOf()
+
     /** Smallest first; null and missing values come first. */
-    public fun asc(field: String): Order = Order(Path(field), descending = false)
+    public val String.asc: Unit get() = add(Order(Path(this), descending = false))
 
     /** Largest first; null and missing values come last. */
-    public fun desc(field: String): Order = Order(Path(field), descending = true)
+    public val String.desc: Unit get() = add(Order(Path(this), descending = true))
 
-    internal fun build(): Query = Query(condition, orderBy.orEmpty(), limit ?: Int.MAX_VALUE, offset ?: 0)
+    internal fun add(order: Order) {
+        keys += order
+    }
 }
 
 internal fun query(block: QueryScope.() -> Unit): Query = QueryScope().apply(block).build()

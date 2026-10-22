@@ -35,11 +35,11 @@ internal class StreamingTest {
 
     private val orders = listOf<QueryScope.() -> Unit>(
         { },
-        { orderBy(asc("age")) },
-        { orderBy(desc("age")) },
-        { orderBy(asc("score"), desc("age")) },
-        { orderBy(desc("score"), asc("age")) },
-        { orderBy(desc("id")) },
+        { orderBy { "age".asc } },
+        { orderBy { "age".desc } },
+        { orderBy { "score".asc; "age".desc } },
+        { orderBy { "score".desc; "age".asc } },
+        { orderBy { "id".desc } },
     )
 
     @Test
@@ -130,8 +130,8 @@ internal class StreamingTest {
         val db = database()
         val visited = mutableListOf<User>()
 
-        db.read { Users.forEach({ orderBy(asc("age")); limit(2); offset(1) }) { visited += it } }
+        db.read { Users.forEach({ orderBy { "age".asc }; limit(2); offset(1) }) { visited += it } }
 
-        assertEquals(db.read { Users.list { orderBy(asc("age")); limit(2); offset(1) } }, visited)
+        assertEquals(db.read { Users.list { orderBy { "age".asc }; limit(2); offset(1) } }, visited)
     }
 }
