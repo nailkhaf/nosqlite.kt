@@ -54,6 +54,18 @@ internal class UsageTest {
     }
 
     @Test
+    fun `a plain index lets documents share a value`() = runTest {
+        val db = Database { +Users }
+
+        db.write {
+            Users.insert(ada)
+            Users.insert(alan.copy(age = ada.age))
+        }
+
+        assertEquals(ada.age, db.read { Users.byId["alan"] }?.age)
+    }
+
+    @Test
     fun `a write that throws stores nothing`() = runTest {
         val db = Database { +Users }
 
