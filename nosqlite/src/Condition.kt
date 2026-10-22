@@ -8,14 +8,13 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.serializer
-import kotlin.reflect.KProperty1
 
 /** A filter on documents, built in [WhereScope]. */
 public sealed class Condition {
-    internal class Compare(val path: Path<*>, val comparison: Comparison, val value: SqlValue) : Condition()
-    internal class In(val path: Path<*>, val values: List<SqlValue>) : Condition()
-    internal class IsNull(val path: Path<*>) : Condition()
-    internal class Contains(val path: Path<*>, val value: SqlValue) : Condition()
+    internal class Compare(val path: Path, val comparison: Comparison, val value: SqlValue) : Condition()
+    internal class In(val path: Path, val values: List<SqlValue>) : Condition()
+    internal class IsNull(val path: Path) : Condition()
+    internal class Contains(val path: Path, val value: SqlValue) : Condition()
     internal class And(val left: Condition, val right: Condition) : Condition()
     internal class Or(val left: Condition, val right: Condition) : Condition()
     internal class Not(val condition: Condition) : Condition()
@@ -28,70 +27,47 @@ public sealed class Condition {
 public annotation class QueryDsl
 
 /**
- * Builds a [Condition] from typed fields. Values are encoded with their serializers, so enums, value classes and
- * `@Serializable` scalars compare as they are stored:
+ * Builds a [Condition] on document fields, named by their JSON keys. Values are encoded with their serializers, so
+ * enums, value classes and `@Serializable` scalars compare as they are stored:
  * ```
- * (User::age gte 18) and (User::tags contains "kotlin")
+ * ("age" gte 18) and ("tags" contains "kotlin") and ("name.last" eq "Lovelace")
  * ```
- * Property operators only take properties of [T]. A [Path] isn't checked against [T], so nested fields and
- * [path] by serial names are up to the caller.
  */
 @QueryDsl
-public class WhereScope<T> @PublishedApi internal constructor() {
+public class WhereScope @PublishedApi internal constructor() {
     /** The field equals [value]; `eq null` matches a null or missing field. */
-    public inline infix fun <reified V> Path<V>.eq(value: V): Condition =
+    public inline infix fun <reified V> String.eq(value: V): Condition =
         compare(this, Comparison.Eq, serializer<V>(), value)
 
     /** The field differs from [value]; `neq null` matches a present, non-null field. */
-    public inline infix fun <reified V> Path<V>.neq(value: V): Condition =
+    public inline infix fun <reified V> String.neq(value: V): Condition =
         compare(this, Comparison.Neq, serializer<V>(), value)
 
-    public inline infix fun <reified V> Path<V>.gt(value: V): Condition =
+    public inline infix fun <reified V> String.gt(value: V): Condition =
         compare(this, Comparison.Gt, serializer<V>(), value)
 
-    public inline infix fun <reified V> Path<V>.gte(value: V): Condition =
+    public inline infix fun <reified V> String.gte(value: V): Condition =
         compare(this, Comparison.Gte, serializer<V>(), value)
 
-    public inline infix fun <reified V> Path<V>.lt(value: V): Condition =
+    public inline infix fun <reified V> String.lt(value: V): Condition =
         compare(this, Comparison.Lt, serializer<V>(), value)
 
-    public inline infix fun <reified V> Path<V>.lte(value: V): Condition =
+    public inline infix fun <reified V> String.lte(value: V): Condition =
         compare(this, Comparison.Lte, serializer<V>(), value)
 
     /** The field equals one of [values]; none matches nothing. */
-    public inline infix fun <reified V> Path<V>.isIn(values: Iterable<V>): Condition =
+    public inline infix fun <reified V> String.isIn(values: Iterable<V>): Condition =
         anyOf(this, serializer<V>(), values)
 
     /** The array field has an element equal to [value]. */
-    public inline infix fun <reified E> Path<Iterable<E>?>.contains(value: E): Condition =
+    public inline infix fun <reified E> String.contains(value: E): Condition =
         element(this, serializer<E>(), value)
 
     /** The field is null or missing. */
-    public fun Path<*>.isNull(): Condition = Condition.IsNull(this)
+    public fun String.isNull(): Condition = Condition.IsNull(Path(this))
 
     /** The field is present and not null. */
-    public fun Path<*>.isNotNull(): Condition = Condition.Compare(this, Comparison.Neq, SqlValue.Null)
-
-    public inline infix fun <reified V> KProperty1<T, V>.eq(value: V): Condition = toPath() eq value
-
-    public inline infix fun <reified V> KProperty1<T, V>.neq(value: V): Condition = toPath() neq value
-
-    public inline infix fun <reified V> KProperty1<T, V>.gt(value: V): Condition = toPath() gt value
-
-    public inline infix fun <reified V> KProperty1<T, V>.gte(value: V): Condition = toPath() gte value
-
-    public inline infix fun <reified V> KProperty1<T, V>.lt(value: V): Condition = toPath() lt value
-
-    public inline infix fun <reified V> KProperty1<T, V>.lte(value: V): Condition = toPath() lte value
-
-    public inline infix fun <reified V> KProperty1<T, V>.isIn(values: Iterable<V>): Condition = toPath() isIn values
-
-    public inline infix fun <reified E> KProperty1<T, Iterable<E>?>.contains(value: E): Condition =
-        toPath() contains value
-
-    public fun KProperty1<T, *>.isNull(): Condition = toPath().isNull()
-
-    public fun KProperty1<T, *>.isNotNull(): Condition = toPath().isNotNull()
+    public fun String.isNotNull(): Condition = Condition.Compare(Path(this), Comparison.Neq, SqlValue.Null)
 
     public infix fun Condition.and(other: Condition): Condition = Condition.And(this, other)
 
@@ -100,27 +76,23 @@ public class WhereScope<T> @PublishedApi internal constructor() {
     public fun not(condition: Condition): Condition = Condition.Not(condition)
 
     @PublishedApi
-    internal fun <V> compare(
-        path: Path<*>,
-        comparison: Comparison,
-        serializer: KSerializer<V>,
-        value: V,
-    ): Condition = Condition.Compare(path, comparison, sqlValue(serializer, value))
+    internal fun <V> compare(field: String, comparison: Comparison, serializer: KSerializer<V>, value: V): Condition =
+        Condition.Compare(Path(field), comparison, sqlValue(serializer, value))
 
     @PublishedApi
-    internal fun <V> anyOf(path: Path<*>, serializer: KSerializer<V>, values: Iterable<V>): Condition =
-        Condition.In(path, values.map { sqlValue(serializer, it) })
+    internal fun <V> anyOf(field: String, serializer: KSerializer<V>, values: Iterable<V>): Condition =
+        Condition.In(Path(field), values.map { sqlValue(serializer, it) })
 
     @PublishedApi
-    internal fun <E> element(path: Path<*>, serializer: KSerializer<E>, value: E): Condition =
-        Condition.Contains(path, sqlValue(serializer, value))
+    internal fun <E> element(field: String, serializer: KSerializer<E>, value: E): Condition =
+        Condition.Contains(Path(field), sqlValue(serializer, value))
 }
 
 @PublishedApi
 internal enum class Comparison(val sql: String) { Eq("="), Neq("!="), Gt(">"), Gte(">="), Lt("<"), Lte("<=") }
 
 @PublishedApi
-internal fun <T> where(block: WhereScope<T>.() -> Condition): Condition = WhereScope<T>().block()
+internal fun where(block: WhereScope.() -> Condition): Condition = WhereScope().block()
 
 internal inline fun <reified V> sqlValue(value: V): SqlValue = sqlValue(serializer<V>(), value)
 

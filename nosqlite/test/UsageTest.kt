@@ -11,11 +11,11 @@ import kotlin.test.assertSame
 internal class UsageTest {
 
     object Users : Collection<User>("users", User.serializer()) {
-        val byId = unique(User::id)
-        val byEmail = unique(User::email)
-        val byAge = index(User::age)
-        val byName = index(User::name / Name::last, User::name / Name::first)
-        val activeNickname = unique(User::nickname, where = { User::active eq true })
+        val byId = unique<String>("id")
+        val byEmail = unique<Email>("email")
+        val byAge = index("age")
+        val byName = index("name.last", "name.first")
+        val activeNickname = unique<String>("nickname", where = { "active" eq true })
     }
 
     private val ada = user("ada", 36, first = "Ada", last = "Lovelace")

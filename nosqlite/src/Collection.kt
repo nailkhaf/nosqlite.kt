@@ -3,16 +3,15 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteException
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.serializer
-import kotlin.reflect.KProperty1
 
 /**
  * A named set of [T] documents, stored as JSON in its own table. Declare one as an object with its indexes and list
  * it in `Database { }`:
  * ```
  * object Users : Collection<User>("users", User.serializer()) {
- *     val byEmail = unique(User::email)
- *     val byAge = index(User::age)
- *     val byName = index(User::name / Name::last, User::name / Name::first)
+ *     val byEmail = unique<String>("email")
+ *     val byAge = index("age")
+ *     val byName = index("name.last", "name.first")
  * }
  *
  * val db = Database("app.db") { +Users }
@@ -28,40 +27,31 @@ public abstract class Collection<T>(public val name: String, internal val serial
 
     internal val indexes: List<Index<T>> get() = declaredIndexes
 
-    /** A unique index on [property]: documents can't share a value, and `index[key]` finds the one that has it. */
+    /**
+     * A unique index on [field]: documents can't share a value, and `index[key]` finds the one that has it.
+     * With [where] only matching documents are indexed.
+     */
     protected inline fun <reified K> unique(
-        property: KProperty1<T, K>,
-        noinline where: (WhereScope<T>.() -> Condition)? = null,
-    ): UniqueIndex<T, K> = unique(property.toPath(), where)
-
-    /** A unique index on the field at [path]. */
-    protected inline fun <reified K> unique(
-        path: Path<K>,
-        noinline where: (WhereScope<T>.() -> Condition)? = null,
-    ): UniqueIndex<T, K> = register(UniqueIndex(this, path, where?.let(::where), serializer<K>()))
+        field: String,
+        noinline where: (WhereScope.() -> Condition)? = null,
+    ): UniqueIndex<T, K> = register(UniqueIndex(this, Path(field), where?.let(::where), serializer<K>()))
 
     /** A unique index on several fields together. */
     protected fun unique(
-        first: KProperty1<T, *>,
-        second: KProperty1<T, *>,
-        vararg rest: KProperty1<T, *>,
-        where: (WhereScope<T>.() -> Condition)? = null,
+        first: String,
+        second: String,
+        vararg rest: String,
+        where: (WhereScope.() -> Condition)? = null,
     ): Index<T> {
-        val paths = (listOf(first, second) + rest).map { it.toPath() }
+        val paths = (listOf(first, second) + rest).map(::Path)
         return register(Index(this, paths, isUnique = true, where?.let(::where)))
     }
 
-    /** An index on [properties], in order; with [where] only matching documents are indexed. */
+    /** An index on [fields], in order; with [where] only matching documents are indexed. */
     protected fun index(
-        vararg properties: KProperty1<T, *>,
-        where: (WhereScope<T>.() -> Condition)? = null,
-    ): Index<T> = index(*properties.map { it.toPath() }.toTypedArray(), where = where)
-
-    /** An index on the fields at [paths], in order; with [where] only matching documents are indexed. */
-    protected fun index(
-        vararg paths: Path<*>,
-        where: (WhereScope<T>.() -> Condition)? = null,
-    ): Index<T> = register(Index(this, paths.toList(), isUnique = false, where?.let(::where)))
+        vararg fields: String,
+        where: (WhereScope.() -> Condition)? = null,
+    ): Index<T> = register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
 
     @PublishedApi
     internal fun <I : Index<T>> register(index: I): I {

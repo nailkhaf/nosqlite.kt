@@ -12,7 +12,7 @@ internal class ConditionTest {
 
     @Test
     fun `comparisons render with bound values`() {
-        val condition = where<User> { (User::age gte 18) and (User::name / Name::last eq "Smith") }
+        val condition = where { ("age" gte 18) and ("name.last" eq "Smith") }
 
         val fragment = condition.render()
 
@@ -33,7 +33,7 @@ internal class ConditionTest {
 
     @Test
     fun `structured values are rejected`() {
-        val error = assertFailsWith<IllegalArgumentException> { where<User> { User::name eq Name("Ada", "Lovelace") } }
+        val error = assertFailsWith<IllegalArgumentException> { where { "name" eq Name("Ada", "Lovelace") } }
 
         assertEquals(
             """Only scalars can be compared, not io.github.nailkhaf.nosqlite.Name: {"first":"Ada","last":"Lovelace"}""",
@@ -43,15 +43,15 @@ internal class ConditionTest {
 
     @Test
     fun `null comparisons render as IS NULL`() {
-        assertEquals("data ->> '$.nickname' IS NULL", where<User> { User::nickname eq null }.render().sql)
-        assertEquals("data ->> '$.nickname' IS NOT NULL", where<User> { User::nickname neq null }.render().sql)
-        assertEquals("data ->> '$.nickname' IS NULL", where<User> { User::nickname.isNull() }.render().sql)
-        assertEquals("data ->> '$.nickname' IS NOT NULL", where<User> { User::nickname.isNotNull() }.render().sql)
+        assertEquals("data ->> '$.nickname' IS NULL", where { "nickname" eq null }.render().sql)
+        assertEquals("data ->> '$.nickname' IS NOT NULL", where { "nickname" neq null }.render().sql)
+        assertEquals("data ->> '$.nickname' IS NULL", where { "nickname".isNull() }.render().sql)
+        assertEquals("data ->> '$.nickname' IS NOT NULL", where { "nickname".isNotNull() }.render().sql)
     }
 
     @Test
     fun `isIn binds one placeholder per value`() {
-        val fragment = where<User> { User::age isIn listOf(30, 40) }.render()
+        val fragment = where { "age" isIn listOf(30, 40) }.render()
 
         assertEquals("data ->> '$.age' IN (?, ?)", fragment.sql)
         assertEquals(listOf(SqlValue.Integer(30), SqlValue.Integer(40)), fragment.params)
@@ -59,12 +59,12 @@ internal class ConditionTest {
 
     @Test
     fun `isIn of nothing matches nothing`() {
-        assertEquals("0 = 1", where<User> { User::age isIn emptyList() }.render().sql)
+        assertEquals("0 = 1", where { "age" isIn emptyList<Int>() }.render().sql)
     }
 
     @Test
     fun `contains looks for an array element`() {
-        val fragment = where<User> { User::tags contains "kotlin" }.render()
+        val fragment = where { "tags" contains "kotlin" }.render()
 
         assertEquals("EXISTS (SELECT 1 FROM json_each(data, '$.tags') WHERE value = ?)", fragment.sql)
         assertEquals(listOf(SqlValue.Text("kotlin")), fragment.params)
@@ -72,7 +72,7 @@ internal class ConditionTest {
 
     @Test
     fun `inline rendering spells values out as literals`() {
-        val condition = where<User> { not((User::active eq true) or (User::nickname eq "o'neil")) }
+        val condition = where { not(("active" eq true) or ("nickname" eq "o'neil")) }
 
         val fragment = condition.render(inline = true)
 
@@ -90,21 +90,21 @@ internal class ConditionTest {
             Users.insert(user("cid", 45, last = "Jones", tags = listOf("kotlin")))
         }
         val expected = listOf(
-            matching("bob", "cid") { User::age gte 18 },
-            matching("ann") { User::role eq Role.Admin },
-            matching("bob", "cid") { User::role eq Role.Member },
-            matching("bob") { User::active eq false },
-            matching("bob") { User::score gt 1.0 },
-            matching("ann", "cid") { User::nickname.isNull() },
-            matching("bob") { User::nickname neq null },
-            matching("bob") { User::nickname.isNotNull() },
-            matching("ann", "cid") { User::tags contains "kotlin" },
-            matching("cid") { (User::tags contains "kotlin") and (User::age gt 18) },
-            matching("ann", "cid") { (User::age lt 18) or (User::name / Name::last eq "Jones") },
-            matching("bob") { not(User::tags contains "kotlin") },
-            matching("ann", "bob") { User::email isIn listOf(Email("ann@example.com"), Email("bob@example.com")) },
-            matching("cid") { path("name.last") eq "Jones" },
-            matching { User::age isIn emptyList() },
+            matching("bob", "cid") { "age" gte 18 },
+            matching("ann") { "role" eq Role.Admin },
+            matching("bob", "cid") { "role" eq Role.Member },
+            matching("bob") { "active" eq false },
+            matching("bob") { "score" gt 1.0 },
+            matching("ann", "cid") { "nickname".isNull() },
+            matching("bob") { "nickname" neq null },
+            matching("bob") { "nickname".isNotNull() },
+            matching("ann", "cid") { "tags" contains "kotlin" },
+            matching("cid") { ("tags" contains "kotlin") and ("age" gt 18) },
+            matching("ann", "cid") { ("age" lt 18) or ("name.last" eq "Jones") },
+            matching("bob") { not("tags" contains "kotlin") },
+            matching("ann", "bob") { "email" isIn listOf(Email("ann@example.com"), Email("bob@example.com")) },
+            matching("cid") { "name.last" eq "Jones" },
+            matching { "age" isIn emptyList<Int>() },
         )
 
         for ((condition, ids) in expected) {
@@ -112,7 +112,7 @@ internal class ConditionTest {
         }
     }
 
-    private fun matching(vararg ids: String, block: WhereScope<User>.() -> Condition) = where(block) to ids.toList()
+    private fun matching(vararg ids: String, block: WhereScope.() -> Condition) = where(block) to ids.toList()
 
     private suspend fun Database.idsWhere(condition: Condition): List<String> {
         val fragment = condition.render()

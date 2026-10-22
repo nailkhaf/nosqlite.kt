@@ -8,7 +8,7 @@ import kotlinx.serialization.KSerializer
  */
 public open class Index<T> @PublishedApi internal constructor(
     public val collection: Collection<T>,
-    internal val paths: List<Path<*>>,
+    internal val paths: List<Path>,
     public val isUnique: Boolean,
     internal val where: Condition?,
 ) {
@@ -32,7 +32,7 @@ public open class Index<T> @PublishedApi internal constructor(
 /** A unique index on one field, so a [K] key finds at most one document. */
 public class UniqueIndex<T, K> @PublishedApi internal constructor(
     collection: Collection<T>,
-    internal val path: Path<K>,
+    internal val path: Path,
     where: Condition?,
     internal val keySerializer: KSerializer<K>,
 ) : Index<T>(collection, listOf(path), isUnique = true, where) {

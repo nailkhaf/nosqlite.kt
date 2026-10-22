@@ -13,16 +13,16 @@ import kotlin.test.assertTrue
 internal class IndexTest {
 
     object Users : Collection<User>("users", User.serializer()) {
-        val byId = unique(User::id)
-        val byEmail = unique(User::email)
-        val byAge = index(User::age)
-        val byName = index(User::name / Name::last, User::name / Name::first)
-        val activeNickname = unique(User::nickname, where = { User::active eq true })
+        val byId = unique<String>("id")
+        val byEmail = unique<Email>("email")
+        val byAge = index("age")
+        val byName = index("name.last", "name.first")
+        val activeNickname = unique<String>("nickname", where = { "active" eq true })
     }
 
     object Teams : Collection<Team>("teams", Team.serializer()) {
-        val byLead = unique<String>(path("lead.last"))
-        val byLeadFirst = index(path("lead.first"))
+        val byLead = unique<String>("lead.last")
+        val byLeadFirst = index("lead.first")
     }
 
     @Serializable
@@ -74,12 +74,12 @@ internal class IndexTest {
     fun `reopening drops removed indexes and creates new ones`() = runTest {
         withTempFile { location ->
             val before = object : Collection<User>("users", User.serializer()) {
-                val byAge = index(User::age)
-                val byEmail = unique(User::email)
+                val byAge = index("age")
+                val byEmail = unique<Email>("email")
             }
             val after = object : Collection<User>("users", User.serializer()) {
-                val byEmail = unique(User::email)
-                val byLastName = index(User::name / Name::last)
+                val byEmail = unique<Email>("email")
+                val byLastName = index("name.last")
             }
             Database(location) { +before }.apply { read { } }.close()
 
@@ -95,10 +95,10 @@ internal class IndexTest {
     fun `making an index unique recreates it`() = runTest {
         withTempFile { location ->
             val plain = object : Collection<User>("users", User.serializer()) {
-                val byEmail = index(User::email)
+                val byEmail = index("email")
             }
             val unique = object : Collection<User>("users", User.serializer()) {
-                val byEmail = unique(User::email)
+                val byEmail = unique<Email>("email")
             }
             Database(location) { +plain }.apply { read { } }.close()
 
@@ -204,8 +204,8 @@ internal class IndexTest {
     fun `same index declared twice is rejected`() {
         val error = assertFailsWith<IllegalArgumentException> {
             object : Collection<User>("twice", User.serializer()) {
-                val first = index(User::age)
-                val second = index(User::age)
+                val first = index("age")
+                val second = index("age")
             }
         }
 
@@ -220,7 +220,7 @@ internal class IndexTest {
             withDuplicates.write { repeat(2) { plain.insert(ada) } }
             withDuplicates.close()
             val unique = object : Collection<User>("users", User.serializer()) {
-                val byId = unique(User::id)
+                val byId = unique<String>("id")
             }
 
             val error = assertFailsWith<NosqliteException.UniqueViolation> { Database(location) { +unique }.read { } }
