@@ -53,6 +53,14 @@ internal class WhereTest {
     }
 
     @Test
+    fun `like binds its pattern`() {
+        val fragment = where { "name.last" like "Lo%" }.render()
+
+        assertEquals("data ->> '$.name.last' LIKE ?", fragment.sql)
+        assertEquals(listOf(SqlValue.Text("Lo%")), fragment.params)
+    }
+
+    @Test
     fun `isIn binds one placeholder per value`() {
         val fragment = where { "age" isIn listOf(30, 40) }.render()
 
@@ -101,13 +109,17 @@ internal class WhereTest {
             matching { "missing".isFalse() },
             matching("bob") { "score" gt 1.0 },
             matching("ann", "cid") { "nickname".isNull() },
-                        matching("bob") { "nickname".isNotNull() },
+            matching("bob") { "nickname".isNotNull() },
             matching("ann", "cid") { "tags" contains "kotlin" },
             matching("cid") { ("tags" contains "kotlin") and ("age" gt 18) },
             matching("ann", "cid") { ("age" lt 18) or ("name.last" eq "Jones") },
             matching("bob") { not("tags" contains "kotlin") },
             matching("ann", "bob") { "email" isIn listOf("ann@example.com", "bob@example.com") },
             matching("cid") { "name.last" eq "Jones" },
+            matching("ann", "bob", "cid") { "email" like "%@EXAMPLE.com" },
+            matching("cid") { "name.last" like "jo%" },
+            matching("bob") { "id" like "b_b" },
+            matching { "id" like "b_" },
             matching { "age" isIn emptyList<String>() },
         )
 

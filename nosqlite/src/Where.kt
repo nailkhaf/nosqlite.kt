@@ -68,6 +68,9 @@ public class WhereScope internal constructor() {
 
     public infix fun String.contains(value: Number): Where = Where.Contains(Path(this), value.sqlValue)
 
+    /** The text field matches [pattern]: `%` is any run of characters, `_` any one; ASCII letters ignore case. */
+    public infix fun String.like(pattern: String): Where = compare(this, Comparison.Like, SqlValue.Text(pattern))
+
     /** The field is `true`; `->>` gives booleans back as 1 and 0. */
     public fun String.isTrue(): Where = compare(this, Comparison.Eq, SqlValue.Integer(1))
 
@@ -90,7 +93,9 @@ public class WhereScope internal constructor() {
         Where.Compare(Path(field), comparison, value)
 }
 
-internal enum class Comparison(val sql: String) { Eq("="), Neq("!="), Gt(">"), Gte(">="), Lt("<"), Lte("<=") }
+internal enum class Comparison(val sql: String) {
+    Eq("="), Neq("!="), Gt(">"), Gte(">="), Lt("<"), Lte("<="), Like("LIKE"),
+}
 
 internal fun where(block: WhereScope.() -> Where): Where = WhereScope().block()
 
