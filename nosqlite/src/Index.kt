@@ -22,7 +22,8 @@ public open class Index @PublishedApi internal constructor(
         paths.joinToString(", ", prefix = "(", postfix = ")") { it.sql } +
             (where?.let { " WHERE ${it.render(inline = true).sql}" } ?: "")
 
-    internal val name: String = "${INDEX_PREFIX}${collection.name}_${fnv1a64(definition)}"
+    internal val name: String =
+        "${INDEX_PREFIX}${collection.name}_${fnv1a64((if (isUnique) "UNIQUE " else "") + definition)}"
 
     override fun toString(): String =
         "${if (isUnique) "unique " else ""}index ${collection.name}(${paths.joinToString(", ")})" +

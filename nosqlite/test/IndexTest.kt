@@ -92,6 +92,25 @@ internal class IndexTest {
     }
 
     @Test
+    fun `making an index unique recreates it`() = runTest {
+        withTempFile { location ->
+            val plain = object : Collection("users") {
+                val byEmail = index(User::email)
+            }
+            val unique = object : Collection("users") {
+                val byEmail = unique(User::email)
+            }
+            Database(location) { +plain }.apply { read { } }.close()
+
+            val db = Database(location) { +unique }
+
+            assertEquals(setOf(unique.byEmail.name), db.indexNames())
+            assertTrue(plain.byEmail.name != unique.byEmail.name)
+            db.close()
+        }
+    }
+
+    @Test
     fun `reopening keeps indexes nosqlite does not manage`() = runTest {
         withTempFile { location ->
             val db = Database(location) { +Users }
