@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /** Covers conditions: the SQL they render, how values are encoded, and what they match in stored documents. */
-internal class ConditionTest {
+internal class WhereTest {
 
     object Users : Collection<User>("users", User.serializer())
 
