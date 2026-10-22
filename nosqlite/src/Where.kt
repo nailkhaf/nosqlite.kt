@@ -7,6 +7,7 @@ public sealed class Where {
     internal class Compare(val path: Path, val comparison: Comparison, val value: SqlValue) : Where()
     internal class In(val path: Path, val values: List<SqlValue>) : Where()
     internal class IsNull(val path: Path) : Where()
+    internal class IsNotNull(val path: Path) : Where()
     internal class Contains(val path: Path, val value: SqlValue) : Where()
     internal class And(val left: Where, val right: Where) : Where()
     internal class Or(val left: Where, val right: Where) : Where()
@@ -67,7 +68,6 @@ public class WhereScope internal constructor() {
 
     public infix fun String.contains(value: Number): Where = Where.Contains(Path(this), value.sqlValue)
 
-
     /** The field is `true`; `->>` gives booleans back as 1 and 0. */
     public fun String.isTrue(): Where = compare(this, Comparison.Eq, SqlValue.Integer(1))
 
@@ -78,7 +78,7 @@ public class WhereScope internal constructor() {
     public fun String.isNull(): Where = Where.IsNull(Path(this))
 
     /** The field is present and not null. */
-    public fun String.isNotNull(): Where = Where.Compare(Path(this), Comparison.Neq, SqlValue.Null)
+    public fun String.isNotNull(): Where = Where.IsNotNull(Path(this))
 
     public infix fun Where.and(other: Where): Where = Where.And(this, other)
 
@@ -106,10 +106,7 @@ internal fun Where.render(inline: Boolean = false): Fragment {
     fun value(value: SqlValue): Fragment = if (inline) Fragment(value.literal) else Fragment("?", listOf(value))
 
     return when (this) {
-        is Where.Compare -> when {
-            value == SqlValue.Null && comparison == Comparison.Neq -> Fragment("${path.sql} IS NOT NULL")
-            else -> Fragment("${path.sql} ${comparison.sql} ") + value(value)
-        }
+        is Where.Compare -> Fragment("${path.sql} ${comparison.sql} ") + value(value)
 
         is Where.In ->
             if (values.isEmpty()) {
@@ -119,6 +116,8 @@ internal fun Where.render(inline: Boolean = false): Fragment {
             }
 
         is Where.IsNull -> Fragment("${path.sql} IS NULL")
+
+        is Where.IsNotNull -> Fragment("${path.sql} IS NOT NULL")
 
         is Where.Contains ->
             Fragment("EXISTS (SELECT 1 FROM json_each(data, '${path.jsonPath}') WHERE value = ") +

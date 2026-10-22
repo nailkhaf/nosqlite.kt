@@ -45,8 +45,8 @@ public class Database(
 
     internal suspend fun pool(): ConnectionPool = ready.get()
 
-    internal suspend fun committed(collections: Set<String>) {
-        collections.forEach { changes.emit(it) }
+    internal suspend fun committed(changed: Set<String>) {
+        changed.forEach { changes.emit(it) }
     }
 
     /** Closes every connection that was opened; the database can't be used afterwards. */

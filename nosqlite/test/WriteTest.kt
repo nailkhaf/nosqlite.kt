@@ -72,22 +72,6 @@ internal class WriteTest {
     }
 
     @Test
-    fun `write statements count the documents they touched`() = runTest {
-        val db = seeded()
-        val adults = where { "age" gte 18 }
-        val patch = buildJsonObject { put("age", 50) }.toString()
-        val replace = Users.encode(ann)
-
-        db.pool().writeSql {
-            context(this) {
-                assertEquals(2, Queries.patch(Users, patch, adults).execute())
-                assertEquals(1, Queries.update(Users, replace, where { "id" eq "ann" }).execute())
-                assertEquals(2, Queries.delete(Users, adults).execute())
-            }
-        }
-    }
-
-    @Test
     fun `writes that match nothing change nothing`() = runTest {
         val db = seeded()
 

@@ -36,7 +36,7 @@ internal class Connection(private val sqlite: SQLiteConnection) {
     }
 
     companion object {
-        /** Opens [location]; a [queryOnly] connection refuses to write. Opening a file blocks, so call it off the main thread. */
+        /** Opens [location]; a [queryOnly] connection refuses to write. Opening a file blocks the thread. */
         fun open(driver: SQLiteDriver, location: Location, queryOnly: Boolean = false): Connection {
             val sqlite = driver.open(
                 when (location) {
