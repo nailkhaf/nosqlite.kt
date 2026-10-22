@@ -122,6 +122,42 @@ internal class ConnectionPoolTest {
     }
 
     @Test
+    fun `a closed pool lends no connection`() = runTest {
+        val pool = ConnectionPool()
+        pool.withWriter { it.createTable() }
+        pool.close()
+
+        val write = assertFailsWith<IllegalStateException> { pool.withWriter { } }
+        val read = assertFailsWith<IllegalStateException> { pool.withReader { } }
+
+        assertEquals("Database is closed", write.message)
+        assertEquals("Database is closed", read.message)
+    }
+
+    @Test
+    fun `closing twice is allowed`() = runTest {
+        val pool = ConnectionPool()
+        pool.withWriter { it.createTable() }
+
+        pool.close()
+        pool.close()
+    }
+
+    @Test
+    fun `a connection in use closes when it comes back`() = runTest {
+        val pool = ConnectionPool()
+
+        pool.withWriter {
+            it.createTable()
+            pool.close()
+            // Closing doesn't take the connection away from the coroutine using it.
+            it.execute("INSERT INTO t (value) VALUES ('still open');")
+        }
+
+        assertFailsWith<IllegalStateException> { pool.withWriter { } }
+    }
+
+    @Test
     fun `delete removes the file and its sidecars`() = runTest {
         withTempFile { location ->
             val pool = ConnectionPool(location)
