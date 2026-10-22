@@ -33,14 +33,14 @@ public open class Collection<T>(public val name: String, internal val serializer
         field = mutableListOf()
 
     /** A unique index on [fields]: documents can't share their values; with [where] only matching ones count. */
-    protected fun unique(vararg fields: String, where: (WhereScope.() -> Where)? = null): Index<T> =
-        register(Index(this, fields.map(::Path), isUnique = true, where?.let(::where)))
+    protected fun unique(vararg fields: String, where: (WhereScope.() -> Where)? = null): UniqueIndex<T> =
+        register(UniqueIndex(this, fields.map(::Path), where?.let(::where)))
 
     /** An index on [fields], in order; with [where] only matching documents are indexed. */
     protected fun index(vararg fields: String, where: (WhereScope.() -> Where)? = null): Index<T> =
         register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
 
-    private fun register(index: Index<T>): Index<T> {
+    private fun <I : Index<T>> register(index: I): I {
         require(indexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
         indexes += index
         return index

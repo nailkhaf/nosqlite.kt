@@ -5,12 +5,13 @@ import kotlinx.serialization.Serializable
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/** Covers reading and writing documents by the keys of their indexes, and upserts. */
-internal class KeyTest {
+/** Covers reading and writing documents through their indexes, and upserts. */
+internal class LookupTest {
 
     @Serializable
     data class Name(val last: String, val first: String)
@@ -29,9 +30,11 @@ internal class KeyTest {
         val byId = unique("id")
         val byEmail = unique("email")
         val byNickname = unique("nickname", where = { "active".isTrue() })
-        val byName = unique("name.last", "name.first")
+        val byFullName = unique("name.last", "name.first")
         val byAge = index("age")
         val byActive = index("active")
+        val byName = index("name.last", "name.first")
+        val byNick = index("nickname")
     }
 
     private val ada = User("ada", "ada@x.com", Name("Lovelace", "Ada"), 36, nickname = "countess")
@@ -44,33 +47,28 @@ internal class KeyTest {
     }
 
     @Test
-    fun `get finds the document with a unique key`() = runTest {
+    fun `get finds the one document of a unique lookup`() = runTest {
         val db = database()
 
         db.read {
             assertEquals(ada, Users.byId("ada").get())
             assertEquals(alan, Users.byEmail("alan@x.com").get())
-            assertEquals(byron, Users.byName("Lovelace", "Byron").get())
+            assertEquals(byron, Users.byFullName("Lovelace", "Byron").get())
             assertNull(Users.byId("nobody").get())
         }
     }
 
     @Test
-    fun `get needs a full key of a unique index`() = runTest {
-        val db = database()
+    fun `a unique lookup takes every field and no nulls`() {
+        val prefix = assertFailsWith<IllegalArgumentException> { Users.byFullName("Lovelace") }
+        val nulls = assertFailsWith<IllegalArgumentException> { Users.byEmail(null) }
 
-        val plain = assertFailsWith<IllegalArgumentException> { db.read { Users.byAge(36).get() } }
-        val prefix = assertFailsWith<IllegalArgumentException> { db.read { Users.byName("Lovelace").get() } }
-
-        assertEquals("get needs every field of a unique index: index users(age) = [36]", plain.message)
-        assertEquals(
-            "get needs every field of a unique index: unique index users(name.last, name.first) = ['Lovelace']",
-            prefix.message,
-        )
+        assertEquals("unique index users(name.last, name.first) takes 2 values, not 1", prefix.message)
+        assertEquals("unique index users(email) can't look up null, any number of documents can have it", nulls.message)
     }
 
     @Test
-    fun `a partial index's key matches only the documents it indexes`() = runTest {
+    fun `a partial index finds only the documents it indexes`() = runTest {
         val db = database()
 
         db.read {
@@ -80,7 +78,21 @@ internal class KeyTest {
     }
 
     @Test
-    fun `list and count read every document with a key`() = runTest {
+    fun `update and delete of a unique lookup tell whether there was a document`() = runTest {
+        val db = database()
+
+        db.write {
+            assertTrue(Users.byId("ada").update(ada.copy(age = 37)))
+            assertFalse(Users.byId("nobody").update(ada))
+            assertTrue(Users.byEmail("grace@x.com").delete())
+            assertFalse(Users.byEmail("grace@x.com").delete())
+        }
+
+        assertEquals(listOf(ada.copy(age = 37), alan, byron), db.read { Users.list() })
+    }
+
+    @Test
+    fun `list and count read every document found`() = runTest {
         val db = database()
 
         db.read {
@@ -93,7 +105,7 @@ internal class KeyTest {
     }
 
     @Test
-    fun `list by key takes the query builder`() = runTest {
+    fun `list of a lookup takes the query builder`() = runTest {
         val db = database()
 
         db.read {
@@ -104,7 +116,7 @@ internal class KeyTest {
     }
 
     @Test
-    fun `leading values of a composite index match its prefix`() = runTest {
+    fun `leading values of a composite index find its prefix`() = runTest {
         val db = database()
 
         db.read {
@@ -114,10 +126,33 @@ internal class KeyTest {
     }
 
     @Test
-    fun `a key reads through its index`() = runTest {
+    fun `a null value finds null and missing fields`() = runTest {
         val db = database()
-        val key = Users.byName("Lovelace")
-        val sql = Queries.select(Users, Query(key.condition, emptyList(), limit = 1, offset = 0)).sql
+
+        db.read {
+            assertEquals(listOf(alan, byron), Users.byNick(null).list())
+            assertEquals(2, Users.byNick(null).count())
+        }
+    }
+
+    @Test
+    fun `update and delete of a lookup count what they touched`() = runTest {
+        val db = database()
+
+        db.write {
+            assertEquals(1, Users.byActive(false).update(grace.copy(age = 50)))
+            assertEquals(0, Users.byAge(99).delete())
+            assertEquals(1, Users.byAge(41).delete())
+        }
+
+        assertEquals(listOf(ada, grace.copy(age = 50), byron), db.read { Users.list() })
+    }
+
+    @Test
+    fun `a lookup reads through its index`() = runTest {
+        val db = database()
+        val lookup = Users.byName("Lovelace")
+        val sql = Queries.select(Users, Query(lookup.condition, emptyList(), limit = 1, offset = 0)).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "'x'")).joinToString { it.last()!! }
 
@@ -125,21 +160,7 @@ internal class KeyTest {
     }
 
     @Test
-    fun `update and delete by key count what they touched`() = runTest {
-        val db = database()
-
-        db.write {
-            assertEquals(1, Users.byId("ada").update(ada.copy(age = 37)))
-            assertEquals(0, Users.byId("nobody").update(ada))
-            assertEquals(2, Users.byAge(36).delete())
-            assertEquals(0, Users.byEmail("grace@x.com").delete())
-        }
-
-        assertEquals(listOf(ada.copy(age = 37), alan), db.read { Users.list() })
-    }
-
-    @Test
-    fun `upsert inserts a new key and replaces an existing one in place`() = runTest {
+    fun `upsert inserts a new document and replaces an existing one in place`() = runTest {
         val db = database()
         val carol = User("carol", "carol@x.com", Name("Shaw", "Carol"), 28)
 
@@ -169,12 +190,13 @@ internal class KeyTest {
     }
 
     @Test
-    fun `upsert on a composite index replaces the full key's document`() = runTest {
+    fun `upsert on a composite index replaces the document with all its values`() = runTest {
         val db = database()
+        val lord = byron.copy(id = "lord", email = "lord@x.com")
 
-        db.write { Users.byName.upsert(byron.copy(id = "lord", email = "lord@x.com")) }
+        db.write { Users.byFullName.upsert(lord) }
 
-        assertEquals(byron.copy(id = "lord", email = "lord@x.com"), db.read { Users.byName("Lovelace", "Byron").get() })
+        assertEquals(lord, db.read { Users.byFullName("Lovelace", "Byron").get() })
     }
 
     @Test
@@ -189,38 +211,13 @@ internal class KeyTest {
     }
 
     @Test
-    fun `upsert needs a unique index`() = runTest {
-        val db = database()
-
-        val error = assertFailsWith<IllegalArgumentException> { db.write { Users.byAge.upsert(ada) } }
-
-        assertEquals("upsert needs a unique index: index users(age)", error.message)
-    }
-
-    @Test
-    fun `a null key matches null and missing fields`() = runTest {
-        val db = database()
-
-        db.read {
-            assertEquals(listOf(alan, byron), Users.byNickname(null).list())
-            assertEquals(2, Users.byNickname(null).count())
-        }
-        val error = assertFailsWith<IllegalArgumentException> { db.read { Users.byNickname(null).get() } }
-        assertEquals(
-            "get needs a key without nulls, many documents can share one: unique index users(nickname) " +
-                "where data ->> '\$.active' = 1 = [NULL]",
-            error.message,
-        )
-    }
-
-    @Test
-    fun `a key takes one value per field at most and plain values only`() {
+    fun `a lookup takes one value per field at most and plain values only`() {
         val none = assertFailsWith<IllegalArgumentException> { Users.byName() }
         val many = assertFailsWith<IllegalArgumentException> { Users.byName("Lovelace", "Ada", "King") }
-        val type = assertFailsWith<IllegalArgumentException> { Users.byId('a') }
+        val type = assertFailsWith<IllegalArgumentException> { Users.byAge('a') }
 
-        assertEquals("unique index users(name.last, name.first) takes 1 to 2 values, not 0", none.message)
-        assertEquals("unique index users(name.last, name.first) takes 1 to 2 values, not 3", many.message)
-        assertEquals("Unsupported key value: Char", type.message)
+        assertEquals("index users(name.last, name.first) takes 1 to 2 values, not 0", none.message)
+        assertEquals("index users(name.last, name.first) takes 1 to 2 values, not 3", many.message)
+        assertEquals("Unsupported lookup value: Char", type.message)
     }
 }
