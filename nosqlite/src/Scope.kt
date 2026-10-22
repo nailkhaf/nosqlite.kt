@@ -80,7 +80,7 @@ private suspend fun Connection.execute(sql: String) {
 /** The transaction the current coroutine runs in, when it belongs to [pool]. */
 private suspend fun activeScope(pool: ConnectionPool): ReadScope? {
     val active = currentCoroutineContext()[ActiveScope]?.scope ?: return null
-    require(active.pool === pool) { "Active transaction belongs to another database" }
+    check(active.pool === pool) { "Active transaction belongs to another database" }
     return active
 }
 

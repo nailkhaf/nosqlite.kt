@@ -172,7 +172,7 @@ internal class TransactionTest {
         val first = ConnectionPool()
         val second = ConnectionPool()
 
-        val error = assertFailsWith<IllegalArgumentException> { first.readSql { second.readSql { } } }
+        val error = assertFailsWith<IllegalStateException> { first.readSql { second.readSql { } } }
 
         assertEquals("Active transaction belongs to another database", error.message)
     }
