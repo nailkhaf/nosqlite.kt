@@ -20,7 +20,7 @@ internal object Queries {
         decode = rows { getText(0) },
     )
 
-    fun createIndex(index: Index<*>): Command<Unit> = command(
+    fun createIndex(index: Index): Command<Unit> = command(
         "CREATE ${if (index.isUnique) "UNIQUE " else ""}INDEX \"${index.name}\" " +
             "ON ${index.collection.table} ${index.definition};",
     )

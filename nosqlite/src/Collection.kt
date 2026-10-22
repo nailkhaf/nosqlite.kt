@@ -23,9 +23,9 @@ public abstract class Collection<T>(public val name: String, internal val serial
         require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
     }
 
-    private val declaredIndexes = mutableListOf<Index<T>>()
+    private val declaredIndexes = mutableListOf<Index>()
 
-    internal val indexes: List<Index<T>> get() = declaredIndexes
+    internal val indexes: List<Index> get() = declaredIndexes
 
     /**
      * A unique index on [field]: documents can't share a value, and `index[key]` finds the one that has it.
@@ -42,7 +42,7 @@ public abstract class Collection<T>(public val name: String, internal val serial
         second: String,
         vararg rest: String,
         where: (WhereScope.() -> Condition)? = null,
-    ): Index<T> {
+    ): Index {
         val paths = (listOf(first, second) + rest).map(::Path)
         return register(Index(this, paths, isUnique = true, where?.let(::where)))
     }
@@ -51,10 +51,10 @@ public abstract class Collection<T>(public val name: String, internal val serial
     protected fun index(
         vararg fields: String,
         where: (WhereScope.() -> Condition)? = null,
-    ): Index<T> = register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
+    ): Index = register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
 
     @PublishedApi
-    internal fun <I : Index<T>> register(index: I): I {
+    internal fun <I : Index> register(index: I): I {
         require(declaredIndexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
         declaredIndexes += index
         return index

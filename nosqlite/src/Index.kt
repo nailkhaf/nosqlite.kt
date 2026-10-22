@@ -6,8 +6,8 @@ import kotlinx.serialization.KSerializer
  * An SQLite index over document fields, declared in a [Collection]. Indexes are synced when the database opens:
  * each one's name hashes its definition, so a changed index is dropped and created again and a removed one dropped.
  */
-public open class Index<T> @PublishedApi internal constructor(
-    public val collection: Collection<T>,
+public open class Index @PublishedApi internal constructor(
+    internal val collection: Collection<*>,
     internal val paths: List<Path>,
     public val isUnique: Boolean,
     internal val where: Condition?,
@@ -31,16 +31,16 @@ public open class Index<T> @PublishedApi internal constructor(
 
 /** A unique index on one field, so a [K] key finds at most one document. */
 public class UniqueIndex<T, K> @PublishedApi internal constructor(
-    collection: Collection<T>,
+    private val documents: Collection<T>,
     internal val path: Path,
     where: Condition?,
     internal val keySerializer: KSerializer<K>,
-) : Index<T>(collection, listOf(path), isUnique = true, where) {
+) : Index(documents, listOf(path), isUnique = true, where) {
 
     /** The document whose key is [key]; `null` when there is none. */
     context(_: ReadScope)
-    public suspend operator fun get(key: K): T? = collection.withConnection {
-        Queries.selectFirst(collection, lookup(key)).execute()?.let { collection.decode(it) }
+    public suspend operator fun get(key: K): T? = documents.withConnection {
+        Queries.selectFirst(documents, lookup(key)).execute()?.let { documents.decode(it) }
     }
 }
 
