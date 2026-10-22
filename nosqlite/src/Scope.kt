@@ -25,7 +25,7 @@ internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) (
     activeScope(this)?.let { active -> return context(active) { block() } }
     return withReader { connection ->
         val scope = ReadScope(connection, this)
-        connection.transaction(Boundary.Read) { scope.activate(block) }
+        connection.transaction(Boundary.Read) { withScope(scope, block) }
     }
 }
 
@@ -33,11 +33,11 @@ internal suspend fun <R> ConnectionPool.write(block: suspend context(WriteScope)
     activeScope(this)?.let { active ->
         check(active is WriteScope) { "Write inside a read transaction, start write { } outside of read { }" }
         val scope = WriteScope(active.connection, this)
-        return active.connection.transaction(Boundary.Savepoint) { scope.activate(block) }
+        return active.connection.transaction(Boundary.Savepoint) { withScope(scope, block) }
     }
     return withWriter { connection ->
         val scope = WriteScope(connection, this)
-        connection.transaction(Boundary.Write) { scope.activate(block) }
+        connection.transaction(Boundary.Write) { withScope(scope, block) }
     }
 }
 
@@ -84,8 +84,8 @@ private suspend fun activeScope(pool: ConnectionPool): ReadScope? {
     return active
 }
 
-private suspend fun <S : ReadScope, R> S.activate(block: suspend context(S) () -> R): R =
-    withContext(ActiveScope(this)) { block() }
+private suspend fun <S : ReadScope, R> withScope(scope: S, block: suspend context(S) () -> R): R =
+    withContext(ActiveScope(scope)) { context(scope) { block() } }
 
 private class ActiveScope(val scope: ReadScope) : CoroutineContext.Element {
     override val key: CoroutineContext.Key<*> get() = Key
