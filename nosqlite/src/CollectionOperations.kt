@@ -26,26 +26,25 @@ public suspend fun <T> Collection<T>.list(
     }
 }
 
-/** Replaces every document matching [condition] with [value], so match on a unique field to replace one. */
+/**
+ * Replaces every document matching [condition] with [value], so match on a unique field to replace one.
+ * The result is how many documents were replaced.
+ */
 context(_: WriteScope)
-public suspend fun <T> Collection<T>.update(value: T, condition: WhereScope.() -> Condition): List<T> {
+public suspend fun <T> Collection<T>.update(value: T, condition: WhereScope.() -> Condition): Int {
     val json = encode(value)
-    return withConnection { Queries.update(this@update, json, where(condition)).execute().map { decode(it) } }
+    return withConnection { Queries.update(this@update, json, where(condition)).execute().size }
 }
 
-/** Deletes every document matching [condition]; the result is the documents deleted. */
+/** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
-public suspend fun <T> Collection<T>.delete(condition: WhereScope.() -> Condition): List<T> =
-    withConnection { Queries.delete(this@delete, where(condition)).execute().map { decode(it) } }
+public suspend fun Collection<*>.delete(condition: WhereScope.() -> Condition): Int =
+    withConnection { Queries.delete(this@delete, where(condition)).execute().size }
 
 /**
  * Applies the JSON merge [patch] to every document matching [condition]: its fields replace theirs, and a `null`
- * removes one. The result is the documents as patched.
+ * removes one. The result is how many documents were patched.
  */
 context(_: WriteScope)
-public suspend fun Collection<JsonObject>.patch(
-    patch: JsonObject,
-    condition: WhereScope.() -> Condition,
-): List<JsonObject> = withConnection {
-    Queries.patch(this@patch, patch.toString(), where(condition)).execute().map { decode(it) }
-}
+public suspend fun Collection<JsonObject>.patch(patch: JsonObject, condition: WhereScope.() -> Condition): Int =
+    withConnection { Queries.patch(this@patch, patch.toString(), where(condition)).execute().size }

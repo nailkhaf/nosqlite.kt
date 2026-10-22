@@ -37,16 +37,16 @@ internal object Queries {
             .statement(rows(row))
     }
 
-    fun update(collection: Collection<*>, json: String, condition: Condition): Statement<Unit, List<Row>> =
+    fun update(collection: Collection<*>, json: String, condition: Condition): Statement<Unit, List<DocumentId>> =
         (Fragment("UPDATE ${collection.table} SET data = jsonb(?) WHERE ", listOf(SqlValue.Text(json))) +
-            condition.render() + RETURNING).statement(rows(row))
+            condition.render() + RETURNING).statement(rows(id))
 
-    fun patch(collection: Collection<*>, patch: String, condition: Condition): Statement<Unit, List<Row>> =
+    fun patch(collection: Collection<*>, patch: String, condition: Condition): Statement<Unit, List<DocumentId>> =
         (Fragment("UPDATE ${collection.table} SET data = jsonb_patch(data, ?) WHERE ", listOf(SqlValue.Text(patch))) +
-            condition.render() + RETURNING).statement(rows(row))
+            condition.render() + RETURNING).statement(rows(id))
 
-    fun delete(collection: Collection<*>, condition: Condition): Statement<Unit, List<Row>> =
-        (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(rows(row))
+    fun delete(collection: Collection<*>, condition: Condition): Statement<Unit, List<DocumentId>> =
+        (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(rows(id))
 
     fun insert(collection: Collection<*>): Statement<String, DocumentId> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?)) RETURNING rowid;",
@@ -58,7 +58,10 @@ internal object Queries {
     )
 }
 
-private const val RETURNING = " RETURNING rowid, json(data);"
+// Writes return the ids they touched, for the library to know which documents changed.
+private const val RETURNING = " RETURNING rowid;"
+
+private val id: SQLiteStatement.() -> DocumentId = { DocumentId(getLong(0)) }
 
 private val row: SQLiteStatement.() -> Row = { Row(DocumentId(getLong(0)), getText(1)) }
 

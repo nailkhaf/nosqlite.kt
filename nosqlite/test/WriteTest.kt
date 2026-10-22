@@ -42,7 +42,7 @@ internal class WriteTest {
 
         val updated = db.write { Users.update(replacement) { "id" eq "ann" } }
 
-        assertEquals(listOf(replacement), updated)
+        assertEquals(1, updated)
         assertEquals(listOf(replacement, bob, cid), db.users())
     }
 
@@ -57,17 +57,34 @@ internal class WriteTest {
 
         val updated = db.write { Raw.update(done) { "done".isFalse() } }
 
-        assertEquals(listOf(done, done), updated)
+        assertEquals(2, updated)
+        assertEquals(listOf(done, done), db.read { Raw.list() })
     }
 
     @Test
-    fun `delete removes every match and returns it`() = runTest {
+    fun `delete removes every match and counts it`() = runTest {
         val db = seeded()
 
         val deleted = db.write { Users.delete { ("age" lt 18) or ("nickname" eq "bobby") } }
 
-        assertEquals(listOf(ann, bob), deleted)
+        assertEquals(2, deleted)
         assertEquals(listOf(cid), db.users())
+    }
+
+    @Test
+    fun `write statements return the ids they touched`() = runTest {
+        val db = seeded()
+        val adults = where { "age" gte 18 }
+        val patch = buildJsonObject { put("age", 50) }.toString()
+        val replace = Users.encode(ann)
+
+        db.pool().writeSql {
+            context(this) {
+                assertEquals(listOf(DocumentId(2), DocumentId(3)), Queries.patch(Users, patch, adults).execute())
+                assertEquals(listOf(DocumentId(1)), Queries.update(Users, replace, where { "id" eq "ann" }).execute())
+                assertEquals(listOf(DocumentId(2), DocumentId(3)), Queries.delete(Users, adults).execute())
+            }
+        }
     }
 
     @Test
@@ -75,8 +92,8 @@ internal class WriteTest {
         val db = seeded()
 
         db.write {
-            assertEquals(emptyList(), Users.update(ann) { "id" eq "nobody" })
-            assertEquals(emptyList(), Users.delete { "id" eq "nobody" })
+            assertEquals(0, Users.update(ann) { "id" eq "nobody" })
+            assertEquals(0, Users.delete { "id" eq "nobody" })
         }
 
         assertEquals(listOf(ann, bob, cid), db.users())
@@ -97,7 +114,7 @@ internal class WriteTest {
         val patched = db.write { Raw.patch(patch) { "id" eq "a" } }
 
         val expected = buildJsonObject { put("id", "a"); put("age", 31) }
-        assertEquals(listOf(expected), patched)
+        assertEquals(1, patched)
         assertEquals(listOf(expected, buildJsonObject { put("id", "b"); put("age", 40) }), db.read { Raw.list(10) })
     }
 
