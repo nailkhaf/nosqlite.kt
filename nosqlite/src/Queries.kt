@@ -34,8 +34,19 @@ internal object Queries {
             listOf(SqlValue.Integer(limit.toLong()), SqlValue.Integer(offset.toLong())),
         )
         return (Fragment("SELECT rowid, json(data) FROM ${collection.table}") + where + page)
-            .statement(rows { Row(DocumentId(getLong(0)), getText(1)) })
+            .statement(rows(row))
     }
+
+    fun update(collection: Collection<*>, json: String, condition: Condition): Statement<Unit, List<Row>> =
+        (Fragment("UPDATE ${collection.table} SET data = jsonb(?) WHERE ", listOf(SqlValue.Text(json))) +
+            condition.render() + RETURNING).statement(rows(row))
+
+    fun patch(collection: Collection<*>, patch: String, condition: Condition): Statement<Unit, List<Row>> =
+        (Fragment("UPDATE ${collection.table} SET data = jsonb_patch(data, ?) WHERE ", listOf(SqlValue.Text(patch))) +
+            condition.render() + RETURNING).statement(rows(row))
+
+    fun delete(collection: Collection<*>, condition: Condition): Statement<Unit, List<Row>> =
+        (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(rows(row))
 
     fun insert(collection: Collection<*>): Statement<String, DocumentId> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?)) RETURNING rowid;",
@@ -46,5 +57,9 @@ internal object Queries {
         },
     )
 }
+
+private const val RETURNING = " RETURNING rowid, json(data);"
+
+private val row: SQLiteStatement.() -> Row = { Row(DocumentId(getLong(0)), getText(1)) }
 
 internal class Row(val id: DocumentId, val json: String)

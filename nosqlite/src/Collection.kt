@@ -62,6 +62,18 @@ public abstract class Collection<T>(public val name: String, internal val serial
         }
     }
 
+    /** Replaces every document matching [condition] with [value], so match on a unique field to replace one. */
+    context(_: WriteScope)
+    public suspend fun update(value: T, condition: WhereScope.() -> Condition): List<T> {
+        val json = encode(value)
+        return withConnection { Queries.update(this@Collection, json, where(condition)).execute().map { decode(it) } }
+    }
+
+    /** Deletes every document matching [condition]; the result is the documents deleted. */
+    context(_: WriteScope)
+    public suspend fun delete(condition: WhereScope.() -> Condition): List<T> =
+        withConnection { Queries.delete(this@Collection, where(condition)).execute().map { decode(it) } }
+
     internal fun encode(value: T): String {
         val json = Database.Json.encodeToJsonElement(serializer, value)
         require(json is JsonObject) { "A document of '$name' must be a JSON object, not $json" }
@@ -109,4 +121,16 @@ internal inline fun <R> Collection<*>.mapErrors(block: () -> R): R = try {
 
         else -> throw e
     }
+}
+
+/**
+ * Applies the JSON merge [patch] to every document matching [condition]: its fields replace theirs, and a `null`
+ * removes one. The result is the documents as patched.
+ */
+context(_: WriteScope)
+public suspend fun Collection<JsonObject>.patch(
+    patch: JsonObject,
+    condition: WhereScope.() -> Condition,
+): List<JsonObject> = withConnection {
+    Queries.patch(this, patch.toString(), where(condition)).execute().map { decode(it) }
 }
