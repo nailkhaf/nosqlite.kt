@@ -2,8 +2,6 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 /**
@@ -14,11 +12,31 @@ import kotlinx.serialization.json.Json
  *     +Notes
  * }
  * ```
- * Opening it creates the collections' tables in one write transaction, so a [Database] is always ready to use.
+ * Nothing touches the file until the first [read] or [write], which creates the collections' tables in one write
+ * transaction before anything else runs. [close] closes every connection that was opened.
  */
-public class Database internal constructor(internal val pool: ConnectionPool) {
+public class Database(
+    location: Location = Location.InMemory,
+    driver: SQLiteDriver = BundledSQLiteDriver(),
+    schema: SchemaBuilder.() -> Unit,
+) {
+    /** Opens the database file at [path] with the collections [schema] declares. */
+    public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
+
+    private val connections = ConnectionPool(location, driver)
+
+    private val collections = SchemaBuilder().apply(schema).collections.toList()
+
+    private val ready = suspendLazy {
+        connections.write { context(connection()) { collections.forEach { createSchema(it) } } }
+        connections
+    }
+
+    /** The connection pool, once the declared collections have their tables. */
+    internal suspend fun pool(): ConnectionPool = ready.get()
+
     /** Closes every connection that was opened; the database can't be used afterwards. */
-    public suspend fun close(): Unit = pool.close()
+    public suspend fun close(): Unit = connections.close()
 
     public companion object {
         /** How documents are encoded and decoded: unknown keys are ignored, so a smaller class reads a projection. */
@@ -29,27 +47,6 @@ public class Database internal constructor(internal val pool: ConnectionPool) {
         }
     }
 }
-
-/** Opens the database at [location] with the collections [schema] declares, creating their tables. */
-public suspend fun Database(
-    location: Location = Location.InMemory,
-    driver: SQLiteDriver = BundledSQLiteDriver(),
-    schema: SchemaBuilder.() -> Unit,
-): Database {
-    val collections = SchemaBuilder().apply(schema).collections
-    val pool = ConnectionPool(location, driver)
-    try {
-        pool.write { context(connection()) { collections.forEach { createSchema(it) } } }
-    } catch (e: Throwable) {
-        withContext(NonCancellable) { pool.close() }
-        throw e
-    }
-    return Database(pool)
-}
-
-/** Opens the database file at [path] with the collections [schema] declares. */
-public suspend fun Database(path: String, schema: SchemaBuilder.() -> Unit): Database =
-    Database(Location.File(path), schema = schema)
 
 /** Marks the `Database { }` block, so its receiver doesn't leak into nested lambdas. */
 @DslMarker
@@ -68,13 +65,13 @@ public class SchemaBuilder internal constructor() {
 }
 
 /** Runs [block] in a read transaction: every read in it sees one snapshot. Inside [write] it runs in that write. */
-public suspend fun <R> Database.read(block: suspend context(ReadScope) () -> R): R = pool.read(block)
+public suspend fun <R> Database.read(block: suspend context(ReadScope) () -> R): R = pool().read(block)
 
 /**
  * Runs [block] in a write transaction that commits when it returns and rolls back when it throws.
  * Inside another write it is a savepoint that rolls back alone.
  */
-public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R): R = pool.write(block)
+public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R): R = pool().write(block)
 
 context(_: Connection)
 internal suspend fun createSchema(collection: Collection) {

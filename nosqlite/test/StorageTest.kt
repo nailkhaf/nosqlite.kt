@@ -8,6 +8,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
 /** Covers declaring collections, their tables, and storing JSON documents by [DocumentId]. */
@@ -94,11 +95,13 @@ internal class StorageTest {
     }
 
     @Test
-    fun `opening creates a table for every declared collection`() = runTest {
+    fun `every declared collection gets a table on first use`() = runTest {
         val db = Database {
             +Users
             +Notes
         }
+
+        db.read { }
 
         assertEquals(
             listOf(listOf("notes"), listOf("users")),
@@ -143,6 +146,15 @@ internal class StorageTest {
     }
 
     @Test
+    fun `closing an unused database creates no file`() = runTest {
+        withTempFile { location ->
+            Database(location) { +Users }.close()
+
+            assertFalse(location.exists())
+        }
+    }
+
+    @Test
     fun `undeclared collection is rejected`() = runTest {
         val db = Database { +Users }
 
@@ -152,7 +164,7 @@ internal class StorageTest {
     }
 
     @Test
-    fun `collection declared twice is rejected`() = runTest {
+    fun `collection declared twice is rejected`() {
         val error = assertFailsWith<IllegalArgumentException> {
             Database {
                 +Users
