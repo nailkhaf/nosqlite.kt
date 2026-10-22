@@ -47,58 +47,26 @@ public open class Collection<T>(public val name: String, internal val serializer
         return index
     }
 
-    /** Inserts [value] as a new document; it must encode to a JSON object. */
-    context(_: WriteScope)
-    public suspend fun insert(value: T) {
-        val json = encode(value)
-        withConnection { Queries.insert(this@Collection).execute(json) }
-    }
-
-    /**
-     * Up to [limit] documents matching [condition], or any documents without one, in the order they were inserted,
-     * skipping the first [offset].
-     */
-    context(_: ReadScope)
-    public suspend fun list(limit: Int, offset: Int = 0, condition: (WhereScope.() -> Condition)? = null): List<T> {
-        require(limit > 0) { "Limit must be positive: $limit" }
-        require(offset >= 0) { "Offset must not be negative: $offset" }
-        return withConnection {
-            Queries.select(this@Collection, condition?.let(::where), limit, offset).execute().map { decode(it) }
-        }
-    }
-
-    /** Replaces every document matching [condition] with [value], so match on a unique field to replace one. */
-    context(_: WriteScope)
-    public suspend fun update(value: T, condition: WhereScope.() -> Condition): List<T> {
-        val json = encode(value)
-        return withConnection { Queries.update(this@Collection, json, where(condition)).execute().map { decode(it) } }
-    }
-
-    /** Deletes every document matching [condition]; the result is the documents deleted. */
-    context(_: WriteScope)
-    public suspend fun delete(condition: WhereScope.() -> Condition): List<T> =
-        withConnection { Queries.delete(this@Collection, where(condition)).execute().map { decode(it) } }
-
-    internal fun encode(value: T): String {
-        val json = Database.Json.encodeToJsonElement(serializer, value)
-        require(json is JsonObject) { "A document of '$name' must be a JSON object, not $json" }
-        return json.toString()
-    }
-
-    internal fun decode(row: Row): T = try {
-        Database.Json.decodeFromString(serializer, row.json)
-    } catch (e: SerializationException) {
-        throw NosqliteException.DecodingFailed(name, row.id, e)
-    }
-
     override fun toString(): String = "Collection($name)"
-
-    // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
-    internal val table: String get() = "\"$name\""
 
     private companion object {
         val Name = Regex("[A-Za-z_][A-Za-z0-9_]*")
     }
+}
+
+// Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
+internal val Collection<*>.table: String get() = "\"$name\""
+
+internal fun <T> Collection<T>.encode(value: T): String {
+    val json = Database.Json.encodeToJsonElement(serializer, value)
+    require(json is JsonObject) { "A document of '$name' must be a JSON object, not $json" }
+    return json.toString()
+}
+
+internal fun <T> Collection<T>.decode(row: Row): T = try {
+    Database.Json.decodeFromString(serializer, row.json)
+} catch (e: SerializationException) {
+    throw NosqliteException.DecodingFailed(name, row.id, e)
 }
 
 /** Runs [block] on the transaction's connection, with SQLite's errors about this collection made typed. */
@@ -126,16 +94,4 @@ internal inline fun <R> Collection<*>.mapErrors(block: () -> R): R = try {
 
         else -> throw e
     }
-}
-
-/**
- * Applies the JSON merge [patch] to every document matching [condition]: its fields replace theirs, and a `null`
- * removes one. The result is the documents as patched.
- */
-context(_: WriteScope)
-public suspend fun Collection<JsonObject>.patch(
-    patch: JsonObject,
-    condition: WhereScope.() -> Condition,
-): List<JsonObject> = withConnection {
-    Queries.patch(this, patch.toString(), where(condition)).execute().map { decode(it) }
 }
