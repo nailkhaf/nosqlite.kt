@@ -9,6 +9,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -72,6 +73,17 @@ internal class StorageTest {
     }
 
     @Test
+    fun `the id of a deleted document is never given out again`() = runTest {
+        val db = Database { +Users }
+        val deleted = db.write { Users.insert(ada) }
+        db.write { Users.delete(deleted) }
+
+        val next = db.write { Users.insert(alan) }
+
+        assertNotEquals(deleted, next)
+    }
+
+    @Test
     fun `each collection is a strict table of rowid and jsonb data`() = runTest {
         val db = Database { +Users }
 
@@ -79,7 +91,14 @@ internal class StorageTest {
 
         assertEquals(
             listOf(
-                listOf("CREATE TABLE \"users\" (\n    rowid INTEGER PRIMARY KEY,\n    data BLOB NOT NULL\n) STRICT"),
+                listOf(
+                    """
+                    CREATE TABLE "users" (
+                        rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+                        data BLOB NOT NULL
+                    ) STRICT
+                    """.trimIndent(),
+                ),
             ),
             db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'users'"),
         )
@@ -106,7 +125,8 @@ internal class StorageTest {
 
         assertEquals(
             listOf(listOf("notes"), listOf("users")),
-            db.querySql("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"),
+            // sqlite_sequence is SQLite's own AUTOINCREMENT table.
+            db.querySql("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite%' ORDER BY 1"),
         )
     }
 

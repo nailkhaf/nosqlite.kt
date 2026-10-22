@@ -9,7 +9,7 @@ internal object Queries {
     fun createTable(collection: Collection): Command<Unit> = command(
         """
             CREATE TABLE IF NOT EXISTS ${collection.table} (
-                rowid INTEGER PRIMARY KEY,
+                rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                 data BLOB NOT NULL
             ) STRICT;
         """.trimIndent(),
