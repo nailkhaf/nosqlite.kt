@@ -39,8 +39,8 @@ settings:
     signArtifacts: true
     publishSources: true
     pom:
-      url: https://github.com/nailkhaf/nosqlite
-      scm: https://github.com/nailkhaf/nosqlite.git
+      url: https://github.com/nailkhaf/nosqlite.kt
+      scm: https://github.com/nailkhaf/nosqlite.kt.git
       developers:
         - name: Nail Khafizov
       licenses:
