@@ -6,7 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 /** Covers conditions: the SQL they render, how values are encoded, and what they match in stored documents. */
-internal class ConditionTest {
+internal class WhereTest {
 
     object Users : Collection<User>("users", User.serializer())
 
@@ -22,7 +22,7 @@ internal class ConditionTest {
 
     @Test
     fun `values bind as plain SQL values`() {
-        fun param(block: WhereScope.() -> Condition) = where(block).render().params.single()
+        fun param(block: WhereScope.() -> Where) = where(block).render().params.single()
 
         assertEquals(SqlValue.Text("member"), param { "role" eq "member" })
         assertEquals(SqlValue.Integer(18), param { "age" eq 18 })
@@ -116,9 +116,9 @@ internal class ConditionTest {
         }
     }
 
-    private fun matching(vararg ids: String, block: WhereScope.() -> Condition) = where(block) to ids.toList()
+    private fun matching(vararg ids: String, block: WhereScope.() -> Where) = where(block) to ids.toList()
 
-    private suspend fun Database.idsWhere(condition: Condition): List<String> {
+    private suspend fun Database.idsWhere(condition: Where): List<String> {
         val fragment = condition.render()
         return pool().readSql {
             statement("SELECT data ->> '$.id' FROM users WHERE ${fragment.sql} ORDER BY rowid") { statement ->

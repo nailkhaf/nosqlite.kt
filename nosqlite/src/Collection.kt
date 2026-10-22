@@ -29,18 +29,18 @@ public open class Collection<T>(public val name: String, internal val serializer
         require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
     }
 
-    internal val indexes: List<Index>
+    internal val indexes: List<Index<T>>
         field = mutableListOf()
 
     /** A unique index on [fields]: documents can't share their values; with [where] only matching ones count. */
-    protected fun unique(vararg fields: String, where: (WhereScope.() -> Condition)? = null): Index =
-        register(Index(this, fields.map(::Path), isUnique = true, where?.let(::where)))
+    protected fun unique(vararg fields: String, where: (WhereScope.() -> Where)? = null): UniqueIndex<T> =
+        register(UniqueIndex(this, fields.map(::Path), where?.let(::where)))
 
     /** An index on [fields], in order; with [where] only matching documents are indexed. */
-    protected fun index(vararg fields: String, where: (WhereScope.() -> Condition)? = null): Index =
+    protected fun index(vararg fields: String, where: (WhereScope.() -> Where)? = null): Index<T> =
         register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
 
-    private fun register(index: Index): Index {
+    private fun <I : Index<T>> register(index: I): I {
         require(indexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
         indexes += index
         return index
@@ -52,6 +52,49 @@ public open class Collection<T>(public val name: String, internal val serializer
         val Name = Regex("[A-Za-z_][A-Za-z0-9_]*")
     }
 }
+
+/** Inserts [value] as a new document; it must encode to a JSON object. */
+context(_: WriteScope)
+public suspend fun <T> Collection<T>.insert(value: T) {
+    val json = encode(value)
+    withConnection { Queries.insert(this@insert).execute(json) }
+}
+
+/** The documents [query] selects; without one, every document in the order they were inserted. */
+context(_: ReadScope)
+public suspend fun <T> Collection<T>.list(query: QueryScope.() -> Unit = {}): List<T> = list(query(query))
+
+context(_: ReadScope)
+internal suspend fun <T> Collection<T>.list(query: Query): List<T> =
+    withConnection { Queries.select(this@list, query).execute().map { decode(it) } }
+
+/** How many documents match [condition], or all of them without one. */
+context(_: ReadScope)
+public suspend fun Collection<*>.count(condition: (WhereScope.() -> Where)? = null): Long =
+    withConnection { Queries.count(this@count, condition?.let(::where)).execute() }
+
+/**
+ * Replaces every document matching [condition] with [value], so match on a unique field to replace one.
+ * The result is how many documents were replaced.
+ */
+context(_: WriteScope)
+public suspend fun <T> Collection<T>.update(value: T, condition: WhereScope.() -> Where): Int {
+    val json = encode(value)
+    return withConnection { Queries.update(this@update, json, where(condition)).execute().size }
+}
+
+/** Deletes every document matching [condition]; the result is how many were deleted. */
+context(_: WriteScope)
+public suspend fun Collection<*>.delete(condition: WhereScope.() -> Where): Int =
+    withConnection { Queries.delete(this@delete, where(condition)).execute().size }
+
+/**
+ * Applies the JSON merge [patch] to every document matching [condition]: its fields replace theirs, and a `null`
+ * removes one. The result is how many documents were patched.
+ */
+context(_: WriteScope)
+public suspend fun Collection<JsonObject>.patch(patch: JsonObject, condition: WhereScope.() -> Where): Int =
+    withConnection { Queries.patch(this@patch, patch.toString(), where(condition)).execute().size }
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
 internal val Collection<*>.table: String get() = "\"$name\""

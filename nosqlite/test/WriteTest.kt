@@ -33,7 +33,7 @@ internal class WriteTest {
         return db
     }
 
-    private suspend fun Database.users(): List<User> = read { Users.list(limit = 10) }
+    private suspend fun Database.users(): List<User> = read { Users.list() }
 
     @Test
     fun `update replaces the matching document`() = runTest {
@@ -115,7 +115,7 @@ internal class WriteTest {
 
         val expected = buildJsonObject { put("id", "a"); put("age", 31) }
         assertEquals(1, patched)
-        assertEquals(listOf(expected, buildJsonObject { put("id", "b"); put("age", 40) }), db.read { Raw.list(10) })
+        assertEquals(listOf(expected, buildJsonObject { put("id", "b"); put("age", 40) }), db.read { Raw.list() })
     }
 
     @Test

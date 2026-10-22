@@ -4,11 +4,11 @@ package io.github.nailkhaf.nosqlite
  * An SQLite index over document fields, declared in a [Collection]. Indexes are synced when the database opens:
  * each one's name hashes its definition, so a changed index is dropped and created again and a removed one dropped.
  */
-public class Index internal constructor(
-    internal val collection: Collection<*>,
+public open class Index<T> internal constructor(
+    internal val collection: Collection<T>,
     internal val paths: List<Path>,
-    public val isUnique: Boolean,
-    internal val where: Condition?,
+    internal val isUnique: Boolean,
+    internal val where: Where?,
 ) {
     init {
         require(paths.isNotEmpty()) { "Index without fields" }
@@ -26,6 +26,10 @@ public class Index internal constructor(
         "${if (isUnique) "unique " else ""}index ${collection.name}(${paths.joinToString(", ")})" +
             (where?.let { " where $it" } ?: "")
 }
+
+/** An index whose documents can't share their values for its fields; with a `where`, only the ones it indexes. */
+public class UniqueIndex<T> internal constructor(collection: Collection<T>, paths: List<Path>, where: Where?) :
+    Index<T>(collection, paths, isUnique = true, where)
 
 internal const val INDEX_PREFIX = "nsq_"
 
