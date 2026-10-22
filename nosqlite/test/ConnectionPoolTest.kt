@@ -2,10 +2,8 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -146,31 +144,17 @@ internal class ConnectionPoolTest {
     }
 
     @Test
-    fun `close waits for a connection in use`() = runTest {
+    fun `a connection in use closes when it comes back`() = runTest {
         val pool = ConnectionPool()
-        val inUse = CompletableDeferred<Unit>()
-        val finish = CompletableDeferred<Unit>()
-        val events = mutableListOf<String>()
 
-        val writer = launch {
-            pool.withWriter {
-                inUse.complete(Unit)
-                finish.await()
-                it.createTable()
-                events += "write done"
-            }
-        }
-        inUse.await()
-        // Undispatched, close runs until it waits for the writer's connection.
-        val closing = launch(start = CoroutineStart.UNDISPATCHED) {
+        pool.withWriter {
+            it.createTable()
             pool.close()
-            events += "closed"
+            // Closing doesn't take the connection away from the coroutine using it.
+            it.execute("INSERT INTO t (value) VALUES ('still open');")
         }
-        finish.complete(Unit)
-        writer.join()
-        closing.join()
 
-        assertEquals(listOf("write done", "closed"), events)
+        assertFailsWith<IllegalStateException> { pool.withWriter { } }
     }
 
     @Test

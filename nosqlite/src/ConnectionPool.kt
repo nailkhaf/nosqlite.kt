@@ -5,8 +5,6 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -36,10 +34,10 @@ internal class ConnectionPool(location: Location = Location.InMemory, driver: SQ
     suspend fun <R> withReader(block: suspend (Connection) -> R): R =
         withContext(Dispatchers.IO) { (readers ?: writer).use(block) }
 
-    /** Waits for every connection to be handed back and closes the ones that were opened. */
-    suspend fun close(): Unit = coroutineScope {
-        launch { writer.close() }
-        readers?.let { launch { it.close() } }
+    /** Closes the connections that were opened; one in use closes when its coroutine is done with it. */
+    suspend fun close() {
+        writer.close()
+        readers?.close()
     }
 }
 
@@ -61,30 +59,16 @@ private class Slots(private val size: Int, private val open: () -> Connection) {
         try {
             block(connection)
         } finally {
-            withContext(NonCancellable) { lock.withLock { idle.addLast(connection) } }
+            withContext(NonCancellable) {
+                lock.withLock { if (closed) connection.close() else idle.addLast(connection) }
+            }
         }
     }
 
-    /**
-     * Waits for every connection to come back, then closes them all. Afterwards [use] fails and closing again does
-     * nothing; the permits are handed back so that waiting callers fail instead of waiting forever.
-     */
-    suspend fun close() {
-        var acquired = 0
-        try {
-            repeat(size) {
-                permits.acquire()
-                acquired++
-            }
-            lock.withLock {
-                if (!closed) {
-                    closed = true
-                    idle.forEach { it.close() }
-                    idle.clear()
-                }
-            }
-        } finally {
-            repeat(acquired) { permits.release() }
-        }
+    /** Closes the idle connections; one in use closes when it comes back, and [use] fails from now on. */
+    suspend fun close(): Unit = lock.withLock {
+        closed = true
+        idle.forEach { it.close() }
+        idle.clear()
     }
 }
