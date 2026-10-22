@@ -137,6 +137,34 @@ internal class IndexTest {
     }
 
     @Test
+    fun `composite unique index rejects only a repeated combination`() = runTest {
+        val people = object : Collection<User>("people", User.serializer()) {
+            val byFullName = unique("name.first", "name.last")
+        }
+        val db = Database { +people }
+        db.write {
+            people.insert(user("ada", 36, first = "Ada", last = "Lovelace"))
+            people.insert(user("ada2", 20, first = "Ada", last = "Byron"))
+        }
+
+        val error = assertFailsWith<NosqliteException.UniqueViolation> {
+            db.write { people.insert(user("ada3", 50, first = "Ada", last = "Lovelace")) }
+        }
+
+        assertSame(people.byFullName, error.index)
+    }
+
+    @Test
+    fun `plain index lets documents share a value`() = runTest {
+        val db = Database { +Users }
+
+        db.insert(ada)
+        db.insert(alan.copy(age = ada.age))
+
+        assertEquals(listOf(listOf("2")), db.querySql("SELECT count(*) FROM users"))
+    }
+
+    @Test
     fun `caught violation leaves the write usable`() = runTest {
         val db = Database { +Users }
 
