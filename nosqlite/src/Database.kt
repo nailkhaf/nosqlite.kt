@@ -18,20 +18,18 @@ import kotlin.concurrent.Volatile
  * Nothing touches the file until the first [read] or [write], which creates the collections' tables in one write
  * transaction before anything else runs.
  */
-public class Database internal constructor(private val connections: ConnectionPool) {
+public class Database internal constructor(private val connections: ConnectionPool, internal val catalog: Catalog) {
     private val schemaLock = Mutex()
 
     @Volatile
     private var schemaCreated = false
-
-    internal val catalog: Catalog get() = connections.catalog
 
     /** The connection pool, once the declared collections have their tables. */
     internal suspend fun pool(): ConnectionPool {
         if (!schemaCreated) {
             schemaLock.withLock {
                 if (!schemaCreated) {
-                    connections.write {
+                    connections.write(catalog) {
                         context(connection()) { catalog.collections.values.forEach { createSchema(it) } }
                     }
                     schemaCreated = true
@@ -61,7 +59,7 @@ public fun Database(
     schema: SchemaBuilder.() -> Unit,
 ): Database {
     val catalog = Catalog(SchemaBuilder().apply(schema).collections)
-    return Database(ConnectionPool(location, driver, catalog = catalog))
+    return Database(ConnectionPool(location, driver), catalog)
 }
 
 /** Opens the database file at [path] with the collections [schema] declares. */
@@ -84,13 +82,13 @@ public class SchemaBuilder internal constructor() {
 }
 
 /** Runs [block] in a read transaction: every read in it sees one snapshot. Inside [write] it runs in that write. */
-public suspend fun <R> Database.read(block: suspend context(ReadScope) () -> R): R = pool().read(block)
+public suspend fun <R> Database.read(block: suspend context(ReadScope) () -> R): R = pool().read(catalog, block)
 
 /**
  * Runs [block] in a write transaction that commits when it returns and rolls back when it throws.
  * Inside another write it is a savepoint that rolls back alone.
  */
-public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R): R = pool().write(block)
+public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R): R = pool().write(catalog, block)
 
 context(_: Connection)
 internal suspend fun createSchema(collection: Collection) {

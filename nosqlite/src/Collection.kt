@@ -38,6 +38,6 @@ internal class Catalog(collections: List<Collection>) {
 // The connection to run collection's statements on, once it is known to belong to the transaction's database.
 context(scope: ReadScope)
 internal fun Collection.connection(): Connection {
-    if (scope.pool.catalog.collections[name] !== this) throw NosqliteException.CollectionNotDeclared(name)
+    if (scope.catalog.collections[name] !== this) throw NosqliteException.CollectionNotDeclared(name)
     return scope.connection
 }

@@ -6,37 +6,42 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.CoroutineContext
 
 /**
- * Inside `read { }` or `write { }`: documents can be read.
+ * Inside `read { }` or `write { }`: documents of the [catalog]'s collections can be read.
  * A read transaction sees one snapshot. It never nests: a read inside any transaction runs in that transaction.
  */
-public open class ReadScope internal constructor(internal val connection: Connection, internal val pool: ConnectionPool)
+public open class ReadScope internal constructor(
+    internal val connection: Connection,
+    internal val pool: ConnectionPool,
+    internal val catalog: Catalog,
+)
 
 /**
  * Inside `write { }`: documents can also be inserted, updated, patched and deleted.
  * A nested write is a savepoint that rolls back alone.
  */
-public class WriteScope internal constructor(connection: Connection, pool: ConnectionPool) : ReadScope(connection, pool)
+public class WriteScope internal constructor(connection: Connection, pool: ConnectionPool, catalog: Catalog) :
+    ReadScope(connection, pool, catalog)
 
 context(scope: ReadScope)
 internal fun connection(): Connection = scope.connection
 
 // Inside an active transaction of this pool, block runs in it, so a read inside a write sees its changes.
-internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) () -> R): R {
+internal suspend fun <R> ConnectionPool.read(catalog: Catalog, block: suspend context(ReadScope) () -> R): R {
     activeScope(this)?.let { active -> return context(active) { block() } }
     return withReader { connection ->
-        val scope = ReadScope(connection, this)
+        val scope = ReadScope(connection, this, catalog)
         connection.transaction(Boundary.Read) { withScope(scope, block) }
     }
 }
 
-internal suspend fun <R> ConnectionPool.write(block: suspend context(WriteScope) () -> R): R {
+internal suspend fun <R> ConnectionPool.write(catalog: Catalog, block: suspend context(WriteScope) () -> R): R {
     activeScope(this)?.let { active ->
         check(active is WriteScope) { "Write inside a read transaction, start write { } outside of read { }" }
-        val scope = WriteScope(active.connection, this)
+        val scope = WriteScope(active.connection, this, active.catalog)
         return active.connection.transaction(Boundary.Savepoint) { withScope(scope, block) }
     }
     return withWriter { connection ->
-        val scope = WriteScope(connection, this)
+        val scope = WriteScope(connection, this, catalog)
         connection.transaction(Boundary.Write) { withScope(scope, block) }
     }
 }

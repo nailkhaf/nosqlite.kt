@@ -1,5 +1,12 @@
 package io.github.nailkhaf.nosqlite
 
+// Transactions for tests below the document layer, which declare no collections.
+private val NoCollections = Catalog(emptyList())
+
+internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) () -> R): R = read(NoCollections, block)
+
+internal suspend fun <R> ConnectionPool.write(block: suspend context(WriteScope) () -> R): R = write(NoCollections, block)
+
 /** Runs raw SQL in [block] inside a read transaction. */
 internal suspend fun <R> ConnectionPool.readSql(block: suspend Connection.() -> R): R = read { connection().block() }
 
