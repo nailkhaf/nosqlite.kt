@@ -16,7 +16,7 @@ internal class PathTest {
 
     @Test
     fun `serial paths split on dots`() {
-        val path = path<String>("inner.zip_code")
+        val path = path("inner.zip_code")
 
         assertEquals(listOf("inner", "zip_code"), path.names)
         assertEquals("inner.zip_code", path.toString())
@@ -34,17 +34,17 @@ internal class PathTest {
 
     @Test
     fun `paths with the same keys are equal`() {
-        assertEquals(path<Int>("age"), path(User::age))
-        assertEquals(path<String>("name.last").hashCode(), (User::name / Name::last).hashCode())
+        assertEquals(path("age"), path(User::age))
+        assertEquals(path("name.last").hashCode(), (User::name / Name::last).hashCode())
     }
 
     @Test
     fun `invalid segments are rejected`() {
-        val error = assertFailsWith<IllegalArgumentException> { path<Int>("a..b") }
+        val error = assertFailsWith<IllegalArgumentException> { path("a..b") }
 
         assertEquals("Invalid path 'a..b': keys must be identifiers", error.message)
         for (invalid in listOf("", "first name", "it's", "a\"b", "1st")) {
-            assertFailsWith<IllegalArgumentException>(invalid) { path<Int>(invalid) }
+            assertFailsWith<IllegalArgumentException>(invalid) { path(invalid) }
         }
     }
 }

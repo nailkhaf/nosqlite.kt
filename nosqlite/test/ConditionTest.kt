@@ -103,7 +103,7 @@ internal class ConditionTest {
             matching("ann", "cid") { (User::age lt 18) or (User::name / Name::last eq "Jones") },
             matching("bob") { not(User::tags contains "kotlin") },
             matching("ann", "bob") { User::email isIn listOf(Email("ann@example.com"), Email("bob@example.com")) },
-            matching("cid") { path<String>("name.last") eq "Jones" },
+            matching("cid") { path("name.last") eq "Jones" },
             matching { User::age isIn emptyList() },
         )
 

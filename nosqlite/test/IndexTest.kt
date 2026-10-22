@@ -21,8 +21,8 @@ internal class IndexTest {
     }
 
     object Teams : Collection("teams") {
-        val byLead = unique(path<String>("lead.last"))
-        val byLeadFirst = index(path<String>("lead.first"))
+        val byLead = unique<String>(path("lead.last"))
+        val byLeadFirst = index(path("lead.first"))
     }
 
     @Serializable

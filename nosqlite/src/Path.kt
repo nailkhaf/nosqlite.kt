@@ -29,8 +29,11 @@ public class Path<out V> internal constructor(internal val names: List<String>) 
 
 public fun <V> path(property: KProperty1<*, V>): Path<V> = Path(listOf(property.name))
 
-/** The field at [serialPath], serial names separated by dots, for properties renamed with `@SerialName`. */
-public fun <V> path(serialPath: String): Path<V> = Path(serialPath.split('.'))
+/**
+ * The field at [serialPath], serial names separated by dots, for properties renamed with `@SerialName`.
+ * Its value type is unchecked: a comparison takes it from the value, `path("name.last") eq "Jones"`.
+ */
+public fun path(serialPath: String): Path<Nothing> = Path(serialPath.split('.'))
 
 /** The field [next] inside this property's value; a nullable parent is fine. */
 public operator fun <B : Any, C> KProperty1<*, B?>.div(next: KProperty1<B, C>): Path<C> =
