@@ -11,10 +11,11 @@ public suspend fun <T> Collection<T>.insert(value: T) {
 
 /** The documents [query] selects; without one, every document in the order they were inserted. */
 context(_: ReadScope)
-public suspend fun <T> Collection<T>.list(query: QueryScope.() -> Unit = {}): List<T> {
-    val query = query(query)
-    return withConnection { Queries.select(this@list, query).execute().map { decode(it) } }
-}
+public suspend fun <T> Collection<T>.list(query: QueryScope.() -> Unit = {}): List<T> = list(query(query))
+
+context(_: ReadScope)
+internal suspend fun <T> Collection<T>.list(query: Query): List<T> =
+    withConnection { Queries.select(this@list, query).execute().map { decode(it) } }
 
 /** How many documents match [condition], or all of them without one. */
 context(_: ReadScope)

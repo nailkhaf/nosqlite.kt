@@ -20,7 +20,7 @@ internal object Queries {
         decode = rows { getText(0) },
     )
 
-    fun createIndex(index: Index): Command<Unit> = command(
+    fun createIndex(index: Index<*>): Command<Unit> = command(
         "CREATE ${if (index.isUnique) "UNIQUE " else ""}INDEX \"${index.name}\" " +
             "ON ${index.collection.table} ${index.definition};",
     )
@@ -55,6 +55,17 @@ internal object Queries {
 
     fun delete(collection: Collection<*>, condition: Condition): Statement<Unit, List<DocumentId>> =
         (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(rows(id))
+
+    /** Inserts the input JSON, or replaces the document it conflicts with in [index]. */
+    fun upsert(index: Index<*>): Statement<String, DocumentId> = Statement(
+        sql = "INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?)) " +
+            "ON CONFLICT ${index.definition} DO UPDATE SET data = excluded.data RETURNING rowid;",
+        encode = { json -> bindText(1, json) },
+        decode = {
+            check(step()) { "Upsert into ${index.collection.name} returned no rowid" }
+            DocumentId(getLong(0))
+        },
+    )
 
     fun insert(collection: Collection<*>): Statement<String, DocumentId> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?)) RETURNING rowid;",

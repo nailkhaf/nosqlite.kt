@@ -10,7 +10,7 @@ public sealed class NosqliteException(message: String, cause: Throwable? = null)
     /** A write would give two documents of [collection] the same key in a unique [index], `null` when unknown. */
     public class UniqueViolation internal constructor(
         public val collection: String,
-        public val index: Index?,
+        public val index: Index<*>?,
         cause: Throwable,
     ) : NosqliteException("Unique constraint violated in '$collection': ${index ?: cause.message}", cause)
 
