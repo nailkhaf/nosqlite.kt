@@ -102,6 +102,16 @@ internal class StorageTest {
     data class User(val name: String, val age: Int)
 
     @Test
+    fun `a collection can be created without a subclass`() = runTest {
+        val notes = Collection("notes", JsonObject.serializer())
+        val db = Database { +notes }
+
+        db.write { notes.insert(ada) }
+
+        assertEquals(listOf(ada), db.read { notes.list(limit = 1) })
+    }
+
+    @Test
     fun `a serializable value is stored as its JSON`() = runTest {
         val db = Database { +People }
 

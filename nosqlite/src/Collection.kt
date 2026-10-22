@@ -6,19 +6,24 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
 
 /**
- * A named set of [T] documents, stored as JSON in its own table. Declare one as an object with its indexes and list
- * it in `Database { }`:
+ * A named set of [T] documents, stored as JSON in its own table. Create one directly, or extend it to declare
+ * indexes, and list it in `Database { }`:
  * ```
+ * val Notes = Collection("notes", Note.serializer())
+ *
  * object Users : Collection<User>("users", User.serializer()) {
  *     val byEmail = unique("email")
  *     val byAge = index("age")
  *     val byName = index("name.last", "name.first")
  * }
  *
- * val db = Database("app.db") { +Users }
+ * val db = Database("app.db") {
+ *     +Notes
+ *     +Users
+ * }
  * ```
  */
-public abstract class Collection<T>(public val name: String, internal val serializer: KSerializer<T>) {
+public open class Collection<T>(public val name: String, internal val serializer: KSerializer<T>) {
     init {
         require(name.matches(Name)) { "Invalid collection name: '$name'" }
         require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
