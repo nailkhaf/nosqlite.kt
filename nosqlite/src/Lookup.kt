@@ -40,12 +40,12 @@ public operator fun <T> UniqueIndex<T>.invoke(vararg values: Any?): Lookup.Uniqu
     return Lookup.Unique(this, values.map(::sqlValue))
 }
 
-private fun sqlValue(value: Any?): SqlValue = when (value) {
+internal fun sqlValue(value: Any?): SqlValue = when (value) {
     null -> SqlValue.Null
     is String -> SqlValue.Text(value)
     is Number -> value.sqlValue
     is Boolean -> SqlValue.Integer(if (value) 1 else 0)
-    else -> throw IllegalArgumentException("Unsupported lookup value: ${value::class.simpleName}")
+    else -> throw IllegalArgumentException("Unsupported value: ${value::class.simpleName}")
 }
 
 /** The documents found that [query] selects; its condition, if any, must hold as well. */

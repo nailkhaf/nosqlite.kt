@@ -218,7 +218,7 @@ internal class LookupTest {
 
         assertEquals("index users(name.last, name.first) takes 1 to 2 values, not 0", none.message)
         assertEquals("index users(name.last, name.first) takes 1 to 2 values, not 3", many.message)
-        assertEquals("Unsupported lookup value: Char", type.message)
+        assertEquals("Unsupported value: Char", type.message)
     }
 
     @Test

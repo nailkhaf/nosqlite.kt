@@ -116,6 +116,26 @@ they are stored, so an enum as its serial name. Documents with equal sort keys k
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
 run other queries.
 
+### Property references
+
+Fields can also be named by property references, which the compiler checks: `User::age gte 18`,
+`User::name / Name::last` for a nested field, `asc(User::age)` in `orderBy`, and `unique(User::email)` or
+`index(User::name / Name::last)` in a collection. A property reference names the field by its property name, so an
+index on a property renamed with `@SerialName` fails when the collection is created; name that field by its string.
+Values must be of the property's type: `User::age gte 18` compiles, `User::age gte "18"` doesn't.
+
+```kotlin
+object Users : Collection<User>("users", User.serializer()) {
+    val byEmail = unique(User::email)
+    val byName = index(User::name / Name::last, User::name / Name::first)
+}
+
+Users.list {
+    where { (User::age gte 18) and (User::tags contains "kotlin") }
+    orderBy(desc(User::age), asc(User::name / Name::last))
+}
+```
+
 ### Observing
 
 `observe` runs in a `Database` context and returns a `Flow` that reads now and again after every committed write
