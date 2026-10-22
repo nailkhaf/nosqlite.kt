@@ -1,7 +1,5 @@
 package io.github.nailkhaf.nosqlite
 
-import kotlinx.collections.immutable.PersistentSet
-import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
@@ -15,22 +13,9 @@ public open class ReadScope internal constructor(internal val connection: Connec
 
 /**
  * Inside `write { }`: documents can also be inserted, updated, patched and deleted.
- * A nested write is a savepoint inside its [parent]. The tables it changes are collected until it commits: a savepoint
- * hands them to its parent, the outermost transaction reports them to [ConnectionPool.onCommit] once its connection
- * is back in the pool. Rolling back drops them.
+ * A nested write is a savepoint that rolls back alone.
  */
-public class WriteScope internal constructor(
-    connection: Connection,
-    pool: ConnectionPool,
-    internal val parent: WriteScope?,
-) : ReadScope(connection, pool) {
-    internal var changes: PersistentSet<String> = persistentSetOf()
-        private set
-
-    internal fun changed(tables: Set<String>) {
-        changes = changes.addingAll(tables)
-    }
-}
+public class WriteScope internal constructor(connection: Connection, pool: ConnectionPool) : ReadScope(connection, pool)
 
 context(scope: ReadScope)
 internal fun connection(): Connection = scope.connection
@@ -47,17 +32,13 @@ internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) (
 internal suspend fun <R> ConnectionPool.write(block: suspend context(WriteScope) () -> R): R {
     activeScope(this)?.let { active ->
         check(active is WriteScope) { "Write inside a read transaction, start write { } outside of read { }" }
-        val scope = WriteScope(active.connection, this, parent = active)
+        val scope = WriteScope(active.connection, this)
         return active.connection.transaction(Boundary.Savepoint) { scope.activate(block) }
-            .also { active.changed(scope.changes) }
     }
-
-    val (result, changes) = withWriter { connection ->
-        val scope = WriteScope(connection, this, parent = null)
-        connection.transaction(Boundary.Write) { scope.activate(block) } to scope.changes
+    return withWriter { connection ->
+        val scope = WriteScope(connection, this)
+        connection.transaction(Boundary.Write) { scope.activate(block) }
     }
-    if (changes.isNotEmpty()) onCommit(changes)
-    return result
 }
 
 /** The SQL that opens, commits and rolls back one kind of transaction. */

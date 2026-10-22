@@ -10,11 +10,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 
-/** Covers read and write transactions: commit, rollback, savepoints, snapshots and reporting changed tables. */
+/** Covers read and write transactions: commit, rollback, savepoints and snapshots. */
 internal class TransactionTest {
 
-    private suspend fun poolWithTable(onCommit: (Set<String>) -> Unit = {}): ConnectionPool =
-        ConnectionPool(onCommit = onCommit).apply { writeSql { createTable() } }
+    private suspend fun poolWithTable(): ConnectionPool = ConnectionPool().apply { writeSql { createTable() } }
 
     @Test
     fun `write commits everything it did`() = runTest {
@@ -186,44 +185,5 @@ internal class TransactionTest {
         val error = assertFailsWith<IllegalStateException> { pool.writeSql { } }
 
         assertEquals("Connection is already in a transaction, BEGIN would fail", error.message)
-    }
-
-    @Test
-    fun `changed tables are reported once after the outermost commit`() = runTest {
-        val reported = mutableListOf<Set<String>>()
-        val pool = poolWithTable(onCommit = { reported += it })
-
-        pool.write {
-            pool.write { contextOf<WriteScope>().changed(setOf("a")) }
-            assertEquals(emptyList(), reported)
-            contextOf<WriteScope>().changed(setOf("b"))
-        }
-
-        assertEquals(listOf(setOf("a", "b")), reported)
-    }
-
-    @Test
-    fun `rolled back changes are not reported`() = runTest {
-        val reported = mutableListOf<Set<String>>()
-        val pool = poolWithTable(onCommit = { reported += it })
-
-        pool.write {
-            assertFails {
-                pool.write {
-                    contextOf<WriteScope>().changed(setOf("savepoint"))
-                    error("rollback savepoint")
-                }
-            }
-            contextOf<WriteScope>().changed(setOf("kept"))
-        }
-        assertFails {
-            pool.write {
-                contextOf<WriteScope>().changed(setOf("outer"))
-                error("rollback")
-            }
-        }
-        pool.write { }
-
-        assertEquals(listOf(setOf("kept")), reported)
     }
 }
