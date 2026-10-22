@@ -1,5 +1,6 @@
 package io.github.nailkhaf.todo
 
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,5 +13,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val repository = (application as TodoApplication).repository
         setContent { App(repository) }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        enableEdgeToEdge()
     }
 }

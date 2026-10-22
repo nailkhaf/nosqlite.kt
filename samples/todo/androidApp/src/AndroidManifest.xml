@@ -10,6 +10,7 @@
             android:supportsRtl="true"
             android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
+                android:configChanges="colorMode|density|fontScale|fontWeightAdjustment|grammaticalGender|keyboard|keyboardHidden|layoutDirection|locale|mcc|mnc|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
                 android:exported="true"
                 android:name=".MainActivity">
             <intent-filter>
