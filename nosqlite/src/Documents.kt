@@ -10,9 +10,9 @@ public suspend fun Collection.insert(value: JsonObject): DocumentId = withConnec
     Queries.insert(this).execute(Database.Json.encodeToString(JsonObject.serializer(), value))
 }
 
-/** Deletes the document [id]; the result is the number of documents deleted, 0 or 1. */
+/** Deletes the document [id]; the result is `false` when there was none. */
 context(_: WriteScope)
-public suspend fun Collection.delete(id: DocumentId): Int = withConnection {
+public suspend fun Collection.delete(id: DocumentId): Boolean = withConnection {
     Queries.deleteById(this).execute(id)
 }
 

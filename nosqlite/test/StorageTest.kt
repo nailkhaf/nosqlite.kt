@@ -10,6 +10,7 @@ import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** Covers declaring collections, their tables, and storing JSON documents by [DocumentId]. */
 internal class StorageTest {
@@ -58,15 +59,15 @@ internal class StorageTest {
     }
 
     @Test
-    fun `delete returns how many documents it removed`() = runTest {
+    fun `delete tells whether the document was there`() = runTest {
         val db = Database { +Users }
         val id = db.write { Users.insert(ada) }
 
         val first = db.write { Users.delete(id) }
         val second = db.write { Users.delete(id) }
 
-        assertEquals(1, first)
-        assertEquals(0, second)
+        assertTrue(first)
+        assertFalse(second)
         assertNull(db.read { Users.get<JsonObject>(id) })
     }
 

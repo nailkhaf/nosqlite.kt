@@ -32,18 +32,12 @@ internal object Queries {
         decode = firstOrNull { getText(0) },
     )
 
-    fun deleteById(collection: Collection): Statement<DocumentId, Int> = Statement(
+    // RETURNING gives back a row only when one was deleted: androidx.sqlite has no changes().
+    fun deleteById(collection: Collection): Statement<DocumentId, Boolean> = Statement(
         sql = "DELETE FROM ${collection.table} WHERE rowid = ? RETURNING rowid;",
         encode = { id -> bindLong(1, id.value) },
-        decode = { countRows() },
+        decode = { step() },
     )
-}
-
-/** Counts the rows a `RETURNING` clause gives back: the rows a statement changed. */
-internal fun SQLiteStatement.countRows(): Int {
-    var count = 0
-    while (step()) count++
-    return count
 }
 
 /** [json] decoded with [deserializer]; a failure names the document. */
