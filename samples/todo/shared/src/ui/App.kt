@@ -61,7 +61,7 @@ fun App(repository: TaskRepository) {
                     ) { Text("Add") }
                 }
                 LazyColumn(Modifier.weight(1f)) {
-                    items(tasks, key = { it.id }) { task ->
+                    items(tasks, key = { it.id.toString() }) { task ->
                         TaskRow(
                             task = task,
                             onToggle = { scope.launch { repository.toggle(task) } },

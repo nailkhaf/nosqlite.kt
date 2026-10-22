@@ -19,15 +19,15 @@ class TaskRepository(location: Location) {
     val tasks: Flow<List<Task>> = with(db) { Tasks.observe { orderBy(asc("done")) } }
 
     suspend fun add(title: String) {
-        db.write { Tasks.insert(Task(Uuid.random().toString(), title)) }
+        db.write { Tasks.insert(Task(Uuid.random(), title)) }
     }
 
     suspend fun toggle(task: Task) {
-        db.write { Tasks.byId(task.id).update(task.copy(done = !task.done)) }
+        db.write { Tasks.byId(task.id.toString()).update(task.copy(done = !task.done)) }
     }
 
     suspend fun delete(task: Task) {
-        db.write { Tasks.byId(task.id).delete() }
+        db.write { Tasks.byId(task.id.toString()).delete() }
     }
 
     suspend fun clearDone() {
