@@ -3,7 +3,9 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteException
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.encoding.CompositeDecoder
 import kotlinx.serialization.json.JsonObject
+import kotlin.reflect.KProperty1
 
 /**
  * A named set of [T] documents, stored as JSON in its own table. Create one directly, or extend it to declare
@@ -39,6 +41,32 @@ public open class Collection<T>(public val name: String, internal val serializer
     /** An index on [fields], in order; with [where] only matching documents are indexed. */
     protected fun index(vararg fields: String, where: (WhereScope.() -> Where)? = null): Index<T> =
         register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
+
+    /** A unique index on property [fields]; each must be a serial field of [T] under its property name. */
+    protected fun unique(vararg fields: Field<T, *>, where: (WhereScope.() -> Where)? = null): UniqueIndex<T> =
+        unique(*fields.map { it.checkedPath() }.toTypedArray(), where = where)
+
+    protected fun unique(vararg properties: KProperty1<T, *>, where: (WhereScope.() -> Where)? = null): UniqueIndex<T> =
+        unique(*properties.map { it.field }.toTypedArray(), where = where)
+
+    /** An index on property [fields]; each must be a serial field of [T] under its property name. */
+    protected fun index(vararg fields: Field<T, *>, where: (WhereScope.() -> Where)? = null): Index<T> =
+        index(*fields.map { it.checkedPath() }.toTypedArray(), where = where)
+
+    protected fun index(vararg properties: KProperty1<T, *>, where: (WhereScope.() -> Where)? = null): Index<T> =
+        index(*properties.map { it.field }.toTypedArray(), where = where)
+
+    // A property renamed with @SerialName is stored under its serial name, which a property reference can't name.
+    private fun Field<T, *>.checkedPath(): String {
+        keys.fold(serializer.descriptor) { descriptor, key ->
+            val index = descriptor.getElementIndex(key)
+            require(index != CompositeDecoder.UNKNOWN_NAME) {
+                "'$this' is not a serial field of '$name': name a field renamed with @SerialName by its serial name"
+            }
+            descriptor.getElementDescriptor(index)
+        }
+        return path
+    }
 
     private fun <I : Index<T>> register(index: I): I {
         require(indexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
