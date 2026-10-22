@@ -22,7 +22,7 @@ internal class WhereTest {
 
     @Test
     fun `values bind as plain SQL values`() {
-        fun param(block: WhereScope.() -> Condition) = where(block).render().params.single()
+        fun param(block: WhereScope.() -> Where) = where(block).render().params.single()
 
         assertEquals(SqlValue.Text("member"), param { "role" eq "member" })
         assertEquals(SqlValue.Integer(18), param { "age" eq 18 })
@@ -116,9 +116,9 @@ internal class WhereTest {
         }
     }
 
-    private fun matching(vararg ids: String, block: WhereScope.() -> Condition) = where(block) to ids.toList()
+    private fun matching(vararg ids: String, block: WhereScope.() -> Where) = where(block) to ids.toList()
 
-    private suspend fun Database.idsWhere(condition: Condition): List<String> {
+    private suspend fun Database.idsWhere(condition: Where): List<String> {
         val fragment = condition.render()
         return pool().readSql {
             statement("SELECT data ->> '$.id' FROM users WHERE ${fragment.sql} ORDER BY rowid") { statement ->

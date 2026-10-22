@@ -8,7 +8,7 @@ public class Index<T> internal constructor(
     internal val collection: Collection<T>,
     internal val paths: List<Path>,
     public val isUnique: Boolean,
-    internal val where: Condition?,
+    internal val where: Where?,
 ) {
     init {
         require(paths.isNotEmpty()) { "Index without fields" }

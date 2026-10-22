@@ -5,7 +5,7 @@ public class Order internal constructor(internal val path: Path, internal val de
     override fun toString(): String = "$path ${if (descending) "desc" else "asc"}"
 }
 
-internal class Query(val condition: Condition?, val orderBy: List<Order>, val limit: Int, val offset: Int)
+internal class Query(val condition: Where?, val orderBy: List<Order>, val limit: Int, val offset: Int)
 
 /**
  * Builds a query: which documents, in what order, and which page of them. Each part is set at most once; without
@@ -22,12 +22,12 @@ internal class Query(val condition: Condition?, val orderBy: List<Order>, val li
  */
 @QueryDsl
 public class QueryScope internal constructor() {
-    private var condition: Condition? = null
+    private var condition: Where? = null
     private var orderBy: List<Order>? = null
     private var limit: Int? = null
     private var offset: Int? = null
 
-    public fun where(condition: WhereScope.() -> Condition) {
+    public fun where(condition: WhereScope.() -> Where) {
         check(this.condition == null) { "where is already set" }
         this.condition = WhereScope().condition()
     }

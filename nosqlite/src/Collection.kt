@@ -33,11 +33,11 @@ public open class Collection<T>(public val name: String, internal val serializer
         field = mutableListOf()
 
     /** A unique index on [fields]: documents can't share their values; with [where] only matching ones count. */
-    protected fun unique(vararg fields: String, where: (WhereScope.() -> Condition)? = null): Index<T> =
+    protected fun unique(vararg fields: String, where: (WhereScope.() -> Where)? = null): Index<T> =
         register(Index(this, fields.map(::Path), isUnique = true, where?.let(::where)))
 
     /** An index on [fields], in order; with [where] only matching documents are indexed. */
-    protected fun index(vararg fields: String, where: (WhereScope.() -> Condition)? = null): Index<T> =
+    protected fun index(vararg fields: String, where: (WhereScope.() -> Where)? = null): Index<T> =
         register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
 
     private fun register(index: Index<T>): Index<T> {

@@ -39,21 +39,21 @@ internal object Queries {
             .statement(rows(row))
     }
 
-    fun count(collection: Collection<*>, condition: Condition?): Statement<Unit, Long> =
+    fun count(collection: Collection<*>, condition: Where?): Statement<Unit, Long> =
         (Fragment("SELECT count(*) FROM ${collection.table}") + where(condition) + ";").statement {
             check(step()) { "count(*) returned no row" }
             getLong(0)
         }
 
-    fun update(collection: Collection<*>, json: String, condition: Condition): Statement<Unit, List<DocumentId>> =
+    fun update(collection: Collection<*>, json: String, condition: Where): Statement<Unit, List<DocumentId>> =
         (Fragment("UPDATE ${collection.table} SET data = jsonb(?) WHERE ", listOf(SqlValue.Text(json))) +
             condition.render() + RETURNING).statement(rows(id))
 
-    fun patch(collection: Collection<*>, patch: String, condition: Condition): Statement<Unit, List<DocumentId>> =
+    fun patch(collection: Collection<*>, patch: String, condition: Where): Statement<Unit, List<DocumentId>> =
         (Fragment("UPDATE ${collection.table} SET data = jsonb_patch(data, ?) WHERE ", listOf(SqlValue.Text(patch))) +
             condition.render() + RETURNING).statement(rows(id))
 
-    fun delete(collection: Collection<*>, condition: Condition): Statement<Unit, List<DocumentId>> =
+    fun delete(collection: Collection<*>, condition: Where): Statement<Unit, List<DocumentId>> =
         (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(rows(id))
 
     /** Inserts the input JSON, or replaces the document it conflicts with in [index]. */
@@ -77,7 +77,7 @@ internal object Queries {
     )
 }
 
-private fun where(condition: Condition?): Fragment =
+private fun where(condition: Where?): Fragment =
     condition?.let { Fragment(" WHERE ") + it.render() } ?: Fragment.Empty
 
 // Writes return the ids they touched, for the library to know which documents changed.

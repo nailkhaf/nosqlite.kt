@@ -10,9 +10,9 @@ package io.github.nailkhaf.nosqlite
  * A partial index's own condition is part of the key, so only the documents it indexes match.
  */
 public class Key<T> internal constructor(internal val index: Index<T>, internal val values: List<SqlValue>) {
-    internal val condition: Condition = index.paths.zip(values) { path, value ->
-        if (value == SqlValue.Null) Condition.IsNull(path) else Condition.Compare(path, Comparison.Eq, value)
-    }.plus(listOfNotNull(index.where)).reduce { left, right -> Condition.And(left, right) }
+    internal val condition: Where = index.paths.zip(values) { path, value ->
+        if (value == SqlValue.Null) Where.IsNull(path) else Where.Compare(path, Comparison.Eq, value)
+    }.plus(listOfNotNull(index.where)).reduce { left, right -> Where.And(left, right) }
 
     override fun toString(): String = "$index = ${values.map { it.literal }}"
 }
@@ -46,7 +46,7 @@ public suspend fun <T> Key<T>.get(): T? {
 context(_: ReadScope)
 public suspend fun <T> Key<T>.list(query: QueryScope.() -> Unit = {}): List<T> {
     val query = query(query)
-    val condition = query.condition?.let { Condition.And(condition, it) } ?: condition
+    val condition = query.condition?.let { Where.And(condition, it) } ?: condition
     return index.collection.list(Query(condition, query.orderBy, query.limit, query.offset))
 }
 
