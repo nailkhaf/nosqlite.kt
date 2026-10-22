@@ -2,6 +2,7 @@ package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -16,11 +17,15 @@ import kotlin.test.assertTrue
 /** Covers declaring collections, their tables, and storing JSON documents. */
 internal class StorageTest {
 
-    object Users : Collection("users")
+    object Users : Collection<JsonObject>("users", JsonObject.serializer())
 
-    object Notes : Collection("notes")
+    object Notes : Collection<JsonObject>("notes", JsonObject.serializer())
 
-    object Undeclared : Collection("undeclared")
+    object Undeclared : Collection<JsonObject>("undeclared", JsonObject.serializer())
+
+    object People : Collection<User>("people", User.serializer())
+
+    object Numbers : Collection<Int>("numbers", Int.serializer())
 
     private val ada = buildJsonObject {
         put("name", "Ada")
@@ -48,7 +53,7 @@ internal class StorageTest {
         val db = Database { +Users }
         db.write { Users.insert(ada) }
 
-        val stored = db.read { Users.get<JsonObject>(DocumentId(1)) }
+        val stored = db.read { Users.get(DocumentId(1)) }
 
         assertEquals(ada, stored)
     }
@@ -58,28 +63,28 @@ internal class StorageTest {
 
     @Test
     fun `a serializable value is stored as its JSON`() = runTest {
-        val db = Database { +Users }
+        val db = Database { +People }
 
-        db.write { Users.insert(User("Ada", 36)) }
+        db.write { People.insert(User("Ada", 36)) }
 
-        assertEquals(User("Ada", 36), db.read { Users.get<User>(DocumentId(1)) })
-        assertEquals(ada, db.read { Users.get<JsonObject>(DocumentId(1)) })
+        assertEquals(User("Ada", 36), db.read { People.get(DocumentId(1)) })
+        assertEquals(listOf(listOf("""{"name":"Ada","age":36}""")), db.querySql("SELECT json(data) FROM people"))
     }
 
     @Test
     fun `a value that is not a JSON object is rejected`() = runTest {
-        val db = Database { +Users }
+        val db = Database { +Numbers }
 
-        val error = assertFailsWith<IllegalArgumentException> { db.write { Users.insert(42) } }
+        val error = assertFailsWith<IllegalArgumentException> { db.write { Numbers.insert(42) } }
 
-        assertEquals("A document of 'users' must be a JSON object, not 42", error.message)
+        assertEquals("A document of 'numbers' must be a JSON object, not 42", error.message)
     }
 
     @Test
     fun `get of an unknown id is null`() = runTest {
         val db = Database { +Users }
 
-        val stored = db.read { Users.get<JsonObject>(DocumentId(42)) }
+        val stored = db.read { Users.get(DocumentId(42)) }
 
         assertNull(stored)
     }
@@ -95,7 +100,7 @@ internal class StorageTest {
 
         assertTrue(first)
         assertFalse(second)
-        assertNull(db.read { Users.get<JsonObject>(id) })
+        assertNull(db.read { Users.get(id) })
     }
 
     @Test
@@ -185,7 +190,7 @@ internal class StorageTest {
             first.close()
 
             val second = Database(location.path) { +Users }
-            val stored = second.read { Users.get<JsonObject>(DocumentId(1)) }
+            val stored = second.read { Users.get(DocumentId(1)) }
 
             assertEquals(ada, stored)
             second.close()
@@ -207,7 +212,7 @@ internal class StorageTest {
         db.write { Users.insert(ada) }
         db.close()
 
-        val error = assertFailsWith<IllegalStateException> { db.read { Users.get<JsonObject>(DocumentId(1)) } }
+        val error = assertFailsWith<IllegalStateException> { db.read { Users.get(DocumentId(1)) } }
 
         assertEquals("Database is closed", error.message)
     }
@@ -242,18 +247,20 @@ internal class StorageTest {
         )
 
         for ((name, message) in invalid) {
-            val error = assertFailsWith<IllegalArgumentException> { object : Collection(name) {} }
+            val error = assertFailsWith<IllegalArgumentException> {
+                object : Collection<JsonObject>(name, JsonObject.serializer()) {}
+            }
             assertEquals(message, error.message)
         }
     }
 
     @Test
     fun `document that does not decode names its collection`() = runTest {
-        val db = Database { +Users }
-        db.write { Users.insert(ada) }
+        val db = Database { +People }
+        db.pool().writeSql { execute("""INSERT INTO people (data) VALUES (jsonb('{"name":1}'))""") }
 
-        val error = assertFailsWith<NosqliteException.DecodingFailed> { db.read { Users.get<Int>(DocumentId(1)) } }
+        val error = assertFailsWith<NosqliteException.DecodingFailed> { db.read { People.get(DocumentId(1)) } }
 
-        assertEquals("users", error.collection)
+        assertEquals("people", error.collection)
     }
 }
