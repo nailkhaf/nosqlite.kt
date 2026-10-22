@@ -9,22 +9,11 @@ public suspend fun <T> Collection<T>.insert(value: T) {
     withConnection { Queries.insert(this@insert).execute(json) }
 }
 
-/**
- * Up to [limit] documents matching [condition], or any documents without one, sorted by [orderBy] and then in the
- * order they were inserted, skipping the first [offset].
- */
+/** The documents [query] selects; without one, every document in the order they were inserted. */
 context(_: ReadScope)
-public suspend fun <T> Collection<T>.list(
-    limit: Int = Int.MAX_VALUE,
-    offset: Int = 0,
-    orderBy: List<Order> = emptyList(),
-    condition: (WhereScope.() -> Condition)? = null,
-): List<T> {
-    require(limit > 0) { "Limit must be positive: $limit" }
-    require(offset >= 0) { "Offset must not be negative: $offset" }
-    return withConnection {
-        Queries.select(this@list, condition?.let(::where), orderBy, limit, offset).execute().map { decode(it) }
-    }
+public suspend fun <T> Collection<T>.list(query: QueryScope.() -> Unit = {}): List<T> {
+    val query = query(query)
+    return withConnection { Queries.select(this@list, query).execute().map { decode(it) } }
 }
 
 /** How many documents match [condition], or all of them without one. */

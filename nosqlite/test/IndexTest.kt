@@ -187,7 +187,7 @@ internal class IndexTest {
         val error = assertFailsWith<NosqliteException.UniqueViolation> { db.insert(user("dan", 30, nickname = "twin")) }
 
         assertSame(Users.activeNickname, error.index)
-        val active = db.read { Users.list(limit = 10) { ("nickname" eq "twin") and "active".isTrue() } }
+        val active = db.read { Users.list { where { ("nickname" eq "twin") and "active".isTrue() } } }
         assertEquals(listOf("cid"), active.map { it.id })
     }
 
@@ -198,9 +198,9 @@ internal class IndexTest {
         db.insert(alan)
 
         db.read {
-            assertEquals(listOf(ada), Users.list(limit = 10) { "email" eq ada.email.value })
-            assertEquals(listOf(alan), Users.list(limit = 10) { "id" eq "alan" })
-            assertEquals(emptyList(), Users.list(limit = 10) { "id" eq "nobody" })
+            assertEquals(listOf(ada), Users.list { where { "email" eq ada.email.value } })
+            assertEquals(listOf(alan), Users.list { where { "id" eq "alan" } })
+            assertEquals(emptyList(), Users.list { where { "id" eq "nobody" } })
         }
     }
 
@@ -235,7 +235,7 @@ internal class IndexTest {
         db.write { Teams.insert(core) }
 
         assertEquals(setOf(Teams.byLead.name, Teams.byLeadFirst.name), db.indexNames())
-        assertEquals(listOf(core), db.read { Teams.list(limit = 10) { "lead.last" eq "Lovelace" } })
+        assertEquals(listOf(core), db.read { Teams.list { where { "lead.last" eq "Lovelace" } } })
         assertFailsWith<NosqliteException.UniqueViolation> {
             db.write { Teams.insert(Team("other", Name("Byron", "Lovelace"))) }
         }

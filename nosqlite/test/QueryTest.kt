@@ -34,7 +34,7 @@ internal class QueryTest {
     fun `asc puts the smallest first and nulls first`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list(limit = 10, orderBy = listOf(Order.asc("age"))) }
+        val users = db.read { Users.list { orderBy(asc("age")) } }
 
         assertEquals(listOf(linus, ada, grace, alan), users)
     }
@@ -43,7 +43,7 @@ internal class QueryTest {
     fun `desc puts the largest first and nulls last`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list(limit = 10, orderBy = listOf(Order.desc("age"))) }
+        val users = db.read { Users.list { orderBy(desc("age")) } }
 
         assertEquals(listOf(alan, ada, grace, linus), users)
     }
@@ -52,7 +52,7 @@ internal class QueryTest {
     fun `equal keys keep insertion order`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list(limit = 10, orderBy = listOf(Order.asc("age"))) { "age" eq 36 } }
+        val users = db.read { Users.list { where { "age" eq 36 }; orderBy(asc("age")) } }
 
         assertEquals(listOf(ada, grace), users)
     }
@@ -62,7 +62,7 @@ internal class QueryTest {
         val db = database()
 
         val users = db.read {
-            Users.list(limit = 10, orderBy = listOf(Order.desc("age"), Order.asc("name.last")))
+            Users.list { orderBy(desc("age"), asc("name.last")) }
         }
 
         assertEquals(listOf(alan, grace, ada, linus), users)
@@ -72,7 +72,7 @@ internal class QueryTest {
     fun `nested fields sort`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list(limit = 10, orderBy = listOf(Order.asc("name.last"))) }
+        val users = db.read { Users.list { orderBy(asc("name.last")) } }
 
         assertEquals(listOf(grace, ada, linus, alan), users)
     }
@@ -80,19 +80,25 @@ internal class QueryTest {
     @Test
     fun `pages follow the order`() = runTest {
         val db = database()
-        val order = listOf(Order.desc("age"))
-
         db.read {
-            assertEquals(listOf(alan, ada), Users.list(limit = 2, orderBy = order))
-            assertEquals(listOf(grace, linus), Users.list(limit = 2, offset = 2, orderBy = order))
-            assertEquals(listOf(ada), Users.list(limit = 1, offset = 1, orderBy = order) { "age".isNotNull() })
+            assertEquals(listOf(alan, ada), Users.list { orderBy(desc("age")); limit(2) })
+            assertEquals(listOf(grace, linus), Users.list { orderBy(desc("age")); limit(2); offset(2) })
+            assertEquals(
+                listOf(ada),
+                Users.list {
+                    where { "age".isNotNull() }
+                    orderBy(desc("age"))
+                    limit(1)
+                    offset(1)
+                },
+            )
         }
     }
 
     @Test
     fun `sorting by an indexed field reads the index in order`() = runTest {
         val db = database()
-        val sql = Queries.select(Users, null, listOf(Order.asc("age")), limit = 10, offset = 0).sql
+        val sql = Queries.select(Users, query { orderBy(asc("age")) }).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
 
@@ -102,15 +108,41 @@ internal class QueryTest {
 
     @Test
     fun `invalid order fields are rejected`() {
-        val error = assertFailsWith<IllegalArgumentException> { Order.desc("first name") }
+        val error = assertFailsWith<IllegalArgumentException> { query { orderBy(desc("first name")) } }
 
         assertEquals("Invalid field 'first name': keys must be identifiers", error.message)
     }
 
     @Test
     fun `orders read as their field and direction`() {
-        assertEquals("name.last asc", Order.asc("name.last").toString())
-        assertEquals("age desc", Order.desc("age").toString())
+        val query = query { orderBy(asc("name.last"), desc("age")) }
+
+        assertEquals("[name.last asc, age desc]", query.orderBy.toString())
+    }
+
+    @Test
+    fun `each part of a query is set once`() {
+        val messages = listOf<QueryScope.() -> Unit>(
+            { where { "age" gt 1 }; where { "age" lt 9 } },
+            { orderBy(asc("age")); orderBy(desc("age")) },
+            { limit(1); limit(2) },
+            { offset(1); offset(2) },
+        ).map { assertFailsWith<IllegalStateException> { query(it) }.message }
+
+        assertEquals(
+            listOf("where is already set", "orderBy is already set", "limit is already set", "offset is already set"),
+            messages,
+        )
+    }
+
+    @Test
+    fun `a query without parts selects everything in insertion order`() {
+        val query = query { }
+
+        assertEquals(null, query.condition)
+        assertEquals(emptyList(), query.orderBy)
+        assertEquals(Int.MAX_VALUE, query.limit)
+        assertEquals(0, query.offset)
     }
 
     @Test

@@ -28,20 +28,14 @@ internal object Queries {
     fun dropIndex(name: String): Command<Unit> = command("DROP INDEX \"$name\";")
 
     // rowid comes last, so documents with equal keys keep insertion order and pages never overlap.
-    fun select(
-        collection: Collection<*>,
-        condition: Condition?,
-        orderBy: List<Order>,
-        limit: Int,
-        offset: Int,
-    ): Statement<Unit, List<Row>> {
-        val order = (orderBy.map { "${it.path.sql} ${if (it.descending) "DESC" else "ASC"}" } + "rowid")
+    fun select(collection: Collection<*>, query: Query): Statement<Unit, List<Row>> {
+        val order = (query.orderBy.map { "${it.path.sql} ${if (it.descending) "DESC" else "ASC"}" } + "rowid")
             .joinToString(", ", prefix = " ORDER BY ")
         val page = Fragment(
             "$order LIMIT ? OFFSET ?;",
-            listOf(SqlValue.Integer(limit.toLong()), SqlValue.Integer(offset.toLong())),
+            listOf(SqlValue.Integer(query.limit.toLong()), SqlValue.Integer(query.offset.toLong())),
         )
-        return (Fragment("SELECT rowid, json(data) FROM ${collection.table}") + where(condition) + page)
+        return (Fragment("SELECT rowid, json(data) FROM ${collection.table}") + where(query.condition) + page)
             .statement(rows(row))
     }
 
