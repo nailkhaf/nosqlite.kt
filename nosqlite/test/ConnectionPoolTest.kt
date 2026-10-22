@@ -2,8 +2,10 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -119,6 +121,56 @@ internal class ConnectionPoolTest {
             assertEquals(0, driver.opened)
             assertFalse(location.exists())
         }
+    }
+
+    @Test
+    fun `a closed pool lends no connection`() = runTest {
+        val pool = ConnectionPool()
+        pool.withWriter { it.createTable() }
+        pool.close()
+
+        val write = assertFailsWith<IllegalStateException> { pool.withWriter { } }
+        val read = assertFailsWith<IllegalStateException> { pool.withReader { } }
+
+        assertEquals("Database is closed", write.message)
+        assertEquals("Database is closed", read.message)
+    }
+
+    @Test
+    fun `closing twice is allowed`() = runTest {
+        val pool = ConnectionPool()
+        pool.withWriter { it.createTable() }
+
+        pool.close()
+        pool.close()
+    }
+
+    @Test
+    fun `close waits for a connection in use`() = runTest {
+        val pool = ConnectionPool()
+        val inUse = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Unit>()
+        val events = mutableListOf<String>()
+
+        val writer = launch {
+            pool.withWriter {
+                inUse.complete(Unit)
+                finish.await()
+                it.createTable()
+                events += "write done"
+            }
+        }
+        inUse.await()
+        // Undispatched, close runs until it waits for the writer's connection.
+        val closing = launch(start = CoroutineStart.UNDISPATCHED) {
+            pool.close()
+            events += "closed"
+        }
+        finish.complete(Unit)
+        writer.join()
+        closing.join()
+
+        assertEquals(listOf("write done", "closed"), events)
     }
 
     @Test

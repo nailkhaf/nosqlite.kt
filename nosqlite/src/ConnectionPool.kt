@@ -51,9 +51,13 @@ private class Slots(private val size: Int, private val open: () -> Connection) {
     private val permits = Semaphore(size)
     private val lock = Mutex()
     private val idle = ArrayDeque<Connection>()
+    private var closed = false
 
     suspend fun <R> use(block: suspend (Connection) -> R): R = permits.withPermit {
-        val connection = lock.withLock { idle.removeLastOrNull() } ?: open()
+        val connection = lock.withLock {
+            check(!closed) { "Database is closed" }
+            idle.removeLastOrNull()
+        } ?: open()
         try {
             block(connection)
         } finally {
@@ -61,12 +65,26 @@ private class Slots(private val size: Int, private val open: () -> Connection) {
         }
     }
 
-    /** Waits for every connection to come back, then closes them all. */
+    /**
+     * Waits for every connection to come back, then closes them all. Afterwards [use] fails and closing again does
+     * nothing; the permits are handed back so that waiting callers fail instead of waiting forever.
+     */
     suspend fun close() {
-        repeat(size) { permits.acquire() }
-        lock.withLock {
-            idle.forEach { it.close() }
-            idle.clear()
+        var acquired = 0
+        try {
+            repeat(size) {
+                permits.acquire()
+                acquired++
+            }
+            lock.withLock {
+                if (!closed) {
+                    closed = true
+                    idle.forEach { it.close() }
+                    idle.clear()
+                }
+            }
+        } finally {
+            repeat(acquired) { permits.release() }
         }
     }
 }

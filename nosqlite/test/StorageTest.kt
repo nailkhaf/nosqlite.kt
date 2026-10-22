@@ -155,6 +155,17 @@ internal class StorageTest {
     }
 
     @Test
+    fun `a closed database can't be used`() = runTest {
+        val db = Database { +Users }
+        db.write { Users.insert(ada) }
+        db.close()
+
+        val error = assertFailsWith<IllegalStateException> { db.read { Users.get<JsonObject>(DocumentId(1)) } }
+
+        assertEquals("Database is closed", error.message)
+    }
+
+    @Test
     fun `undeclared collection is rejected`() = runTest {
         val db = Database { +Users }
 
