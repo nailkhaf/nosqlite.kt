@@ -4,7 +4,6 @@ package io.github.nailkhaf.nosqlite
  * A field inside documents, as the JSON keys leading to it: `"age"`, or `"name.last"` for a nested object.
  * The keys are the ones stored, so a property renamed with `@SerialName` goes by its serial name.
  */
-@PublishedApi
 internal class Path(val field: String) {
     val names: List<String> = field.split('.')
 

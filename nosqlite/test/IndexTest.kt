@@ -17,7 +17,7 @@ internal class IndexTest {
         val byEmail = unique("email")
         val byAge = index("age")
         val byName = index("name.last", "name.first")
-        val activeNickname = unique("nickname", where = { "active" eq true })
+        val activeNickname = unique("nickname", where = { "active".isTrue() })
     }
 
     object Teams : Collection<Team>("teams", Team.serializer()) {
@@ -187,7 +187,7 @@ internal class IndexTest {
         val error = assertFailsWith<NosqliteException.UniqueViolation> { db.insert(user("dan", 30, nickname = "twin")) }
 
         assertSame(Users.activeNickname, error.index)
-        assertEquals("cid", db.read { Users.first { ("nickname" eq "twin") and ("active" eq true) } }?.id)
+        assertEquals("cid", db.read { Users.first { ("nickname" eq "twin") and "active".isTrue() } }?.id)
     }
 
     @Test
@@ -197,7 +197,7 @@ internal class IndexTest {
         db.insert(alan)
 
         db.read {
-            assertEquals(ada, Users.first { "email" eq ada.email })
+            assertEquals(ada, Users.first { "email" eq ada.email.value })
             assertEquals(alan, Users.first { "id" eq "alan" })
             assertNull(Users.first { "id" eq "nobody" })
         }
@@ -206,13 +206,25 @@ internal class IndexTest {
     @Test
     fun `a condition on a unique field uses its index`() = runTest {
         val db = Database { +Users }
-        val condition = where { "email" eq ada.email }.render(inline = true).sql
+        val condition = where { "email" eq ada.email.value }.render(inline = true).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM users WHERE $condition").joinToString {
             it.last()!!
         }
 
         assertTrue(Users.byEmail.name in plan, plan)
+    }
+
+    @Test
+    fun `a condition implying a partial index's own uses it`() = runTest {
+        val db = Database { +Users }
+        val condition = where { ("nickname" eq "twin") and "active".isTrue() }.render(inline = true).sql
+
+        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM users WHERE $condition").joinToString {
+            it.last()!!
+        }
+
+        assertTrue(Users.activeNickname.name in plan, plan)
     }
 
     @Test

@@ -21,30 +21,33 @@ internal class ConditionTest {
     }
 
     @Test
-    fun `values are encoded as they are stored`() {
-        assertEquals(SqlValue.Text("member"), sqlValue(Role.Member)) // @SerialName
-        assertEquals(SqlValue.Text("Admin"), sqlValue(Role.Admin))
-        assertEquals(SqlValue.Text("ada@example.com"), sqlValue(Email("ada@example.com"))) // value class
-        assertEquals(SqlValue.Integer(1), sqlValue(true)) // ->> gives booleans back as 0 and 1
-        assertEquals(SqlValue.Real(1.5), sqlValue(1.5))
-        assertEquals(SqlValue.Integer(Long.MAX_VALUE), sqlValue(Long.MAX_VALUE))
-        assertEquals(SqlValue.Null, sqlValue<String?>(null))
+    fun `values bind as plain SQL values`() {
+        fun param(block: WhereScope.() -> Condition) = where(block).render().params.single()
+
+        assertEquals(SqlValue.Text("member"), param { "role" eq "member" })
+        assertEquals(SqlValue.Integer(18), param { "age" eq 18 })
+        assertEquals(SqlValue.Integer(Long.MAX_VALUE), param { "id" eq Long.MAX_VALUE })
+        assertEquals(SqlValue.Real(1.5), param { "score" eq 1.5 })
+        assertEquals(SqlValue.Integer(1), param { "active".isTrue() }) // ->> gives booleans back as 1 and 0
+        assertEquals(SqlValue.Integer(0), param { "active".isFalse() })
     }
 
     @Test
-    fun `structured values are rejected`() {
-        val error = assertFailsWith<IllegalArgumentException> { where { "name" eq Name("Ada", "Lovelace") } }
+    fun `unsupported numbers are rejected`() {
+        val big = object : Number() {
+            override fun toByte() = 0.toByte()
+            override fun toDouble() = 0.0
+            override fun toFloat() = 0f
+            override fun toInt() = 0
+            override fun toLong() = 0L
+            override fun toShort() = 0.toShort()
+        }
 
-        assertEquals(
-            """Only scalars can be compared, not io.github.nailkhaf.nosqlite.Name: {"first":"Ada","last":"Lovelace"}""",
-            error.message,
-        )
+        assertFailsWith<IllegalArgumentException> { where { "age" eq big } }
     }
 
     @Test
-    fun `null comparisons render as IS NULL`() {
-        assertEquals("data ->> '$.nickname' IS NULL", where { "nickname" eq null }.render().sql)
-        assertEquals("data ->> '$.nickname' IS NOT NULL", where { "nickname" neq null }.render().sql)
+    fun `null checks render as IS NULL`() {
         assertEquals("data ->> '$.nickname' IS NULL", where { "nickname".isNull() }.render().sql)
         assertEquals("data ->> '$.nickname' IS NOT NULL", where { "nickname".isNotNull() }.render().sql)
     }
@@ -59,7 +62,7 @@ internal class ConditionTest {
 
     @Test
     fun `isIn of nothing matches nothing`() {
-        assertEquals("0 = 1", where { "age" isIn emptyList<Int>() }.render().sql)
+        assertEquals("0 = 1", where { "age" isIn emptyList<String>() }.render().sql)
     }
 
     @Test
@@ -72,7 +75,7 @@ internal class ConditionTest {
 
     @Test
     fun `inline rendering spells values out as literals`() {
-        val condition = where { not(("active" eq true) or ("nickname" eq "o'neil")) }
+        val condition = where { not("active".isTrue() or ("nickname" eq "o'neil")) }
 
         val fragment = condition.render(inline = true)
 
@@ -91,20 +94,21 @@ internal class ConditionTest {
         }
         val expected = listOf(
             matching("bob", "cid") { "age" gte 18 },
-            matching("ann") { "role" eq Role.Admin },
-            matching("bob", "cid") { "role" eq Role.Member },
-            matching("bob") { "active" eq false },
+            matching("ann") { "role" eq "Admin" },
+            matching("bob", "cid") { "role" eq "member" },
+            matching("bob") { "active".isFalse() },
+            matching("ann", "cid") { "active".isTrue() },
+            matching { "missing".isFalse() },
             matching("bob") { "score" gt 1.0 },
             matching("ann", "cid") { "nickname".isNull() },
-            matching("bob") { "nickname" neq null },
-            matching("bob") { "nickname".isNotNull() },
+                        matching("bob") { "nickname".isNotNull() },
             matching("ann", "cid") { "tags" contains "kotlin" },
             matching("cid") { ("tags" contains "kotlin") and ("age" gt 18) },
             matching("ann", "cid") { ("age" lt 18) or ("name.last" eq "Jones") },
             matching("bob") { not("tags" contains "kotlin") },
-            matching("ann", "bob") { "email" isIn listOf(Email("ann@example.com"), Email("bob@example.com")) },
+            matching("ann", "bob") { "email" isIn listOf("ann@example.com", "bob@example.com") },
             matching("cid") { "name.last" eq "Jones" },
-            matching { "age" isIn emptyList<Int>() },
+            matching { "age" isIn emptyList<String>() },
         )
 
         for ((condition, ids) in expected) {

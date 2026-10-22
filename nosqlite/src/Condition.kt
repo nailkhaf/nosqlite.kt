@@ -1,13 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.SerializationStrategy
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.longOrNull
-import kotlinx.serialization.serializer
+import kotlin.jvm.JvmName
 
 /** A filter on documents, built in [WhereScope]. */
 public sealed class Condition {
@@ -27,41 +20,59 @@ public sealed class Condition {
 public annotation class QueryDsl
 
 /**
- * Builds a [Condition] on document fields, named by their JSON keys. Values are encoded with their serializers, so
- * enums, value classes and `@Serializable` scalars compare as they are stored:
+ * Builds a [Condition] on document fields, named by their JSON keys, compared with plain SQL values: text and
+ * numbers, with [isTrue] and [isFalse] for booleans. Anything else is converted by the caller, as it is stored:
  * ```
- * ("age" gte 18) and ("tags" contains "kotlin") and ("name.last" eq "Lovelace")
+ * ("age" gte 18) and ("name.last" eq "Lovelace") and ("role" eq "member") and ("tags" contains "kotlin")
  * ```
  */
 @QueryDsl
-public class WhereScope @PublishedApi internal constructor() {
-    /** The field equals [value]; `eq null` matches a null or missing field. */
-    public inline infix fun <reified V> String.eq(value: V): Condition =
-        compare(this, Comparison.Eq, serializer<V>(), value)
+public class WhereScope internal constructor() {
+    public infix fun String.eq(value: String): Condition = compare(this, Comparison.Eq, SqlValue.Text(value))
 
-    /** The field differs from [value]; `neq null` matches a present, non-null field. */
-    public inline infix fun <reified V> String.neq(value: V): Condition =
-        compare(this, Comparison.Neq, serializer<V>(), value)
+    public infix fun String.eq(value: Number): Condition = compare(this, Comparison.Eq, value.sqlValue)
 
-    public inline infix fun <reified V> String.gt(value: V): Condition =
-        compare(this, Comparison.Gt, serializer<V>(), value)
+    public infix fun String.neq(value: String): Condition = compare(this, Comparison.Neq, SqlValue.Text(value))
 
-    public inline infix fun <reified V> String.gte(value: V): Condition =
-        compare(this, Comparison.Gte, serializer<V>(), value)
+    public infix fun String.neq(value: Number): Condition = compare(this, Comparison.Neq, value.sqlValue)
 
-    public inline infix fun <reified V> String.lt(value: V): Condition =
-        compare(this, Comparison.Lt, serializer<V>(), value)
+    public infix fun String.gt(value: String): Condition = compare(this, Comparison.Gt, SqlValue.Text(value))
 
-    public inline infix fun <reified V> String.lte(value: V): Condition =
-        compare(this, Comparison.Lte, serializer<V>(), value)
+    public infix fun String.gt(value: Number): Condition = compare(this, Comparison.Gt, value.sqlValue)
+
+    public infix fun String.gte(value: String): Condition = compare(this, Comparison.Gte, SqlValue.Text(value))
+
+    public infix fun String.gte(value: Number): Condition = compare(this, Comparison.Gte, value.sqlValue)
+
+    public infix fun String.lt(value: String): Condition = compare(this, Comparison.Lt, SqlValue.Text(value))
+
+    public infix fun String.lt(value: Number): Condition = compare(this, Comparison.Lt, value.sqlValue)
+
+    public infix fun String.lte(value: String): Condition = compare(this, Comparison.Lte, SqlValue.Text(value))
+
+    public infix fun String.lte(value: Number): Condition = compare(this, Comparison.Lte, value.sqlValue)
 
     /** The field equals one of [values]; none matches nothing. */
-    public inline infix fun <reified V> String.isIn(values: Iterable<V>): Condition =
-        anyOf(this, serializer<V>(), values)
+    @JvmName("isInText")
+    public infix fun String.isIn(values: Iterable<String>): Condition =
+        Condition.In(Path(this), values.map(SqlValue::Text))
+
+    /** The field equals one of [values]; none matches nothing. */
+    @JvmName("isInNumber")
+    public infix fun String.isIn(values: Iterable<Number>): Condition =
+        Condition.In(Path(this), values.map { it.sqlValue })
 
     /** The array field has an element equal to [value]. */
-    public inline infix fun <reified E> String.contains(value: E): Condition =
-        element(this, serializer<E>(), value)
+    public infix fun String.contains(value: String): Condition = Condition.Contains(Path(this), SqlValue.Text(value))
+
+    public infix fun String.contains(value: Number): Condition = Condition.Contains(Path(this), value.sqlValue)
+
+
+    /** The field is `true`; `->>` gives booleans back as 1 and 0. */
+    public fun String.isTrue(): Condition = compare(this, Comparison.Eq, SqlValue.Integer(1))
+
+    /** The field is `false`; a null or missing field is neither true nor false. */
+    public fun String.isFalse(): Condition = compare(this, Comparison.Eq, SqlValue.Integer(0))
 
     /** The field is null or missing. */
     public fun String.isNull(): Condition = Condition.IsNull(Path(this))
@@ -75,42 +86,19 @@ public class WhereScope @PublishedApi internal constructor() {
 
     public fun not(condition: Condition): Condition = Condition.Not(condition)
 
-    @PublishedApi
-    internal fun <V> compare(field: String, comparison: Comparison, serializer: KSerializer<V>, value: V): Condition =
-        Condition.Compare(Path(field), comparison, sqlValue(serializer, value))
-
-    @PublishedApi
-    internal fun <V> anyOf(field: String, serializer: KSerializer<V>, values: Iterable<V>): Condition =
-        Condition.In(Path(field), values.map { sqlValue(serializer, it) })
-
-    @PublishedApi
-    internal fun <E> element(field: String, serializer: KSerializer<E>, value: E): Condition =
-        Condition.Contains(Path(field), sqlValue(serializer, value))
+    private fun compare(field: String, comparison: Comparison, value: SqlValue): Condition =
+        Condition.Compare(Path(field), comparison, value)
 }
 
-@PublishedApi
 internal enum class Comparison(val sql: String) { Eq("="), Neq("!="), Gt(">"), Gte(">="), Lt("<"), Lte("<=") }
 
-@PublishedApi
 internal fun where(block: WhereScope.() -> Condition): Condition = WhereScope().block()
 
-internal inline fun <reified V> sqlValue(value: V): SqlValue = sqlValue(serializer<V>(), value)
-
-/** [value] as it is stored: its JSON scalar, a boolean as 0 or 1 like `->>` gives it back. */
-internal fun <V> sqlValue(serializer: SerializationStrategy<V>, value: V): SqlValue =
-    when (val json = Database.Json.encodeToJsonElement(serializer, value)) {
-        JsonNull -> SqlValue.Null
-
-        is JsonPrimitive -> when {
-            json.isString -> SqlValue.Text(json.content)
-            json.booleanOrNull != null -> SqlValue.Integer(if (json.booleanOrNull!!) 1 else 0)
-            json.longOrNull != null -> SqlValue.Integer(json.longOrNull!!)
-            else -> SqlValue.Real(requireNotNull(json.doubleOrNull) { "Not a number: $json" })
-        }
-
-        else -> throw IllegalArgumentException(
-            "Only scalars can be compared, not ${serializer.descriptor.serialName}: $json",
-        )
+internal val Number.sqlValue: SqlValue
+    get() = when (this) {
+        is Int, is Long, is Short, is Byte -> SqlValue.Integer(toLong())
+        is Double, is Float -> SqlValue.Real(toDouble())
+        else -> throw IllegalArgumentException("Unsupported number: ${this::class.simpleName}")
     }
 
 /** The condition as SQL; with [inline] its values are literals instead of parameters. */
@@ -119,7 +107,6 @@ internal fun Condition.render(inline: Boolean = false): Fragment {
 
     return when (this) {
         is Condition.Compare -> when {
-            value == SqlValue.Null && comparison == Comparison.Eq -> Fragment("${path.sql} IS NULL")
             value == SqlValue.Null && comparison == Comparison.Neq -> Fragment("${path.sql} IS NOT NULL")
             else -> Fragment("${path.sql} ${comparison.sql} ") + value(value)
         }
