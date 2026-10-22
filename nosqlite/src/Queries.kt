@@ -15,6 +15,23 @@ internal object Queries {
         """.trimIndent(),
     )
 
+    val indexNames: Statement<String, List<String>> = Statement(
+        sql = "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = ?;",
+        encode = { table -> bindText(1, table) },
+        decode = rows { getText(0) },
+    )
+
+    fun createIndex(index: Index): Command<Unit> = command(
+        "CREATE ${if (index.isUnique) "UNIQUE " else ""}INDEX \"${index.name}\" " +
+            "ON ${index.collection.table} ${index.definition};",
+    )
+
+    fun dropIndex(name: String): Command<Unit> = command("DROP INDEX \"$name\";")
+
+    fun selectFirst(collection: Collection, condition: Condition): Statement<Unit, Row?> =
+        (Fragment("SELECT rowid, json(data) FROM ${collection.table} WHERE ") + condition.render() + " LIMIT 1;")
+            .statement(firstOrNull { Row(DocumentId(getLong(0)), getText(1)) })
+
     fun insert(collection: Collection): Statement<String, DocumentId> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?)) RETURNING rowid;",
         encode = { json -> bindText(1, json) },
@@ -37,6 +54,11 @@ internal object Queries {
         decode = { step() },
     )
 }
+
+internal class Row(val id: DocumentId, val json: String)
+
+internal fun <T> Collection.decode(row: Row, deserializer: DeserializationStrategy<T>): T =
+    decode(row.json, deserializer, row.id)
 
 internal fun <T> Collection.decode(json: String, deserializer: DeserializationStrategy<T>, id: DocumentId?): T = try {
     Database.Json.decodeFromString(deserializer, json)
