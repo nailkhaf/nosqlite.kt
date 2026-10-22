@@ -58,6 +58,7 @@ context(_: WriteScope)
 public suspend fun <T> Collection<T>.insert(value: T) {
     val json = encode(value)
     withConnection { Queries.insert(this@insert).execute(json) }
+    changed()
 }
 
 /** The documents [query] selects; without one, every document in the order they were inserted. */
@@ -80,13 +81,13 @@ public suspend fun Collection<*>.count(condition: (WhereScope.() -> Where)? = nu
 context(_: WriteScope)
 public suspend fun <T> Collection<T>.update(value: T, condition: WhereScope.() -> Where): Int {
     val json = encode(value)
-    return withConnection { Queries.update(this@update, json, where(condition)).execute().size }
+    return withConnection { Queries.update(this@update, json, where(condition)).execute() }.changed(this)
 }
 
 /** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
 public suspend fun Collection<*>.delete(condition: WhereScope.() -> Where): Int =
-    withConnection { Queries.delete(this@delete, where(condition)).execute().size }
+    withConnection { Queries.delete(this@delete, where(condition)).execute() }.changed(this)
 
 /**
  * Applies the JSON merge [patch] to every document matching [condition]: its fields replace theirs, and a `null`
@@ -94,7 +95,14 @@ public suspend fun Collection<*>.delete(condition: WhereScope.() -> Where): Int 
  */
 context(_: WriteScope)
 public suspend fun Collection<JsonObject>.patch(patch: JsonObject, condition: WhereScope.() -> Where): Int =
-    withConnection { Queries.patch(this@patch, patch.toString(), where(condition)).execute().size }
+    withConnection { Queries.patch(this@patch, patch.toString(), where(condition)).execute() }.changed(this)
+
+/** The number of documents a write touched, recording a change when there were any. */
+context(_: WriteScope)
+private fun List<DocumentId>.changed(collection: Collection<*>): Int {
+    if (isNotEmpty()) collection.changed()
+    return size
+}
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
 internal val Collection<*>.table: String get() = "\"$name\""

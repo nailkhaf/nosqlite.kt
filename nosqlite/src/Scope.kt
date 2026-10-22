@@ -15,7 +15,17 @@ public open class ReadScope internal constructor(internal val connection: Connec
  * Inside `write { }`: documents can also be inserted, updated, patched and deleted.
  * A nested write is a savepoint that rolls back alone.
  */
-public class WriteScope internal constructor(connection: Connection, pool: ConnectionPool) : ReadScope(connection, pool)
+public class WriteScope internal constructor(connection: Connection, pool: ConnectionPool) :
+    ReadScope(connection, pool) {
+    // The collections this transaction changed: a savepoint hands its own to the enclosing write when it releases.
+    internal val changed: MutableSet<String> = mutableSetOf()
+}
+
+/** Records that the current write changed this collection. */
+context(scope: WriteScope)
+internal fun Collection<*>.changed() {
+    scope.changed += name
+}
 
 context(scope: ReadScope)
 internal fun connection(): Connection = scope.connection
@@ -29,16 +39,23 @@ internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) (
     }
 }
 
-internal suspend fun <R> ConnectionPool.write(block: suspend context(WriteScope) () -> R): R {
+/** Runs [block] in a write; [onCommit] gets the collections it changed after the outermost write commits. */
+internal suspend fun <R> ConnectionPool.write(
+    onCommit: (Set<String>) -> Unit = {},
+    block: suspend context(WriteScope) () -> R,
+): R {
     activeScope(this)?.let { active ->
         check(active is WriteScope) { "Write inside a read transaction, start write { } outside of read { }" }
         val scope = WriteScope(active.connection, this)
         return active.connection.transaction(Boundary.Savepoint) { withScope(scope, block) }
+            .also { active.changed += scope.changed }
     }
-    return withWriter { connection ->
+    val (result, changed) = withWriter { connection ->
         val scope = WriteScope(connection, this)
-        connection.transaction(Boundary.Write) { withScope(scope, block) }
+        connection.transaction(Boundary.Write) { withScope(scope, block) } to scope.changed.toSet()
     }
+    onCommit(changed)
+    return result
 }
 
 /** The SQL that opens, commits and rolls back one kind of transaction. */

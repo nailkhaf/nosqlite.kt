@@ -2,6 +2,9 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 
 /**
@@ -31,7 +34,18 @@ public class Database(
         connections
     }
 
+    // A StateFlow conflates, so an observer that is busy reading misses nothing: it sees the latest version after.
+    private val versions = collections.associate { it.name to MutableStateFlow(0L) }
+
     internal suspend fun pool(): ConnectionPool = ready.get()
+
+    /** How many committed writes changed [collection]; a new value is emitted after each one. */
+    internal fun version(collection: Collection<*>): StateFlow<Long> =
+        versions[collection.name] ?: throw NosqliteException.CollectionNotDeclared(collection.name)
+
+    internal fun committed(changed: Set<String>) {
+        changed.forEach { name -> versions.getValue(name).update { it + 1 } }
+    }
 
     /** Closes every connection that was opened; the database can't be used afterwards. */
     public suspend fun close(): Unit = connections.close()
@@ -67,7 +81,8 @@ public suspend fun <R> Database.read(block: suspend context(ReadScope) () -> R):
  * Runs [block] in a write transaction that commits when it returns and rolls back when it throws.
  * Inside another write it is a savepoint that rolls back alone.
  */
-public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R): R = pool().write(block)
+public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R): R =
+    pool().write(onCommit = ::committed, block)
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
 context(_: Connection)
