@@ -2,6 +2,11 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.serialization.json.Json
 
 /**
@@ -18,11 +23,12 @@ import kotlinx.serialization.json.Json
 public class Database(
     location: Location = Location.InMemory,
     driver: SQLiteDriver = BundledSQLiteDriver(),
+    dispatcher: CoroutineDispatcher = Dispatchers.IO,
     schema: SchemaBuilder.() -> Unit,
 ) {
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
 
-    private val connections = ConnectionPool(location, driver)
+    private val connections = ConnectionPool(location, driver, dispatcher)
 
     private val collections = SchemaBuilder().apply(schema).collections.toList()
 
@@ -31,7 +37,17 @@ public class Database(
         connections
     }
 
+    /** The name of each collection a committed write changed, once per write. */
+    internal val changes = MutableSharedFlow<String>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
     internal suspend fun pool(): ConnectionPool = ready.get()
+
+    internal suspend fun committed(collections: Set<String>) {
+        collections.forEach { changes.emit(it) }
+    }
 
     /** Closes every connection that was opened; the database can't be used afterwards. */
     public suspend fun close(): Unit = connections.close()
@@ -67,7 +83,8 @@ public suspend fun <R> Database.read(block: suspend context(ReadScope) () -> R):
  * Runs [block] in a write transaction that commits when it returns and rolls back when it throws.
  * Inside another write it is a savepoint that rolls back alone.
  */
-public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R): R = pool().write(block)
+public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R): R =
+    pool().write(onCommit = ::committed, block)
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
 context(_: Connection)

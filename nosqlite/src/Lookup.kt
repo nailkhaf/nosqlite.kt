@@ -89,4 +89,5 @@ context(_: WriteScope)
 public suspend fun <T> UniqueIndex<T>.upsert(value: T) {
     val json = collection.encode(value)
     collection.withConnection { Queries.upsert(this@upsert).execute(json) }
+    collection.changed()
 }

@@ -23,4 +23,5 @@ settings:
       - kotlin.ExperimentalStdlibApi
       - kotlin.time.ExperimentalTime
       - kotlin.uuid.ExperimentalUuidApi
+      - kotlinx.coroutines.ExperimentalCoroutinesApi
     serialization: json

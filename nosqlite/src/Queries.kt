@@ -47,45 +47,43 @@ internal object Queries {
             getLong(0)
         }
 
-    fun update(collection: Collection<*>, json: String, condition: Where): Statement<Unit, List<DocumentId>> =
+    fun update(collection: Collection<*>, json: String, condition: Where): Statement<Unit, Int> =
         (Fragment("UPDATE ${collection.table} SET data = jsonb(?) WHERE ", listOf(SqlValue.Text(json))) +
-            condition.render() + RETURNING).statement(rows(id))
+            condition.render() + RETURNING).statement(countRows)
 
-    fun patch(collection: Collection<*>, patch: String, condition: Where): Statement<Unit, List<DocumentId>> =
+    fun patch(collection: Collection<*>, patch: String, condition: Where): Statement<Unit, Int> =
         (Fragment("UPDATE ${collection.table} SET data = jsonb_patch(data, ?) WHERE ", listOf(SqlValue.Text(patch))) +
-            condition.render() + RETURNING).statement(rows(id))
+            condition.render() + RETURNING).statement(countRows)
 
-    fun delete(collection: Collection<*>, condition: Where): Statement<Unit, List<DocumentId>> =
-        (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(rows(id))
+    fun delete(collection: Collection<*>, condition: Where): Statement<Unit, Int> =
+        (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(countRows)
 
     /** Inserts the input JSON, or replaces the document it conflicts with in [index]. */
-    fun upsert(index: Index<*>): Statement<String, DocumentId> = Statement(
+    fun upsert(index: Index<*>): Statement<String, Unit> = Statement(
         sql = "INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?)) " +
-            "ON CONFLICT ${index.definition} DO UPDATE SET data = excluded.data RETURNING rowid;",
+            "ON CONFLICT ${index.definition} DO UPDATE SET data = excluded.data;",
         encode = { json -> bindText(1, json) },
-        decode = {
-            check(step()) { "Upsert into ${index.collection.name} returned no rowid" }
-            DocumentId(getLong(0))
-        },
+        decode = { step() },
     )
 
-    fun insert(collection: Collection<*>): Statement<String, DocumentId> = Statement(
-        sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?)) RETURNING rowid;",
+    fun insert(collection: Collection<*>): Statement<String, Unit> = Statement(
+        sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?));",
         encode = { json -> bindText(1, json) },
-        decode = {
-            check(step()) { "Insert into ${collection.name} returned no rowid" }
-            DocumentId(getLong(0))
-        },
+        decode = { step() },
     )
 }
 
 private fun where(condition: Where?): Fragment =
     condition?.let { Fragment(" WHERE ") + it.render() } ?: Fragment.Empty
 
-// Writes return the ids they touched, for the library to know which documents changed.
-private const val RETURNING = " RETURNING rowid;"
+// A row per document a write touched, counted as they come: androidx.sqlite has no changes().
+private const val RETURNING = " RETURNING 1;"
 
-private val id: SQLiteStatement.() -> DocumentId = { DocumentId(getLong(0)) }
+private val countRows: SQLiteStatement.() -> Int = {
+    var count = 0
+    while (step()) count++
+    count
+}
 
 internal class Row(val id: DocumentId, val json: String)
 

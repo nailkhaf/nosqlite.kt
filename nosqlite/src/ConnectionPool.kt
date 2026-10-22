@@ -2,6 +2,7 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.NonCancellable
@@ -16,7 +17,11 @@ import kotlinx.coroutines.withContext
  * Each is opened when first needed and handed to one coroutine at a time; an in-memory database has no readers,
  * its one connection serves both.
  */
-internal class ConnectionPool(location: Location = Location.InMemory, driver: SQLiteDriver = BundledSQLiteDriver()) {
+internal class ConnectionPool(
+    location: Location = Location.InMemory,
+    driver: SQLiteDriver = BundledSQLiteDriver(),
+    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+) {
     init {
         require(!driver.hasConnectionPool) { "SQLiteDriver with its own connection pool is not supported" }
     }
@@ -28,11 +33,11 @@ internal class ConnectionPool(location: Location = Location.InMemory, driver: SQ
     }
 
     /** Runs [block] with the write connection, waiting while another coroutine holds it. */
-    suspend fun <R> withWriter(block: suspend (Connection) -> R): R = withContext(Dispatchers.IO) { writer.use(block) }
+    suspend fun <R> withWriter(block: suspend (Connection) -> R): R = withContext(dispatcher) { writer.use(block) }
 
     /** Runs [block] with a read connection, or the write connection when there are no readers. */
     suspend fun <R> withReader(block: suspend (Connection) -> R): R =
-        withContext(Dispatchers.IO) { (readers ?: writer).use(block) }
+        withContext(dispatcher) { (readers ?: writer).use(block) }
 
     suspend fun close() {
         writer.close()
