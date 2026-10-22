@@ -44,29 +44,29 @@ public open class Collection<T>(public val name: String, internal val serializer
 
     /** A unique index on property [fields]; each must be a serial field of [T] under its property name. */
     protected fun unique(vararg fields: Field<T, *>, where: (WhereScope.() -> Where)? = null): UniqueIndex<T> =
-        unique(*serialPaths(fields), where = where)
+        unique(*fields.map { it.checkedPath() }.toTypedArray(), where = where)
 
     protected fun unique(vararg properties: KProperty1<T, *>, where: (WhereScope.() -> Where)? = null): UniqueIndex<T> =
         unique(*properties.map { it.field }.toTypedArray(), where = where)
 
     /** An index on property [fields]; each must be a serial field of [T] under its property name. */
     protected fun index(vararg fields: Field<T, *>, where: (WhereScope.() -> Where)? = null): Index<T> =
-        index(*serialPaths(fields), where = where)
+        index(*fields.map { it.checkedPath() }.toTypedArray(), where = where)
 
     protected fun index(vararg properties: KProperty1<T, *>, where: (WhereScope.() -> Where)? = null): Index<T> =
         index(*properties.map { it.field }.toTypedArray(), where = where)
 
-    // A property renamed with @SerialName is stored under another key, which a property reference can't name.
-    private fun serialPaths(fields: Array<out Field<T, *>>): Array<String> = fields.map { field ->
-        field.path.split('.').fold(serializer.descriptor) { descriptor, key ->
+    // A property renamed with @SerialName is stored under its serial name, which a property reference can't name.
+    private fun Field<T, *>.checkedPath(): String {
+        path.split('.').fold(serializer.descriptor) { descriptor, key ->
             val index = descriptor.getElementIndex(key)
             require(index != CompositeDecoder.UNKNOWN_NAME) {
-                "'$field' is not a serial field of '$name': name a field renamed with @SerialName by its serial name"
+                "'$this' is not a serial field of '$name': name a field renamed with @SerialName by its serial name"
             }
             descriptor.getElementDescriptor(index)
         }
-        field.path
-    }.toTypedArray()
+        return path
+    }
 
     private fun <I : Index<T>> register(index: I): I {
         require(indexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
