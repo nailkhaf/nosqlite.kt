@@ -20,6 +20,10 @@ public infix fun <V : Comparable<V>> Field<*, V?>.lt(value: V): Where = compare(
 context(_: WhereScope)
 public infix fun <V : Comparable<V>> Field<*, V?>.lte(value: V): Where = compare(Comparison.Lte, value)
 
+/** The text field matches [pattern]: `%` is any run of characters, `_` any one; ASCII letters ignore case. */
+context(_: WhereScope)
+public infix fun Field<*, String?>.like(pattern: String): Where = compare(Comparison.Like, pattern)
+
 /** The field equals one of [values]; none matches nothing. */
 context(_: WhereScope)
 public infix fun <V : Comparable<V>> Field<*, V?>.isIn(values: Iterable<V>): Where =
@@ -54,6 +58,9 @@ public infix fun <V : Comparable<V>> KProperty1<*, V?>.lt(value: V): Where = fie
 
 context(_: WhereScope)
 public infix fun <V : Comparable<V>> KProperty1<*, V?>.lte(value: V): Where = field lte value
+
+context(_: WhereScope)
+public infix fun KProperty1<*, String?>.like(pattern: String): Where = field like pattern
 
 context(_: WhereScope)
 public infix fun <V : Comparable<V>> KProperty1<*, V?>.isIn(values: Iterable<V>): Where = field isIn values

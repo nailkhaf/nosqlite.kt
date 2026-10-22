@@ -36,6 +36,8 @@ internal class FieldTest {
         assertEquals(sql { "active".isTrue() }, sql { User::active eq true })
         assertEquals(sql { "age" isIn listOf(30, 40) }, sql { User::age isIn listOf(30, 40) })
         assertEquals(sql { "tags" contains "kotlin" }, sql { User::tags contains "kotlin" })
+        assertEquals(sql { "nickname" like "bo%" }, sql { User::nickname like "bo%" })
+        assertEquals(sql { "name.last" like "Lo%" }, sql { (User::name / Name::last) like "Lo%" })
         assertEquals(sql { "nickname".isNull() }, sql { User::nickname.isNull() })
         assertEquals(sql { "nickname".isNotNull() }, sql { User::nickname.isNotNull() })
     }
