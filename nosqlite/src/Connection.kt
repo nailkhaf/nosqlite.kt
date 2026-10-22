@@ -11,16 +11,13 @@ import kotlinx.coroutines.ensureActive
 internal class Connection(private val sqlite: SQLiteConnection) {
     private val statements = StatementCache()
 
-    /** A new statement that is not cached: the caller closes it. */
-    suspend fun prepare(sql: String): SQLiteStatement {
+    /**
+     * Runs [block] with a prepared statement for [sql], reused across calls. While [block] runs the statement is out
+     * of the cache, so a nested call with the same SQL gets its own; one whose block throws is closed, not reused.
+     */
+    suspend fun <R> statement(sql: String, block: suspend (SQLiteStatement) -> R): R {
         currentCoroutineContext().ensureActive()
-        return sqlite.prepare(sql)
-    }
-
-    // A statement in use is out of the cache, so parallel children of one transaction never share it.
-    // One whose block throws is closed, not cached: its state is unknown.
-    suspend fun <R> withStatement(sql: String, block: (SQLiteStatement) -> R): R {
-        val statement = statements.take(sql) ?: prepare(sql)
+        val statement = statements.take(sql) ?: sqlite.prepare(sql)
         val result = try {
             block(statement)
         } catch (e: Throwable) {
@@ -29,10 +26,6 @@ internal class Connection(private val sqlite: SQLiteConnection) {
         }
         statements.put(sql, statement)
         return result
-    }
-
-    suspend fun execSQL(sql: String) {
-        withStatement(sql) { it.step() }
     }
 
     fun inTransaction(): Boolean = sqlite.inTransaction()

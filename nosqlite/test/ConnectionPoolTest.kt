@@ -143,15 +143,19 @@ internal class ConnectionPoolTest {
     }
 }
 
-internal suspend fun Connection.createTable() = execSQL("CREATE TABLE t (id INTEGER PRIMARY KEY, value TEXT);")
+internal suspend fun Connection.execute(sql: String) {
+    statement(sql) { it.step() }
+}
 
-internal suspend fun Connection.insert(value: String) = execSQL("INSERT INTO t (value) VALUES ('$value');")
+internal suspend fun Connection.createTable() = execute("CREATE TABLE t (id INTEGER PRIMARY KEY, value TEXT);")
 
-internal suspend fun Connection.values(): List<String> = prepare("SELECT value FROM t ORDER BY id;").use { statement ->
+internal suspend fun Connection.insert(value: String) = execute("INSERT INTO t (value) VALUES ('$value');")
+
+internal suspend fun Connection.values(): List<String> = statement("SELECT value FROM t ORDER BY id;") { statement ->
     buildList { while (statement.step()) add(statement.getText(0)) }
 }
 
-internal suspend fun Connection.single(sql: String): String = prepare(sql).use { statement ->
+internal suspend fun Connection.single(sql: String): String = statement(sql) { statement ->
     check(statement.step()) { "No row for $sql" }
     statement.getText(0)
 }
