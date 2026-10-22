@@ -31,7 +31,6 @@ internal data class User(
     val score: Double = 0.0,
     val tags: List<String> = emptyList(),
     val nickname: String? = null,
-    val manager: Name? = null,
 )
 
 /** A [User] whose other fields follow from [id], so tests only spell out what they check. */
@@ -45,5 +44,4 @@ internal fun user(
     score: Double = 0.0,
     tags: List<String> = emptyList(),
     nickname: String? = null,
-    manager: Name? = null,
-): User = User(id, Email("$id@example.com"), Name(first, last), age, role, active, score, tags, nickname, manager)
+): User = User(id, Email("$id@example.com"), Name(first, last), age, role, active, score, tags, nickname)

@@ -220,4 +220,16 @@ internal class LookupTest {
         assertEquals("index users(name.last, name.first) takes 1 to 2 values, not 3", many.message)
         assertEquals("Unsupported lookup value: Char", type.message)
     }
+
+    @Test
+    fun `a lookup reads as its index and values`() {
+        assertEquals(
+            "index users(name.last, name.first) = ['Lovelace', NULL]",
+            Users.byName("Lovelace", null).toString(),
+        )
+        assertEquals(
+            "unique index users(nickname) where data ->> '$.active' = 1 = ['countess']",
+            Users.byNickname("countess").toString(),
+        )
+    }
 }
