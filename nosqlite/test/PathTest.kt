@@ -27,7 +27,6 @@ internal class PathTest {
         val rendered = mapOf(
             path(User::age) to "data ->> '$.age'",
             User::name / Name::last to "data ->> '$.name.last'",
-            path<String>("first name.it's") to "data ->> '$.\"first name\".\"it''s\"'",
         )
 
         for ((path, sql) in rendered) assertEquals(sql, path.sql)
@@ -43,7 +42,9 @@ internal class PathTest {
     fun `invalid segments are rejected`() {
         val error = assertFailsWith<IllegalArgumentException> { path<Int>("a..b") }
 
-        assertEquals("Invalid path segment: '' in a..b", error.message)
-        assertFailsWith<IllegalArgumentException> { path<Int>("a\"b") }
+        assertEquals("Invalid path 'a..b': keys must be identifiers", error.message)
+        for (invalid in listOf("", "first name", "it's", "a\"b", "1st")) {
+            assertFailsWith<IllegalArgumentException>(invalid) { path<Int>(invalid) }
+        }
     }
 }

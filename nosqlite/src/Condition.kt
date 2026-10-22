@@ -162,7 +162,7 @@ internal fun Condition.render(inline: Boolean = false): Fragment {
         is Condition.IsNull -> Fragment("${path.sql} IS NULL")
 
         is Condition.Contains ->
-            Fragment("EXISTS (SELECT 1 FROM json_each(data, '${path.jsonPath.replace("'", "''")}') WHERE value = ") +
+            Fragment("EXISTS (SELECT 1 FROM json_each(data, '${path.jsonPath}') WHERE value = ") +
                 value(value) + ")"
 
         is Condition.And -> Fragment("(") + left.render(inline) + " AND " + right.render(inline) + ")"

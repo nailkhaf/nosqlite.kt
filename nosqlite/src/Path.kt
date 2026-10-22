@@ -13,10 +13,10 @@ import kotlin.reflect.KProperty1
  * [path] and the serial names.
  */
 public class Path<out V> internal constructor(internal val names: List<String>) {
+    // Paths are spelled out in the SQL text, since expression indexes only match a literal path.
     init {
-        require(names.isNotEmpty()) { "Empty path" }
-        for (name in names) {
-            require(name.isNotEmpty() && '"' !in name) { "Invalid path segment: '$name' in ${names.joinToString(".")}" }
+        require(names.isNotEmpty() && names.all { it.matches(Identifier) }) {
+            "Invalid path '${names.joinToString(".")}': keys must be identifiers"
         }
     }
 
@@ -43,12 +43,12 @@ public operator fun <B : Any, C> Path<B?>.div(next: KProperty1<B, C>): Path<C> =
 @PublishedApi
 internal fun <V> KProperty1<*, V>.toPath(): Path<V> = Path(listOf(name))
 
-/** The SQLite JSON path: `$.a.b`, with keys that aren't plain identifiers quoted. */
+/** The SQLite JSON path: `$.a.b`. */
 internal val Path<*>.jsonPath: String
-    get() = names.joinToString(".", prefix = "$.") { if (it.matches(Identifier)) it else "\"$it\"" }
+    get() = names.joinToString(".", prefix = "$.")
 
 /** The SQL value at this path, `->>` so it compares, orders and indexes as an SQL value. */
 internal val Path<*>.sql: String
-    get() = "data ->> '${jsonPath.replace("'", "''")}'"
+    get() = "data ->> '$jsonPath'"
 
 private val Identifier = Regex("[A-Za-z_][A-Za-z0-9_]*")
