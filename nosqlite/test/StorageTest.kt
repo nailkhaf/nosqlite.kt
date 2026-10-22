@@ -1,6 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -50,6 +51,28 @@ internal class StorageTest {
         val stored = db.read { Users.get<JsonObject>(DocumentId(1)) }
 
         assertEquals(ada, stored)
+    }
+
+    @Serializable
+    data class User(val name: String, val age: Int)
+
+    @Test
+    fun `a serializable value is stored as its JSON`() = runTest {
+        val db = Database { +Users }
+
+        db.write { Users.insert(User("Ada", 36)) }
+
+        assertEquals(User("Ada", 36), db.read { Users.get<User>(DocumentId(1)) })
+        assertEquals(ada, db.read { Users.get<JsonObject>(DocumentId(1)) })
+    }
+
+    @Test
+    fun `a value that is not a JSON object is rejected`() = runTest {
+        val db = Database { +Users }
+
+        val error = assertFailsWith<IllegalArgumentException> { db.write { Users.insert(42) } }
+
+        assertEquals("A document of 'users' must be a JSON object, not 42", error.message)
     }
 
     @Test
