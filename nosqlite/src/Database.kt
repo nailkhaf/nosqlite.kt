@@ -51,10 +51,10 @@ public annotation class SchemaDsl
 
 @SchemaDsl
 public class SchemaBuilder internal constructor() {
-    internal val collections = mutableListOf<Collection>()
+    internal val collections = mutableListOf<Collection<*>>()
 
     /** Declares this collection; each name can be declared once. */
-    public operator fun Collection.unaryPlus() {
+    public operator fun Collection<*>.unaryPlus() {
         require(collections.none { it.name == name }) { "Collection '$name' is declared more than once" }
         collections += this
     }
@@ -69,7 +69,14 @@ public suspend fun <R> Database.read(block: suspend context(ReadScope) () -> R):
  */
 public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R): R = pool().write(block)
 
+// Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
 context(_: Connection)
-internal suspend fun createSchema(collection: Collection) {
+internal suspend fun createSchema(collection: Collection<*>) {
     Queries.createTable(collection).execute()
+    val current = Queries.indexNames.execute(collection.name)
+    val wanted = collection.indexes.associateBy { it.name }
+    current.filter { it !in wanted }.forEach { Queries.dropIndex(it).execute() }
+    wanted.filterKeys { it !in current }.values.forEach { index ->
+        collection.mapErrors { Queries.createIndex(index).execute() }
+    }
 }

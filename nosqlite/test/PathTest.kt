@@ -4,47 +4,28 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-/** Covers typed paths: how they are built, and rendered to SQL. */
+/** Covers field paths: how they are parsed, and rendered to SQL. */
 internal class PathTest {
 
     @Test
-    fun `property paths use the kotlin property names`() {
-        assertEquals(listOf("age"), path(User::age).names)
-        assertEquals(listOf("name", "last"), (User::name / Name::last).names)
-        assertEquals(listOf("manager", "first"), (User::manager / Name::first).names)
-    }
-
-    @Test
-    fun `serial paths split on dots`() {
-        val path = path<String>("inner.zip_code")
-
-        assertEquals(listOf("inner", "zip_code"), path.names)
-        assertEquals("inner.zip_code", path.toString())
+    fun `fields split into keys on dots`() {
+        assertEquals(listOf("age"), Path("age").names)
+        assertEquals(listOf("name", "last"), Path("name.last").names)
     }
 
     @Test
     fun `paths render as json extraction`() {
-        val rendered = mapOf(
-            path(User::age) to "data ->> '$.age'",
-            User::name / Name::last to "data ->> '$.name.last'",
-        )
-
-        for ((path, sql) in rendered) assertEquals(sql, path.sql)
+        assertEquals("data ->> '$.age'", Path("age").sql)
+        assertEquals("data ->> '$.name.last'", Path("name.last").sql)
     }
 
     @Test
-    fun `paths with the same keys are equal`() {
-        assertEquals(path<Int>("age"), path(User::age))
-        assertEquals(path<String>("name.last").hashCode(), (User::name / Name::last).hashCode())
-    }
+    fun `invalid fields are rejected`() {
+        val error = assertFailsWith<IllegalArgumentException> { Path("a..b") }
 
-    @Test
-    fun `invalid segments are rejected`() {
-        val error = assertFailsWith<IllegalArgumentException> { path<Int>("a..b") }
-
-        assertEquals("Invalid path 'a..b': keys must be identifiers", error.message)
+        assertEquals("Invalid field 'a..b': keys must be identifiers", error.message)
         for (invalid in listOf("", "first name", "it's", "a\"b", "1st")) {
-            assertFailsWith<IllegalArgumentException>(invalid) { path<Int>(invalid) }
+            assertFailsWith<IllegalArgumentException>(invalid) { Path(invalid) }
         }
     }
 }
