@@ -15,7 +15,7 @@ public suspend fun <T> Collection<T>.insert(value: T) {
  */
 context(_: ReadScope)
 public suspend fun <T> Collection<T>.list(
-    limit: Int,
+    limit: Int = Int.MAX_VALUE,
     offset: Int = 0,
     condition: (WhereScope.() -> Condition)? = null,
 ): List<T> {

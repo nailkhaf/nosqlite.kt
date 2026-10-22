@@ -61,6 +61,21 @@ internal class StorageTest {
     }
 
     @Test
+    fun `list without a limit returns every document`() = runTest {
+        val db = Database { +Users }
+        db.write {
+            Users.insert(ada)
+            Users.insert(alan)
+        }
+
+        db.read {
+            assertEquals(listOf(ada, alan), Users.list())
+            assertEquals(listOf(alan), Users.list(offset = 1))
+            assertEquals(listOf(alan), Users.list { "age" gt 40 })
+        }
+    }
+
+    @Test
     fun `list returns only matching documents`() = runTest {
         val db = Database { +Users }
         db.write {
