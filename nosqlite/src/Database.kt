@@ -2,8 +2,11 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.serialization.json.Json
 
 /**
@@ -20,11 +23,12 @@ import kotlinx.serialization.json.Json
 public class Database(
     location: Location = Location.InMemory,
     driver: SQLiteDriver = BundledSQLiteDriver(),
+    dispatcher: CoroutineDispatcher = Dispatchers.IO,
     schema: SchemaBuilder.() -> Unit,
 ) {
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
 
-    private val connections = ConnectionPool(location, driver)
+    private val connections = ConnectionPool(location, driver, dispatcher)
 
     private val collections = SchemaBuilder().apply(schema).collections.toList()
 
@@ -33,14 +37,18 @@ public class Database(
         connections
     }
 
-    // Committed writes per collection name. A StateFlow conflates, so an observer that is busy reading misses
-    // nothing: it sees the latest version when it is done.
-    internal val versions = MutableStateFlow(collections.associate { it.name to 0L })
+    /** The name of each collection a committed write changed, once per write. */
+    internal val changes = MutableSharedFlow<String>(
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    internal fun isDeclared(collection: Collection<*>): Boolean = collections.any { it === collection }
 
     internal suspend fun pool(): ConnectionPool = ready.get()
 
-    internal fun committed(changed: Set<String>) {
-        versions.update { all -> all + changed.associateWith { all.getValue(it) + 1 } }
+    internal suspend fun committed(collections: Set<String>) {
+        collections.forEach { changes.emit(it) }
     }
 
     /** Closes every connection that was opened; the database can't be used afterwards. */

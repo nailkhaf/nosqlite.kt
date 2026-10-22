@@ -41,7 +41,7 @@ internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) (
 
 /** Runs [block] in a write; [onCommit] gets the collections it changed after the outermost write commits. */
 internal suspend fun <R> ConnectionPool.write(
-    onCommit: (Set<String>) -> Unit = {},
+    onCommit: suspend (Set<String>) -> Unit = {},
     block: suspend context(WriteScope) () -> R,
 ): R {
     activeScope(this)?.let { active ->
