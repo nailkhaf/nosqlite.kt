@@ -2,29 +2,35 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteException
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.JsonObject
 
 /**
- * A named set of [T] documents, stored as JSON in its own table. Declare one as an object with its indexes and list
- * it in `Database { }`:
+ * A named set of [T] documents, stored as JSON in its own table. Create one directly, or extend it to declare
+ * indexes, and list it in `Database { }`:
  * ```
+ * val Notes = Collection("notes", Note.serializer())
+ *
  * object Users : Collection<User>("users", User.serializer()) {
  *     val byEmail = unique("email")
  *     val byAge = index("age")
  *     val byName = index("name.last", "name.first")
  * }
  *
- * val db = Database("app.db") { +Users }
+ * val db = Database("app.db") {
+ *     +Notes
+ *     +Users
+ * }
  * ```
  */
-public abstract class Collection<T>(public val name: String, internal val serializer: KSerializer<T>) {
+public open class Collection<T>(public val name: String, internal val serializer: KSerializer<T>) {
     init {
         require(name.matches(Name)) { "Invalid collection name: '$name'" }
         require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
     }
 
-    private val declaredIndexes = mutableListOf<Index>()
-
-    internal val indexes: List<Index> get() = declaredIndexes
+    internal val indexes: List<Index>
+        field = mutableListOf()
 
     /** A unique index on [fields]: documents can't share their values; with [where] only matching ones count. */
     protected fun unique(vararg fields: String, where: (WhereScope.() -> Condition)? = null): Index =
@@ -35,19 +41,31 @@ public abstract class Collection<T>(public val name: String, internal val serial
         register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
 
     private fun register(index: Index): Index {
-        require(declaredIndexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
-        declaredIndexes += index
+        require(indexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
+        indexes += index
         return index
     }
 
     override fun toString(): String = "Collection($name)"
 
-    // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
-    internal val table: String get() = "\"$name\""
-
     private companion object {
         val Name = Regex("[A-Za-z_][A-Za-z0-9_]*")
     }
+}
+
+// Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
+internal val Collection<*>.table: String get() = "\"$name\""
+
+internal fun <T> Collection<T>.encode(value: T): String {
+    val json = Database.Json.encodeToJsonElement(serializer, value)
+    require(json is JsonObject) { "A document of '$name' must be a JSON object, not $json" }
+    return json.toString()
+}
+
+internal fun <T> Collection<T>.decode(row: Row): T = try {
+    Database.Json.decodeFromString(serializer, row.json)
+} catch (e: SerializationException) {
+    throw NosqliteException.DecodingFailed(name, row.id, e)
 }
 
 /** Runs [block] on the transaction's connection, with SQLite's errors about this collection made typed. */

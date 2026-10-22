@@ -17,10 +17,6 @@ internal fun <R> rows(row: SQLiteStatement.() -> R): SQLiteStatement.() -> List<
     buildList { while (step()) add(row()) }
 }
 
-internal fun <R : Any> firstOrNull(row: SQLiteStatement.() -> R): SQLiteStatement.() -> R? = {
-    if (step()) row() else null
-}
-
 context(conn: Connection)
 internal suspend fun <I, O> Statement<I, O>.execute(input: I): O = conn.statement(sql) { statement ->
     statement.encode(input)
