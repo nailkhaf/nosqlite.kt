@@ -29,9 +29,8 @@ public open class Collection<T>(public val name: String, internal val serializer
         require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
     }
 
-    private val declaredIndexes = mutableListOf<Index>()
-
-    internal val indexes: List<Index> get() = declaredIndexes
+    internal val indexes: List<Index>
+        field = mutableListOf()
 
     /** A unique index on [fields]: documents can't share their values; with [where] only matching ones count. */
     protected fun unique(vararg fields: String, where: (WhereScope.() -> Condition)? = null): Index =
@@ -42,8 +41,8 @@ public open class Collection<T>(public val name: String, internal val serializer
         register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
 
     private fun register(index: Index): Index {
-        require(declaredIndexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
-        declaredIndexes += index
+        require(indexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
+        indexes += index
         return index
     }
 
