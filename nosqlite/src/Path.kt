@@ -35,11 +35,14 @@ public fun <V> path(property: KProperty1<*, V>): Path<V> = Path(listOf(property.
  */
 public fun path(serialPath: String): Path<Nothing> = Path(serialPath.split('.'))
 
-/** The field [next] inside this property's value; a nullable parent is fine. */
+/**
+ * The field [next] inside this property's value; a nullable parent is fine. Only step into a class stored as a JSON
+ * object: a path ends at a primitive or a value class, so `User::email / Email::value` matches nothing.
+ */
 public operator fun <B : Any, C> KProperty1<*, B?>.div(next: KProperty1<B, C>): Path<C> =
     Path(listOf(name, next.name))
 
-/** The field [next] inside this path's value; a nullable parent is fine. */
+/** The field [next] inside this path's value; like the property `/`, only into a class stored as a JSON object. */
 public operator fun <B : Any, C> Path<B?>.div(next: KProperty1<B, C>): Path<C> =
     Path(names + next.name)
 
