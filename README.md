@@ -2,8 +2,9 @@
 
 A Kotlin Multiplatform document store on SQLite JSONB with kotlinx.serialization.
 
-Documents are `@Serializable` classes stored as JSONB, one STRICT table per collection. Fields are named by their
-JSON keys (`"age"`, `"name.last"`), and documents are addressed by their unique indexes.
+Documents are `@Serializable` classes stored as JSONB, one STRICT table per collection. Fields are named by property
+references (`User::age`, `User::name / Name::last`) or by their JSON keys (`"age"`, `"name.last"`), and documents are
+addressed by their unique indexes.
 
 - JVM, Android and iOS (arm64, simulator arm64)
 - One writer and several `query_only` readers in WAL mode; read and write transactions with nested savepoints
@@ -25,10 +26,10 @@ data class Name(val first: String, val last: String)
 data class User(val id: String, val email: String, val name: Name, val age: Int, val tags: List<String> = emptyList())
 
 object Users : Collection<User>("users", User.serializer()) {
-    val byId = unique("id")
-    val byEmail = unique("email")
-    val byAge = index("age")
-    val byName = index("name.last", "name.first")
+    val byId = unique(User::id)
+    val byEmail = unique(User::email)
+    val byAge = index(User::age)
+    val byName = index(User::name / Name::last, User::name / Name::first)
 }
 
 val db = Database("app.db") { +Users }
@@ -37,23 +38,23 @@ db.write {
     Users.insert(User("ada", "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
     Users.byId.upsert(User("alan", "alan@example.com", Name("Alan", "Turing"), 41))
     Users.byEmail("alan@example.com").update(User("alan", "alan@example.com", Name("Alan", "Turing"), 42))
-    Users.delete { "age" lt 18 }
+    Users.delete { User::age lt 18 }
 }
 
 db.read {
     val ada: User? = Users.byId("ada").get()
     val lovelaces: List<User> = Users.byName("Lovelace").list()
     val adults: List<User> = Users.list {
-        where { ("age" gte 18) and ("tags" contains "kotlin") }
-        orderBy(desc("age"), asc("name.last"))
+        where { (User::age gte 18) and (User::tags contains "kotlin") }
+        orderBy(desc(User::age), asc(User::name / Name::last))
         limit(20)
     }
-    val count: Long = Users.count { "age" gte 18 }
+    val count: Long = Users.count { User::age gte 18 }
     Users.forEach { user -> println(user) }
 }
 
 with(db) {
-    Users.observe { where { "age" gte 18 } }.collect { adults -> render(adults) }
+    Users.observe { where { User::age gte 18 } }.collect { adults -> render(adults) }
     Users.byId("ada").observe().collect { ada -> render(ada) }
 }
 ```
@@ -122,19 +123,8 @@ Fields can also be named by property references, which the compiler checks: `Use
 `User::name / Name::last` for a nested field, `asc(User::age)` in `orderBy`, and `unique(User::email)` or
 `index(User::name / Name::last)` in a collection. A property reference names the field by its property name, so an
 index on a property renamed with `@SerialName` fails when the collection is created; name that field by its string.
-Values must be of the property's type: `User::age gte 18` compiles, `User::age gte "18"` doesn't.
-
-```kotlin
-object Users : Collection<User>("users", User.serializer()) {
-    val byEmail = unique(User::email)
-    val byName = index(User::name / Name::last, User::name / Name::first)
-}
-
-Users.list {
-    where { (User::age gte 18) and (User::tags contains "kotlin") }
-    orderBy(desc(User::age), asc(User::name / Name::last))
-}
-```
+Values must be of the property's type: `User::age gte 18` compiles, `User::age gte "18"` doesn't. Each typed call
+builds the same condition, sort key or index as its string form, so the two mix freely.
 
 ### Observing
 
