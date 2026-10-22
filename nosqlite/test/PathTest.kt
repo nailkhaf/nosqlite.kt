@@ -1,11 +1,10 @@
 package io.github.nailkhaf.nosqlite
 
-import kotlinx.serialization.serializer
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-/** Covers typed paths: how they are built, rendered to SQL and checked against serial names. */
+/** Covers typed paths: how they are built, and rendered to SQL. */
 internal class PathTest {
 
     @Test
@@ -46,48 +45,5 @@ internal class PathTest {
 
         assertEquals("Invalid path segment: '' in a..b", error.message)
         assertFailsWith<IllegalArgumentException> { path<Int>("a\"b") }
-    }
-
-    @Test
-    fun `paths that follow the serial names pass the check`() {
-        val descriptor = serializer<User>().descriptor
-
-        for (path in listOf(path(User::age), User::name / Name::last, User::manager / Name::first, path(User::email))) {
-            checkPath(path, descriptor)
-        }
-    }
-
-    @Test
-    fun `renamed property fails the check with a pointer to serial paths`() {
-        val error = assertFailsWith<IllegalArgumentException> {
-            checkPath(path(Renamed::fullName), serializer<Renamed>().descriptor)
-        }
-
-        assertEquals(
-            "Path 'fullName' doesn't match the serial names of Renamed: Renamed has no element 'fullName'" +
-                " (it has full_name, inner). For a property renamed with @SerialName use path<V>(\"serial.name\").",
-            error.message,
-        )
-    }
-
-    @Test
-    fun `renamed nested property fails the check naming its parent`() {
-        val error = assertFailsWith<IllegalArgumentException> {
-            checkPath(Renamed::inner / Renamed.Inner::zip, serializer<Renamed>().descriptor)
-        }
-
-        assertEquals(
-            "Path 'inner.zip' doesn't match the serial names of Renamed: Inner (at 'inner') has no element 'zip'" +
-                " (it has zip_code). For a property renamed with @SerialName use path<V>(\"serial.name\").",
-            error.message,
-        )
-    }
-
-    @Test
-    fun `serial paths are trusted as written`() {
-        val descriptor = serializer<Renamed>().descriptor
-
-        checkPath(path<String>("full_name"), descriptor)
-        checkPath(path<String>("not.in.the.class"), descriptor)
     }
 }

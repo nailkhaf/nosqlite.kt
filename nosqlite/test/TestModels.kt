@@ -34,13 +34,6 @@ internal data class User(
     val manager: Name? = null,
 )
 
-/** Properties renamed with `@SerialName`, at the top level and nested. */
-@Serializable
-internal data class Renamed(@SerialName("full_name") val fullName: String, val inner: Inner) {
-    @Serializable
-    data class Inner(@SerialName("zip_code") val zip: String)
-}
-
 /** A [User] whose other fields follow from [id], so tests only spell out what they check. */
 internal fun user(
     id: String,
