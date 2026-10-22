@@ -10,6 +10,12 @@ public suspend fun <T> Collection<T>.insert(value: T) {
     withConnection { Queries.insert(this).execute(json.toString()) }
 }
 
+/** The first document matching [condition], `null` when none does; a condition on a unique index finds the one. */
+context(_: ReadScope)
+public suspend fun <T> Collection<T>.first(condition: WhereScope.() -> Condition): T? = withConnection {
+    Queries.selectFirst(this, where(condition)).execute()?.let { decode(it) }
+}
+
 /** Deletes the document [id]; the result is `false` when there was none. */
 context(_: WriteScope)
 internal suspend fun Collection<*>.delete(id: DocumentId): Boolean = withConnection {

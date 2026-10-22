@@ -11,11 +11,11 @@ import kotlin.test.assertSame
 internal class UsageTest {
 
     object Users : Collection<User>("users", User.serializer()) {
-        val byId = unique<String>("id")
-        val byEmail = unique<Email>("email")
+        val byId = unique("id")
+        val byEmail = unique("email")
         val byAge = index("age")
         val byName = index("name.last", "name.first")
-        val activeNickname = unique<String>("nickname", where = { "active" eq true })
+        val activeNickname = unique("nickname", where = { "active" eq true })
     }
 
     private val ada = user("ada", 36, first = "Ada", last = "Lovelace")
@@ -31,9 +31,9 @@ internal class UsageTest {
         }
 
         db.read {
-            assertEquals(ada, Users.byId["ada"])
-            assertEquals(alan, Users.byEmail[Email("alan@example.com")])
-            assertNull(Users.byId["grace"])
+            assertEquals(ada, Users.first { "id" eq "ada" })
+            assertEquals(alan, Users.first { "email" eq Email("alan@example.com") })
+            assertNull(Users.first { "id" eq "grace" })
         }
     }
 
@@ -50,7 +50,7 @@ internal class UsageTest {
             Users.insert(alan)
         }
 
-        assertEquals(alan, db.read { Users.byId["alan"] })
+        assertEquals(alan, db.read { Users.first { "id" eq "alan" } })
     }
 
     @Test
@@ -62,7 +62,7 @@ internal class UsageTest {
             Users.insert(alan.copy(age = ada.age))
         }
 
-        assertEquals(ada.age, db.read { Users.byId["alan"] }?.age)
+        assertEquals(ada.age, db.read { Users.first { "id" eq "alan" } }?.age)
     }
 
     @Test
@@ -76,7 +76,7 @@ internal class UsageTest {
             }
         }
 
-        assertNull(db.read { Users.byId["ada"] })
+        assertNull(db.read { Users.first { "id" eq "ada" } })
     }
 
     @Test
@@ -94,8 +94,8 @@ internal class UsageTest {
         }
 
         db.read {
-            assertEquals(ada, Users.byId["ada"])
-            assertNull(Users.byId["alan"])
+            assertEquals(ada, Users.first { "id" eq "ada" })
+            assertNull(Users.first { "id" eq "alan" })
         }
     }
 
@@ -110,7 +110,7 @@ internal class UsageTest {
             assertFailsWith<NosqliteException.UniqueViolation> { Users.insert(user("dan", 30, nickname = "twin")) }
         }
 
-        assertEquals("cid", db.read { Users.activeNickname["twin"] }?.id)
+        assertEquals("cid", db.read { Users.first { ("nickname" eq "twin") and ("active" eq true) } }?.id)
     }
 
     @Test
@@ -120,7 +120,7 @@ internal class UsageTest {
 
             val reopened = Database(location) { +Users }
 
-            assertEquals(ada, reopened.read { Users.byId["ada"] })
+            assertEquals(ada, reopened.read { Users.first { "id" eq "ada" } })
             reopened.close()
         }
     }

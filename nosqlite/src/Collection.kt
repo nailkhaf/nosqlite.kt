@@ -2,14 +2,13 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteException
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.serializer
 
 /**
  * A named set of [T] documents, stored as JSON in its own table. Declare one as an object with its indexes and list
  * it in `Database { }`:
  * ```
  * object Users : Collection<User>("users", User.serializer()) {
- *     val byEmail = unique<String>("email")
+ *     val byEmail = unique("email")
  *     val byAge = index("age")
  *     val byName = index("name.last", "name.first")
  * }
@@ -27,34 +26,15 @@ public abstract class Collection<T>(public val name: String, internal val serial
 
     internal val indexes: List<Index> get() = declaredIndexes
 
-    /**
-     * A unique index on [field]: documents can't share a value, and `index[key]` finds the one that has it.
-     * With [where] only matching documents are indexed.
-     */
-    protected inline fun <reified K> unique(
-        field: String,
-        noinline where: (WhereScope.() -> Condition)? = null,
-    ): UniqueIndex<T, K> = register(UniqueIndex(this, Path(field), where?.let(::where), serializer<K>()))
-
-    /** A unique index on several fields together. */
-    protected fun unique(
-        first: String,
-        second: String,
-        vararg rest: String,
-        where: (WhereScope.() -> Condition)? = null,
-    ): Index {
-        val paths = (listOf(first, second) + rest).map(::Path)
-        return register(Index(this, paths, isUnique = true, where?.let(::where)))
-    }
+    /** A unique index on [fields]: documents can't share their values; with [where] only matching ones count. */
+    protected fun unique(vararg fields: String, where: (WhereScope.() -> Condition)? = null): Index =
+        register(Index(this, fields.map(::Path), isUnique = true, where?.let(::where)))
 
     /** An index on [fields], in order; with [where] only matching documents are indexed. */
-    protected fun index(
-        vararg fields: String,
-        where: (WhereScope.() -> Condition)? = null,
-    ): Index = register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
+    protected fun index(vararg fields: String, where: (WhereScope.() -> Condition)? = null): Index =
+        register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
 
-    @PublishedApi
-    internal fun <I : Index> register(index: I): I {
+    private fun register(index: Index): Index {
         require(declaredIndexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
         declaredIndexes += index
         return index

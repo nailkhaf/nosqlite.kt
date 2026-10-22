@@ -1,12 +1,10 @@
 package io.github.nailkhaf.nosqlite
 
-import kotlinx.serialization.KSerializer
-
 /**
  * An SQLite index over document fields, declared in a [Collection]. Indexes are synced when the database opens:
  * each one's name hashes its definition, so a changed index is dropped and created again and a removed one dropped.
  */
-public open class Index @PublishedApi internal constructor(
+public class Index internal constructor(
     internal val collection: Collection<*>,
     internal val paths: List<Path>,
     public val isUnique: Boolean,
@@ -29,21 +27,6 @@ public open class Index @PublishedApi internal constructor(
             (where?.let { " where $it" } ?: "")
 }
 
-/** A unique index on one field, so a [K] key finds at most one document. */
-public class UniqueIndex<T, K> @PublishedApi internal constructor(
-    private val documents: Collection<T>,
-    internal val path: Path,
-    where: Condition?,
-    internal val keySerializer: KSerializer<K>,
-) : Index(documents, listOf(path), isUnique = true, where) {
-
-    /** The document whose key is [key]; `null` when there is none. */
-    context(_: ReadScope)
-    public suspend operator fun get(key: K): T? = documents.withConnection {
-        Queries.selectFirst(documents, lookup(key)).execute()?.let { documents.decode(it) }
-    }
-}
-
 // Names of the indexes nosqlite manages; others on its tables are left alone.
 internal const val INDEX_PREFIX = "nsq_"
 
@@ -54,10 +37,4 @@ internal fun fnv1a64(text: String): String {
         hash = (hash xor byte.toUByte().toULong()) * 0x100000001b3uL
     }
     return hash.toString(16).padStart(16, '0')
-}
-
-/** The condition that finds [key] in this index, the partial index's own condition included. */
-internal fun <K> UniqueIndex<*, K>.lookup(key: K): Condition {
-    val match = Condition.Compare(path, Comparison.Eq, sqlValue(keySerializer, key))
-    return where?.let { Condition.And(match, it) } ?: match
 }

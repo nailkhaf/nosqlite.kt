@@ -9,19 +9,19 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/** Covers declaring indexes, syncing them with the file, unique violations and lookups by unique key. */
+/** Covers declaring indexes, syncing them with the file, unique violations and lookups by unique field. */
 internal class IndexTest {
 
     object Users : Collection<User>("users", User.serializer()) {
-        val byId = unique<String>("id")
-        val byEmail = unique<Email>("email")
+        val byId = unique("id")
+        val byEmail = unique("email")
         val byAge = index("age")
         val byName = index("name.last", "name.first")
-        val activeNickname = unique<String>("nickname", where = { "active" eq true })
+        val activeNickname = unique("nickname", where = { "active" eq true })
     }
 
     object Teams : Collection<Team>("teams", Team.serializer()) {
-        val byLead = unique<String>("lead.last")
+        val byLead = unique("lead.last")
         val byLeadFirst = index("lead.first")
     }
 
@@ -75,10 +75,10 @@ internal class IndexTest {
         withTempFile { location ->
             val before = object : Collection<User>("users", User.serializer()) {
                 val byAge = index("age")
-                val byEmail = unique<Email>("email")
+                val byEmail = unique("email")
             }
             val after = object : Collection<User>("users", User.serializer()) {
-                val byEmail = unique<Email>("email")
+                val byEmail = unique("email")
                 val byLastName = index("name.last")
             }
             Database(location) { +before }.apply { read { } }.close()
@@ -98,7 +98,7 @@ internal class IndexTest {
                 val byEmail = index("email")
             }
             val unique = object : Collection<User>("users", User.serializer()) {
-                val byEmail = unique<Email>("email")
+                val byEmail = unique("email")
             }
             Database(location) { +plain }.apply { read { } }.close()
 
@@ -159,7 +159,7 @@ internal class IndexTest {
         val error = assertFailsWith<NosqliteException.UniqueViolation> { db.insert(user("dan", 30, nickname = "twin")) }
 
         assertSame(Users.activeNickname, error.index)
-        assertEquals("cid", db.read { Users.activeNickname.get("twin") }?.id)
+        assertEquals("cid", db.read { Users.first { ("nickname" eq "twin") and ("active" eq true) } }?.id)
     }
 
     @Test
@@ -169,16 +169,16 @@ internal class IndexTest {
         db.insert(alan)
 
         db.read {
-            assertEquals(ada, Users.byEmail.get(ada.email))
-            assertEquals(alan, Users.byId.get("alan"))
-            assertNull(Users.byId.get("nobody"))
+            assertEquals(ada, Users.first { "email" eq ada.email })
+            assertEquals(alan, Users.first { "id" eq "alan" })
+            assertNull(Users.first { "id" eq "nobody" })
         }
     }
 
     @Test
-    fun `lookup by unique key uses its index`() = runTest {
+    fun `a condition on a unique field uses its index`() = runTest {
         val db = Database { +Users }
-        val condition = Users.byEmail.lookup(ada.email).render(inline = true).sql
+        val condition = where { "email" eq ada.email }.render(inline = true).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM users WHERE $condition").joinToString {
             it.last()!!
@@ -194,7 +194,7 @@ internal class IndexTest {
         db.write { Teams.insert(core) }
 
         assertEquals(setOf(Teams.byLead.name, Teams.byLeadFirst.name), db.indexNames())
-        assertEquals(core, db.read { Teams.byLead.get("Lovelace") })
+        assertEquals(core, db.read { Teams.first { "lead.last" eq "Lovelace" } })
         assertFailsWith<NosqliteException.UniqueViolation> {
             db.write { Teams.insert(Team("other", Name("Byron", "Lovelace"))) }
         }
@@ -220,7 +220,7 @@ internal class IndexTest {
             withDuplicates.write { repeat(2) { plain.insert(ada) } }
             withDuplicates.close()
             val unique = object : Collection<User>("users", User.serializer()) {
-                val byId = unique<String>("id")
+                val byId = unique("id")
             }
 
             val error = assertFailsWith<NosqliteException.UniqueViolation> { Database(location) { +unique }.read { } }
