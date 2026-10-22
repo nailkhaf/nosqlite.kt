@@ -1,0 +1,13 @@
+product: android/app
+
+dependencies:
+  - //samples/todo/shared
+  - $libs.androidx.activity.compose
+
+settings:
+  compose: enabled
+  kotlin:
+    version: 2.4.21
+  android:
+    namespace: io.github.nailkhaf.todo
+    applicationId: io.github.nailkhaf.todo

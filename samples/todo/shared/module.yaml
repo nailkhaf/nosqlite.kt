@@ -1,0 +1,19 @@
+product:
+  type: kmp/lib
+  platforms: [ android, iosArm64, iosSimulatorArm64, jvm ]
+
+dependencies:
+  - //nosqlite: exported
+  - $compose.runtime: exported
+  - $compose.foundation
+  - $compose.material3
+  - $compose.ui
+
+test-dependencies:
+  - $libs.kotlinx.coroutines.test
+
+settings:
+  compose: enabled
+  kotlin:
+    version: 2.4.21
+    serialization: json

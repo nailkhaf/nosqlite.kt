@@ -122,6 +122,18 @@ run other queries.
 that changed the collection. Writes that land while it reads are folded into one more read, and a result equal to
 the last one isn't emitted. Changes are tracked per collection.
 
+## Sample
+
+[`samples/todo`](samples/todo) is a Compose Multiplatform todo app for Android, iOS and the desktop JVM. The
+`shared` module holds the UI, in plain Compose state, and `data.TaskRepository`, the only code that touches the
+database; `androidApp`, `iosApp` and `jvmApp` each open the database file in their platform's place and show the UI.
+
+```sh
+./kotlin run -m jvmApp
+./kotlin run -m androidApp   # a connected device or running emulator
+./kotlin run -m iosApp       # macOS with Xcode, on a simulator
+```
+
 ## Build
 
 The project uses the [Kotlin toolchain](https://kotlin-toolchain.org/). The `kotlin` (macOS, Linux) and `kotlin.bat`

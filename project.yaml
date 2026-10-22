@@ -1,2 +1,6 @@
 modules:
   - nosqlite
+  - samples/todo/androidApp
+  - samples/todo/iosApp
+  - samples/todo/jvmApp
+  - samples/todo/shared
