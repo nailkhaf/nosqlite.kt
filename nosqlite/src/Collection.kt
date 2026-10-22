@@ -1,5 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
+import androidx.sqlite.SQLiteException
+
 /**
  * A named set of JSON documents, stored in its own table. Declare one as an object and list it in `Database { }`:
  * ```
@@ -24,20 +26,14 @@ public abstract class Collection(public val name: String) {
     }
 }
 
-/** The collections a database declares, by name. */
-internal class Catalog(collections: List<Collection>) {
-    val collections: Map<String, Collection> = buildMap {
-        for (collection in collections) {
-            require(put(collection.name, collection) == null) {
-                "Collection '${collection.name}' is declared more than once"
-            }
-        }
-    }
-}
-
-// The connection to run collection's statements on, once it is known to belong to the transaction's database.
-context(scope: ReadScope)
-internal fun Collection.connection(): Connection {
-    if (scope.catalog.collections[name] !== this) throw NosqliteException.CollectionNotDeclared(name)
-    return scope.connection
+/**
+ * Runs [block] on the transaction's connection. Only declared collections have a table, so SQLite not knowing this
+ * collection's table means it wasn't declared.
+ */
+context(_: ReadScope)
+internal suspend fun <R> Collection.withConnection(block: suspend context(Connection) () -> R): R = try {
+    context(connection()) { block() }
+} catch (e: SQLiteException) {
+    if (e.message?.contains("no such table: $name") == true) throw NosqliteException.CollectionNotDeclared(name, e)
+    throw e
 }
