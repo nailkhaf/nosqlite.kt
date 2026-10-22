@@ -27,15 +27,29 @@ internal object Queries {
 
     fun dropIndex(name: String): Command<Unit> = command("DROP INDEX \"$name\";")
 
-    fun select(collection: Collection<*>, condition: Condition?, limit: Int, offset: Int): Statement<Unit, List<Row>> {
-        val where = condition?.let { Fragment(" WHERE ") + it.render() } ?: Fragment.Empty
+    // rowid comes last, so documents with equal keys keep insertion order and pages never overlap.
+    fun select(
+        collection: Collection<*>,
+        condition: Condition?,
+        orderBy: List<Order>,
+        limit: Int,
+        offset: Int,
+    ): Statement<Unit, List<Row>> {
+        val order = (orderBy.map { "${it.path.sql} ${if (it.descending) "DESC" else "ASC"}" } + "rowid")
+            .joinToString(", ", prefix = " ORDER BY ")
         val page = Fragment(
-            " ORDER BY rowid LIMIT ? OFFSET ?;",
+            "$order LIMIT ? OFFSET ?;",
             listOf(SqlValue.Integer(limit.toLong()), SqlValue.Integer(offset.toLong())),
         )
-        return (Fragment("SELECT rowid, json(data) FROM ${collection.table}") + where + page)
+        return (Fragment("SELECT rowid, json(data) FROM ${collection.table}") + where(condition) + page)
             .statement(rows(row))
     }
+
+    fun count(collection: Collection<*>, condition: Condition?): Statement<Unit, Long> =
+        (Fragment("SELECT count(*) FROM ${collection.table}") + where(condition) + ";").statement {
+            check(step()) { "count(*) returned no row" }
+            getLong(0)
+        }
 
     fun update(collection: Collection<*>, json: String, condition: Condition): Statement<Unit, List<DocumentId>> =
         (Fragment("UPDATE ${collection.table} SET data = jsonb(?) WHERE ", listOf(SqlValue.Text(json))) +
@@ -57,6 +71,9 @@ internal object Queries {
         },
     )
 }
+
+private fun where(condition: Condition?): Fragment =
+    condition?.let { Fragment(" WHERE ") + it.render() } ?: Fragment.Empty
 
 // Writes return the ids they touched, for the library to know which documents changed.
 private const val RETURNING = " RETURNING rowid;"
