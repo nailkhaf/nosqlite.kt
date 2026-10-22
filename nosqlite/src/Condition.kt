@@ -68,6 +68,9 @@ public class WhereScope @PublishedApi internal constructor() {
     /** The field is null or missing. */
     public fun Path<*, *>.isNull(): Condition = Condition.IsNull(this)
 
+    /** The field is present and not null. */
+    public fun Path<*, *>.isNotNull(): Condition = Condition.Compare(this, Comparison.Neq, SqlValue.Null)
+
     public inline infix fun <reified V> KProperty1<*, V>.eq(value: V): Condition = toPath() eq value
 
     public inline infix fun <reified V> KProperty1<*, V>.neq(value: V): Condition = toPath() neq value
@@ -86,6 +89,8 @@ public class WhereScope @PublishedApi internal constructor() {
         toPath() contains value
 
     public fun KProperty1<*, *>.isNull(): Condition = toPath().isNull()
+
+    public fun KProperty1<*, *>.isNotNull(): Condition = toPath().isNotNull()
 
     public infix fun Condition.and(other: Condition): Condition = Condition.And(this, other)
 

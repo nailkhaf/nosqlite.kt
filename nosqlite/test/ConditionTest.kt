@@ -46,6 +46,7 @@ internal class ConditionTest {
         assertEquals("data ->> '$.nickname' IS NULL", where { User::nickname eq null }.render().sql)
         assertEquals("data ->> '$.nickname' IS NOT NULL", where { User::nickname neq null }.render().sql)
         assertEquals("data ->> '$.nickname' IS NULL", where { User::nickname.isNull() }.render().sql)
+        assertEquals("data ->> '$.nickname' IS NOT NULL", where { User::nickname.isNotNull() }.render().sql)
     }
 
     @Test
@@ -96,6 +97,7 @@ internal class ConditionTest {
             matching("bob") { User::score gt 1.0 },
             matching("ann", "cid") { User::nickname.isNull() },
             matching("bob") { User::nickname neq null },
+            matching("bob") { User::nickname.isNotNull() },
             matching("ann", "cid") { User::tags contains "kotlin" },
             matching("cid") { (User::tags contains "kotlin") and (User::age gt 18) },
             matching("ann", "cid") { (User::age lt 18) or (User::name / Name::last eq "Jones") },
