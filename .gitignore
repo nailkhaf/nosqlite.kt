@@ -1,0 +1,25 @@
+# Kotlin toolchain
+build/
+.kotlin/
+.amper/
+
+# IDE
+.idea/
+*.iml
+.fleet/
+.vscode/
+*.xcodeproj/xcuserdata/
+*.xcuserstate
+
+# OS
+.DS_Store
+
+# Logs and crash dumps
+*.log
+hs_err_pid*
+replay_pid*
+
+# Local secrets
+local.properties
+*.keystore
+*.jks

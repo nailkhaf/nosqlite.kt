@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Each job restores the toolchain and dependency cache, and the build output of the latest main run.
+# The toolchain tracks inputs by mtime; checkout sets every file to now, so the restored build would look stale.
+# Build output is saved on main only, so pull requests compile incrementally from main's state.
+jobs:
+  jvm:
+    name: JVM tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set file mtimes to their last commit
+        shell: bash
+        run: |
+          git log --format='%ct' --name-only --no-renames \
+            | awk 'NF == 1 && /^[0-9]+$/ { t = $1; next } NF && !($0 in seen) { seen[$0] = 1; print t "\t" $0 }' \
+            | while IFS=$'\t' read -r t f; do [ -f "$f" ] && touch -d "@$t" "$f"; done
+
+      - name: Cache Kotlin toolchain and dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/JetBrains/Kotlin
+          key: kotlin-${{ runner.os }}-${{ hashFiles('kotlin', 'project.yaml', '**/module.yaml', 'libs.versions.toml') }}
+          restore-keys: kotlin-${{ runner.os }}-
+
+      - name: Restore build output
+        uses: actions/cache/restore@v4
+        with:
+          path: build
+          key: kotlin-build-${{ github.job }}-${{ github.sha }}
+          restore-keys: kotlin-build-${{ github.job }}-
+
+      - name: Run JVM tests
+        run: ./kotlin test -p jvm
+
+      - name: Save build output
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: build
+          key: kotlin-build-${{ github.job }}-${{ github.sha }}
+
+  android:
+    name: Android build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set file mtimes to their last commit
+        shell: bash
+        run: |
+          git log --format='%ct' --name-only --no-renames \
+            | awk 'NF == 1 && /^[0-9]+$/ { t = $1; next } NF && !($0 in seen) { seen[$0] = 1; print t "\t" $0 }' \
+            | while IFS=$'\t' read -r t f; do [ -f "$f" ] && touch -d "@$t" "$f"; done
+
+      - name: Cache Kotlin toolchain and dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/JetBrains/Kotlin
+          key: kotlin-${{ runner.os }}-${{ hashFiles('kotlin', 'project.yaml', '**/module.yaml', 'libs.versions.toml') }}
+          restore-keys: kotlin-${{ runner.os }}-
+
+      - name: Restore build output
+        uses: actions/cache/restore@v4
+        with:
+          path: build
+          key: kotlin-build-${{ github.job }}-${{ github.sha }}
+          restore-keys: kotlin-build-${{ github.job }}-
+
+      # Android tests run on the host JVM, where the bundled SQLite driver's native library can't load,
+      # and the toolchain can't run them on a device yet, so Android is only compiled, main and test sources.
+      - name: Build for Android
+        run: ./kotlin build -p android
+
+      - name: Save build output
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: build
+          key: kotlin-build-${{ github.job }}-${{ github.sha }}
+
+  ios:
+    name: iOS tests
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # BSD touch has no -d @epoch, so the time goes through date -r.
+      - name: Set file mtimes to their last commit
+        shell: bash
+        run: |
+          git log --format='%ct' --name-only --no-renames \
+            | awk 'NF == 1 && /^[0-9]+$/ { t = $1; next } NF && !($0 in seen) { seen[$0] = 1; print t "\t" $0 }' \
+            | while IFS=$'\t' read -r t f; do [ -f "$f" ] && touch -t "$(date -r "$t" +%Y%m%d%H%M.%S)" "$f"; done
+
+      - name: Cache Kotlin toolchain and dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/JetBrains/Kotlin
+            ~/.konan
+          key: kotlin-${{ runner.os }}-${{ hashFiles('kotlin', 'project.yaml', '**/module.yaml', 'libs.versions.toml') }}
+          restore-keys: kotlin-${{ runner.os }}-
+
+      - name: Restore build output
+        uses: actions/cache/restore@v4
+        with:
+          path: build
+          key: kotlin-build-${{ github.job }}-${{ github.sha }}
+          restore-keys: kotlin-build-${{ github.job }}-
+
+      - name: Run iOS simulator tests
+        run: ./kotlin test -p iosSimulatorArm64
+
+      - name: Save build output
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: build
+          key: kotlin-build-${{ github.job }}-${{ github.sha }}

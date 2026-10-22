@@ -1,0 +1,26 @@
+product:
+  type: kmp/lib
+  platforms: [ jvm, android, iosArm64, iosSimulatorArm64 ]
+
+dependencies:
+  - $libs.androidx.sqlite.bundled: exported
+  - $libs.kotlinx.coroutines.core: exported
+  - $libs.kotlinx.atomicfu
+  - $libs.kotlinx.collections.immutable
+  - $libs.kotlinx.io.core
+
+test-dependencies:
+  - $libs.kotlinx.coroutines.test
+
+settings:
+  kotlin:
+    freeCompilerArgs:
+      - -Xexplicit-api=strict
+    powerAssert:
+      enabled: true
+    version: 2.4.21
+    optIns:
+      - kotlin.ExperimentalStdlibApi
+      - kotlin.time.ExperimentalTime
+      - kotlin.uuid.ExperimentalUuidApi
+    serialization: json
