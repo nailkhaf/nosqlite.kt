@@ -1,7 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteStatement
-import kotlinx.serialization.SerializationException
 
 internal object Queries {
 
@@ -28,9 +27,15 @@ internal object Queries {
 
     fun dropIndex(name: String): Command<Unit> = command("DROP INDEX \"$name\";")
 
-    fun selectFirst(collection: Collection<*>, condition: Condition): Statement<Unit, Row?> =
-        (Fragment("SELECT rowid, json(data) FROM ${collection.table} WHERE ") + condition.render() + " LIMIT 1;")
-            .statement(firstOrNull { Row(DocumentId(getLong(0)), getText(1)) })
+    fun select(collection: Collection<*>, condition: Condition?, limit: Int, offset: Int): Statement<Unit, List<Row>> {
+        val where = condition?.let { Fragment(" WHERE ") + it.render() } ?: Fragment.Empty
+        val page = Fragment(
+            " ORDER BY rowid LIMIT ? OFFSET ?;",
+            listOf(SqlValue.Integer(limit.toLong()), SqlValue.Integer(offset.toLong())),
+        )
+        return (Fragment("SELECT rowid, json(data) FROM ${collection.table}") + where + page)
+            .statement(rows { Row(DocumentId(getLong(0)), getText(1)) })
+    }
 
     fun insert(collection: Collection<*>): Statement<String, DocumentId> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?)) RETURNING rowid;",
@@ -40,27 +45,6 @@ internal object Queries {
             DocumentId(getLong(0))
         },
     )
-
-    fun selectById(collection: Collection<*>): Statement<DocumentId, String?> = Statement(
-        sql = "SELECT json(data) FROM ${collection.table} WHERE rowid = ?;",
-        encode = { id -> bindLong(1, id.value) },
-        decode = firstOrNull { getText(0) },
-    )
-
-    // RETURNING gives back a row only when one was deleted: androidx.sqlite has no changes().
-    fun deleteById(collection: Collection<*>): Statement<DocumentId, Boolean> = Statement(
-        sql = "DELETE FROM ${collection.table} WHERE rowid = ? RETURNING rowid;",
-        encode = { id -> bindLong(1, id.value) },
-        decode = { step() },
-    )
 }
 
 internal class Row(val id: DocumentId, val json: String)
-
-internal fun <T> Collection<T>.decode(row: Row): T = decode(row.json, row.id)
-
-internal fun <T> Collection<T>.decode(json: String, id: DocumentId?): T = try {
-    Database.Json.decodeFromString(serializer, json)
-} catch (e: SerializationException) {
-    throw NosqliteException.DecodingFailed(name, id, e)
-}

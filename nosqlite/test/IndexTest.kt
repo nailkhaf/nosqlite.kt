@@ -187,19 +187,20 @@ internal class IndexTest {
         val error = assertFailsWith<NosqliteException.UniqueViolation> { db.insert(user("dan", 30, nickname = "twin")) }
 
         assertSame(Users.activeNickname, error.index)
-        assertEquals("cid", db.read { Users.first { ("nickname" eq "twin") and "active".isTrue() } }?.id)
+        val active = db.read { Users.list(limit = 10) { ("nickname" eq "twin") and "active".isTrue() } }
+        assertEquals(listOf("cid"), active.map { it.id })
     }
 
     @Test
-    fun `unique index finds a document by key`() = runTest {
+    fun `a condition on a unique field finds its document`() = runTest {
         val db = Database { +Users }
         db.insert(ada)
         db.insert(alan)
 
         db.read {
-            assertEquals(ada, Users.first { "email" eq ada.email.value })
-            assertEquals(alan, Users.first { "id" eq "alan" })
-            assertNull(Users.first { "id" eq "nobody" })
+            assertEquals(listOf(ada), Users.list(limit = 10) { "email" eq ada.email.value })
+            assertEquals(listOf(alan), Users.list(limit = 10) { "id" eq "alan" })
+            assertEquals(emptyList(), Users.list(limit = 10) { "id" eq "nobody" })
         }
     }
 
@@ -234,7 +235,7 @@ internal class IndexTest {
         db.write { Teams.insert(core) }
 
         assertEquals(setOf(Teams.byLead.name, Teams.byLeadFirst.name), db.indexNames())
-        assertEquals(core, db.read { Teams.first { "lead.last" eq "Lovelace" } })
+        assertEquals(listOf(core), db.read { Teams.list(limit = 10) { "lead.last" eq "Lovelace" } })
         assertFailsWith<NosqliteException.UniqueViolation> {
             db.write { Teams.insert(Team("other", Name("Byron", "Lovelace"))) }
         }

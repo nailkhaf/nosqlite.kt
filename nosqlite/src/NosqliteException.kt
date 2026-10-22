@@ -15,6 +15,6 @@ public sealed class NosqliteException(message: String, cause: Throwable? = null)
     ) : NosqliteException("Unique constraint violated in '$collection': ${index ?: cause.message}", cause)
 
     /** A document of [collection] can't be decoded into the requested type. */
-    public class DecodingFailed internal constructor(public val collection: String, id: DocumentId?, cause: Throwable) :
-        NosqliteException("Can't decode ${id ?: "a document"} of '$collection': ${cause.message}", cause)
+    public class DecodingFailed internal constructor(public val collection: String, id: DocumentId, cause: Throwable) :
+        NosqliteException("Can't decode $id of '$collection': ${cause.message}", cause)
 }

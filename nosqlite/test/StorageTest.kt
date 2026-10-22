@@ -49,13 +49,53 @@ internal class StorageTest {
     }
 
     @Test
-    fun `get returns the inserted document`() = runTest {
+    fun `list returns the inserted documents in order`() = runTest {
         val db = Database { +Users }
-        db.write { Users.insert(ada) }
+        db.write {
+            Users.insert(ada)
+            Users.insert(alan)
+        }
 
-        val stored = db.read { Users.get(DocumentId(1)) }
+        assertEquals(listOf(ada, alan), db.read { Users.list(limit = 10) })
+        assertEquals(listOf(ada), db.read { Users.list(limit = 1) })
+    }
 
-        assertEquals(ada, stored)
+    @Test
+    fun `list returns only matching documents`() = runTest {
+        val db = Database { +Users }
+        db.write {
+            Users.insert(ada)
+            Users.insert(alan)
+        }
+
+        assertEquals(listOf(alan), db.read { Users.list(limit = 10) { "age" gt 40 } })
+        assertEquals(emptyList(), db.read { Users.list(limit = 10) { "age" gt 50 } })
+    }
+
+    @Test
+    fun `list pages with limit and offset`() = runTest {
+        val db = Database { +Users }
+        val people = (1..5).map { buildJsonObject { put("age", it) } }
+        db.write { people.forEach { Users.insert(it) } }
+
+        db.read {
+            assertEquals(people.subList(0, 2), Users.list(limit = 2))
+            assertEquals(people.subList(2, 4), Users.list(limit = 2, offset = 2))
+            assertEquals(people.subList(4, 5), Users.list(limit = 2, offset = 4))
+            assertEquals(emptyList(), Users.list(limit = 2, offset = 5))
+            assertEquals(people.subList(3, 5), Users.list(limit = 10, offset = 1) { "age" gt 2 })
+        }
+    }
+
+    @Test
+    fun `list needs a positive limit and no negative offset`() = runTest {
+        val db = Database { +Users }
+
+        val limit = assertFailsWith<IllegalArgumentException> { db.read { Users.list(limit = 0) } }
+        val offset = assertFailsWith<IllegalArgumentException> { db.read { Users.list(limit = 1, offset = -1) } }
+
+        assertEquals("Limit must be positive: 0", limit.message)
+        assertEquals("Offset must not be negative: -1", offset.message)
     }
 
     @Serializable
@@ -67,7 +107,7 @@ internal class StorageTest {
 
         db.write { People.insert(User("Ada", 36)) }
 
-        assertEquals(User("Ada", 36), db.read { People.get(DocumentId(1)) })
+        assertEquals(listOf(User("Ada", 36)), db.read { People.list(limit = 1) })
         assertEquals(listOf(listOf("""{"name":"Ada","age":36}""")), db.querySql("SELECT json(data) FROM people"))
     }
 
@@ -81,33 +121,10 @@ internal class StorageTest {
     }
 
     @Test
-    fun `get of an unknown id is null`() = runTest {
-        val db = Database { +Users }
-
-        val stored = db.read { Users.get(DocumentId(42)) }
-
-        assertNull(stored)
-    }
-
-    @Test
-    fun `delete tells whether the document was there`() = runTest {
-        val db = Database { +Users }
-        db.write { Users.insert(ada) }
-        val id = DocumentId(1)
-
-        val first = db.write { Users.delete(id) }
-        val second = db.write { Users.delete(id) }
-
-        assertTrue(first)
-        assertFalse(second)
-        assertNull(db.read { Users.get(id) })
-    }
-
-    @Test
     fun `the id of a deleted document is never given out again`() = runTest {
         val db = Database { +Users }
         db.write { Users.insert(ada) }
-        db.write { Users.delete(DocumentId(1)) }
+        db.pool().writeSql { execute("DELETE FROM users") }
 
         db.write { Users.insert(alan) }
 
@@ -190,9 +207,9 @@ internal class StorageTest {
             first.close()
 
             val second = Database(location.path) { +Users }
-            val stored = second.read { Users.get(DocumentId(1)) }
+            val stored = second.read { Users.list(limit = 1) }
 
-            assertEquals(ada, stored)
+            assertEquals(listOf(ada), stored)
             second.close()
         }
     }
@@ -212,7 +229,7 @@ internal class StorageTest {
         db.write { Users.insert(ada) }
         db.close()
 
-        val error = assertFailsWith<IllegalStateException> { db.read { Users.get(DocumentId(1)) } }
+        val error = assertFailsWith<IllegalStateException> { db.read { Users.list(limit = 1) } }
 
         assertEquals("Database is closed", error.message)
     }
@@ -259,7 +276,7 @@ internal class StorageTest {
         val db = Database { +People }
         db.pool().writeSql { execute("""INSERT INTO people (data) VALUES (jsonb('{"name":1}'))""") }
 
-        val error = assertFailsWith<NosqliteException.DecodingFailed> { db.read { People.get(DocumentId(1)) } }
+        val error = assertFailsWith<NosqliteException.DecodingFailed> { db.read { People.list(limit = 1) } }
 
         assertEquals("people", error.collection)
     }
