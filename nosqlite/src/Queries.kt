@@ -14,8 +14,9 @@ internal object Queries {
         """.trimIndent(),
     )
 
+    /** The indexes nosqlite manages on the input table; others are left alone. */
     val indexNames: Statement<String, List<String>> = Statement(
-        sql = "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = ?;",
+        sql = "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = ? AND name GLOB '$INDEX_PREFIX*';",
         encode = { table -> bindText(1, table) },
         decode = rows { getText(0) },
     )

@@ -27,7 +27,6 @@ public class Index internal constructor(
             (where?.let { " where $it" } ?: "")
 }
 
-// Names of the indexes nosqlite manages; others on its tables are left alone.
 internal const val INDEX_PREFIX = "nsq_"
 
 /** The 64-bit FNV-1a hash of [text] as 16 hex digits: short, and the same on every platform. */

@@ -73,7 +73,7 @@ public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R
 context(_: Connection)
 internal suspend fun createSchema(collection: Collection<*>) {
     Queries.createTable(collection).execute()
-    val current = Queries.indexNames.execute(collection.name).filter { it.startsWith(INDEX_PREFIX) }
+    val current = Queries.indexNames.execute(collection.name)
     val wanted = collection.indexes.associateBy { it.name }
     current.filter { it !in wanted }.forEach { Queries.dropIndex(it).execute() }
     wanted.filterKeys { it !in current }.values.forEach { index ->
