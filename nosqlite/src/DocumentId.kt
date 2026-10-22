@@ -2,8 +2,8 @@ package io.github.nailkhaf.nosqlite
 
 import kotlin.jvm.JvmInline
 
-/** The id SQLite gives a document on insert: its table's `rowid`. It is never part of the document's JSON. */
+/** A document's `rowid`. It is never part of the document's JSON: documents are addressed by their unique keys. */
 @JvmInline
-public value class DocumentId(public val value: Long) {
+internal value class DocumentId(val value: Long) {
     override fun toString(): String = "DocumentId($value)"
 }

@@ -9,11 +9,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** Covers declaring collections, their tables, and storing JSON documents by [DocumentId]. */
+/** Covers declaring collections, their tables, and storing JSON documents. */
 internal class StorageTest {
 
     object Users : Collection("users")
@@ -32,20 +31,23 @@ internal class StorageTest {
     }
 
     @Test
-    fun `insert returns the new row's id`() = runTest {
+    fun `inserted documents get ids in order`() = runTest {
         val db = Database { +Users }
 
-        val ids = db.write { listOf(Users.insert(ada), Users.insert(alan)) }
+        db.write {
+            Users.insert(ada)
+            Users.insert(alan)
+        }
 
-        assertEquals(listOf(DocumentId(1), DocumentId(2)), ids)
+        assertEquals(listOf(listOf("1"), listOf("2")), db.querySql("SELECT rowid FROM users"))
     }
 
     @Test
     fun `get returns the inserted document`() = runTest {
         val db = Database { +Users }
-        val id = db.write { Users.insert(ada) }
+        db.write { Users.insert(ada) }
 
-        val stored = db.read { Users.get<JsonObject>(id) }
+        val stored = db.read { Users.get<JsonObject>(DocumentId(1)) }
 
         assertEquals(ada, stored)
     }
@@ -62,7 +64,8 @@ internal class StorageTest {
     @Test
     fun `delete tells whether the document was there`() = runTest {
         val db = Database { +Users }
-        val id = db.write { Users.insert(ada) }
+        db.write { Users.insert(ada) }
+        val id = DocumentId(1)
 
         val first = db.write { Users.delete(id) }
         val second = db.write { Users.delete(id) }
@@ -75,12 +78,12 @@ internal class StorageTest {
     @Test
     fun `the id of a deleted document is never given out again`() = runTest {
         val db = Database { +Users }
-        val deleted = db.write { Users.insert(ada) }
-        db.write { Users.delete(deleted) }
+        db.write { Users.insert(ada) }
+        db.write { Users.delete(DocumentId(1)) }
 
-        val next = db.write { Users.insert(alan) }
+        db.write { Users.insert(alan) }
 
-        assertNotEquals(deleted, next)
+        assertEquals(listOf(listOf("2")), db.querySql("SELECT rowid FROM users"))
     }
 
     @Test
@@ -155,11 +158,11 @@ internal class StorageTest {
     fun `documents survive closing and reopening the file`() = runTest {
         withTempFile { location ->
             val first = Database(location) { +Users }
-            val id = first.write { Users.insert(ada) }
+            first.write { Users.insert(ada) }
             first.close()
 
             val second = Database(location.path) { +Users }
-            val stored = second.read { Users.get<JsonObject>(id) }
+            val stored = second.read { Users.get<JsonObject>(DocumentId(1)) }
 
             assertEquals(ada, stored)
             second.close()
@@ -222,13 +225,12 @@ internal class StorageTest {
     }
 
     @Test
-    fun `document that does not decode names its id`() = runTest {
+    fun `document that does not decode names its collection`() = runTest {
         val db = Database { +Users }
-        val id = db.write { Users.insert(ada) }
+        db.write { Users.insert(ada) }
 
-        val error = assertFailsWith<NosqliteException.DecodingFailed> { db.read { Users.get<Int>(id) } }
+        val error = assertFailsWith<NosqliteException.DecodingFailed> { db.read { Users.get<Int>(DocumentId(1)) } }
 
         assertEquals("users", error.collection)
-        assertEquals(id, error.id)
     }
 }
