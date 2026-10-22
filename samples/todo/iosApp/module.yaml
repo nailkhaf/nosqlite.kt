@@ -1,0 +1,10 @@
+product: ios/app
+
+dependencies:
+  - //samples/todo/shared
+  - $compose.ui
+
+settings:
+  compose: enabled
+  kotlin:
+    version: 2.4.21
