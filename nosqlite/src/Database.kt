@@ -43,8 +43,6 @@ public class Database(
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
 
-    internal fun isDeclared(collection: Collection<*>): Boolean = collections.any { it === collection }
-
     internal suspend fun pool(): ConnectionPool = ready.get()
 
     internal suspend fun committed(collections: Set<String>) {

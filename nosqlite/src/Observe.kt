@@ -30,7 +30,6 @@ context(db: Database)
 public fun <T> Lookup.Unique<T>.observe(): Flow<T?> = db.observe(index.collection) { get() }
 
 private fun <R> Database.observe(collection: Collection<*>, read: suspend context(ReadScope) () -> R): Flow<R> = flow {
-    if (!isDeclared(collection)) throw NosqliteException.CollectionNotDeclared(collection.name)
     emitAll(
         changes.filter { it == collection.name }
             .map { }

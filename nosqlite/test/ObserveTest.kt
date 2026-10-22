@@ -4,7 +4,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runCurrent
@@ -35,7 +34,7 @@ internal class ObserveTest {
     private val alan = User("alan", 41)
     private val note = buildJsonObject { put("text", "hi") }
 
-    private fun TestScope.database() = Database(dispatcher = StandardTestDispatcher(testScheduler)) {
+    private fun TestScope.database() = Database(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
         +Users
         +Notes
     }
@@ -44,7 +43,6 @@ internal class ObserveTest {
     private fun <T> TestScope.collect(flow: Flow<T>): List<T> {
         val values = mutableListOf<T>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { flow.toList(values) }
-        runCurrent()
         return values
     }
 
@@ -62,13 +60,9 @@ internal class ObserveTest {
         val users = collect(with(db) { Users.observe { orderBy(asc("id")) } })
 
         db.write { Users.insert(ada) }
-        runCurrent()
         db.write { Users.byId.upsert(alan) }
-        runCurrent()
         db.write { Users.update(alan.copy(age = 42)) { "id" eq "alan" } }
-        runCurrent()
         db.write { Users.byId("ada").delete() }
-        runCurrent()
 
         assertEquals(
             listOf(
@@ -103,11 +97,8 @@ internal class ObserveTest {
         val adults = collect(with(db) { Users.observe { where { "age" gte 18 } } })
 
         db.write { Users.insert(User("kid", 10)) }
-        runCurrent()
         db.write { Notes.insert(note) }
-        runCurrent()
         db.write { Users.insert(ada) }
-        runCurrent()
 
         assertEquals(listOf(emptyList(), listOf(ada)), adults)
     }
@@ -118,11 +109,8 @@ internal class ObserveTest {
         val found = collect(with(db) { Users.byId("alan").observe() })
 
         db.write { Users.insert(alan) }
-        runCurrent()
         db.write { Users.byId("alan").update(alan.copy(age = 42)) }
-        runCurrent()
         db.write { Users.byId("alan").delete() }
-        runCurrent()
 
         assertEquals(listOf(null, alan, alan.copy(age = 42), null), found)
     }
@@ -137,7 +125,6 @@ internal class ObserveTest {
             Users.insert(User("cid", 36))
             Users.insert(alan)
         }
-        runCurrent()
 
         assertEquals(listOf(emptyList(), listOf(User("cid", 36), ada)), found)
     }
@@ -152,7 +139,6 @@ internal class ObserveTest {
             db.write { Users.insert(alan) }
             Notes.insert(note)
         }
-        runCurrent()
 
         assertEquals(setOf("users", "notes"), changes.toSet())
         assertEquals(2, changes.size)
@@ -168,7 +154,6 @@ internal class ObserveTest {
         db.write { Notes.update(note) { "text" eq "bye" } }
         db.write { Users.byId.upsert(ada) }
         db.write { Notes.delete { "text" eq "hi" } }
-        runCurrent()
 
         assertEquals(listOf("notes", "notes", "notes", "users", "notes"), changes)
     }
@@ -188,7 +173,6 @@ internal class ObserveTest {
         db.write { Users.delete { "age" gt 100 } }
         db.write { Users.update(User("x", 1)) { "id" eq "nobody" } }
         db.write { Users.byId("nobody").delete() }
-        runCurrent()
 
         assertEquals(emptyList(), changes)
     }
@@ -207,7 +191,6 @@ internal class ObserveTest {
                 }
             }
         }
-        runCurrent()
 
         assertEquals(listOf("notes"), changes)
     }
@@ -225,7 +208,7 @@ internal class ObserveTest {
 
     @Test
     fun `observe of an undeclared collection is rejected`() = runTest {
-        val db = Database(dispatcher = StandardTestDispatcher(testScheduler)) { +Notes }
+        val db = Database(dispatcher = UnconfinedTestDispatcher(testScheduler)) { +Notes }
 
         val error = assertFailsWith<NosqliteException.CollectionNotDeclared> { with(db) { Users.observe().first() } }
 

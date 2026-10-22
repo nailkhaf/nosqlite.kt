@@ -4,7 +4,7 @@ package io.github.nailkhaf.nosqlite
 public sealed class NosqliteException(message: String, cause: Throwable? = null) : RuntimeException(message, cause) {
 
     /** [collection] is used with a database that doesn't declare it in `Database { }`. */
-    public class CollectionNotDeclared internal constructor(public val collection: String, cause: Throwable? = null) :
+    public class CollectionNotDeclared internal constructor(public val collection: String, cause: Throwable) :
         NosqliteException("Collection '$collection' is not declared, add +$collection to Database { }", cause)
 
     /** A write would give two documents of [collection] the same key in a unique [index], `null` when unknown. */
