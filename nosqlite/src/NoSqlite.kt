@@ -119,6 +119,6 @@ internal suspend fun createSchema(collection: Collection<*>) {
     val wanted = collection.indexes.associateBy { it.name }
     current.filter { it !in wanted }.forEach { Queries.dropIndex(it).execute() }
     wanted.filterKeys { it !in current }.values.forEach { index ->
-        collection.mapErrors { Queries.createIndex(index).execute() }
+        mapErrors(collection) { Queries.createIndex(index).execute() }
     }
 }

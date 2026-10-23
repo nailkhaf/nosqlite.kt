@@ -177,6 +177,27 @@ internal class ConnectionPoolTest {
 
         assertEquals("Negative maxReaders: -1", error.message)
     }
+
+    @Test
+    fun `write fails with Busy while another pool on the file holds the write lock`() = runTest {
+        withTempFile { location ->
+            val pool = ConnectionPool(location)
+            pool.writeSql { createTable() }
+            pool.withWriter { it.execute("PRAGMA busy_timeout = 0;") }
+            val other = ConnectionPool(location)
+
+            other.withWriter {
+                it.execute("BEGIN IMMEDIATE;")
+                assertFailsWith<NoSqliteException.Busy> { pool.writeSql { insert("blocked") } }
+                it.execute("ROLLBACK;")
+            }
+            pool.writeSql { insert("retried") }
+
+            assertEquals(listOf("retried"), pool.readSql { values() })
+            other.close()
+            pool.close()
+        }
+    }
 }
 
 internal suspend fun Connection.execute(sql: String) {

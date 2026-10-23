@@ -94,7 +94,7 @@ private suspend fun <R> Connection.transaction(boundary: Boundary, block: suspen
 }
 
 private suspend fun Connection.execute(sql: String) {
-    statement(sql) { statement -> locked { statement.step() } }
+    mapErrors { statement(sql) { statement -> locked { statement.step() } } }
 }
 
 /** The transaction the current coroutine runs in, when it belongs to [pool]. */
