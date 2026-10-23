@@ -172,25 +172,39 @@ internal fun <T> Collection<T>.decode(row: SQLiteStatement): T = try {
 /** Runs [block] on the transaction's connection, with SQLite's errors about this collection made typed. */
 context(_: ReadScope)
 internal suspend fun <R> Collection<*>.withConnection(block: suspend context(Connection) () -> R): R =
-    mapErrors { context(connection()) { block() } }
+    mapErrors(this) { context(connection()) { block() } }
 
 private val IndexName = Regex("index '([^']+)'")
 
+private val ErrorCode = Regex("^Error code: (\\d+)")
+
+// SQLITE_BUSY and SQLITE_LOCKED, with their extended codes, which keep the primary code in the low byte.
+private val BusyCodes = setOf(5, 6)
+
 /**
- * Only declared collections have a table, so SQLite not knowing this collection's table means it wasn't declared.
- * A unique constraint error names the index only when it is an expression index, which all of ours are.
- * Both are matched by SQLite's message text, which IndexTest and WriteTest pin for the bundled driver.
+ * Runs [block], making SQLite's errors typed: a locked database for any statement, and for one about [collection]
+ * its missing table and unique constraints. Only declared collections have a table, so SQLite not knowing this
+ * collection's table means it wasn't declared. A unique constraint error names the index only when it is an
+ * expression index, which all of ours are. Both are matched by SQLite's message text, which IndexTest and WriteTest
+ * pin for the bundled driver.
  */
-internal inline fun <R> Collection<*>.mapErrors(block: () -> R): R = try {
+internal inline fun <R> mapErrors(collection: Collection<*>? = null, block: () -> R): R = try {
     block()
 } catch (e: SQLiteException) {
     val message = e.message.orEmpty()
+    val code = ErrorCode.find(message)?.groupValues?.get(1)?.toInt()
     when {
-        "no such table: $name" in message -> throw NoSqliteException.CollectionNotDeclared(name, e)
+        code != null && (code and 0xFF) in BusyCodes -> throw NoSqliteException.Busy(e)
+
+        collection == null -> throw e
+
+        "no such table: ${collection.name}" in message ->
+            throw NoSqliteException.CollectionNotDeclared(collection.name, e)
 
         "UNIQUE constraint failed" in message -> {
             val index = IndexName.find(message)?.groupValues?.get(1)
-            throw NoSqliteException.UniqueViolation(name, indexes.firstOrNull { it.name == index }, e)
+            val violated = collection.indexes.firstOrNull { it.name == index }
+            throw NoSqliteException.UniqueViolation(collection.name, violated, e)
         }
 
         else -> throw e

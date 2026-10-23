@@ -28,4 +28,11 @@ public sealed class NoSqliteException(message: String, cause: Throwable? = null)
     /** The driver's SQLite is [version], older than 3.45.0, the first with the JSONB functions storage needs. */
     public class UnsupportedSqlite internal constructor(public val version: String) :
         NoSqliteException("SQLite $version is older than $MinSqliteVersion; use BundledSQLiteDriver")
+
+    /**
+     * Another connection to the same file, from another [NoSqlite] or process, kept it locked longer than the 5 s
+     * busy timeout. Nothing was changed, so the operation can be retried.
+     */
+    public class Busy internal constructor(cause: Throwable) :
+        NoSqliteException("Database is locked by another connection: ${cause.message}", cause)
 }
