@@ -17,8 +17,9 @@ import kotlinx.serialization.json.Json
  *     +Notes
  * }
  * ```
- * Nothing touches the file until the first [read] or [write], which creates the collections' tables in one write
- * transaction before anything else runs. [close] closes every connection that was opened.
+ * Nothing touches the file until the first [read] or [write], which drops the tables of removed collections and
+ * creates the declared ones in one write transaction before anything else runs.
+ * [close] closes every connection that was opened.
  */
 public class NoSqlite(
     location: Location = Location.InMemory,
@@ -30,10 +31,15 @@ public class NoSqlite(
 
     private val connections = ConnectionPool(location, driver, dispatcher)
 
-    private val collections = SchemaBuilder().apply(schema).collections.toList()
+    private val tables = SchemaBuilder().apply(schema)
 
     private val ready = suspendLazy {
-        connections.write { context(connection()) { collections.forEach { createSchema(it) } } }
+        connections.write {
+            context(connection()) {
+                tables.removed.forEach { Queries.dropTable(it).execute() }
+                tables.collections.forEach { createSchema(it) }
+            }
+        }
         connections
     }
 
@@ -68,11 +74,21 @@ public annotation class SchemaDsl
 @SchemaDsl
 public class SchemaBuilder internal constructor() {
     internal val collections = mutableListOf<Collection<*>>()
+    internal val removed = mutableListOf<String>()
 
     /** Declares this collection; each name can be declared once. */
     public operator fun Collection<*>.unaryPlus() {
         require(collections.none { it.name == name }) { "Collection '$name' is declared more than once" }
+        require(name !in removed) { "Collection '$name' is both declared and removed" }
         collections += this
+    }
+
+    /** Removes the collection with this name: its table and documents are dropped on open, if they exist. */
+    public operator fun String.unaryMinus() {
+        requireCollectionName(this)
+        require(this !in removed) { "Collection '$this' is removed more than once" }
+        require(collections.none { it.name == this }) { "Collection '$this' is both declared and removed" }
+        removed += this
     }
 }
 
