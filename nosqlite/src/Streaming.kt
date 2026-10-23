@@ -13,18 +13,19 @@ public suspend fun <T> Collection<T>.forEach(query: QueryScope.() -> Unit = {}, 
     val query = query(query)
     val select = Queries.selectSql(this, query)
     withConnection {
-        select.forEachRow { action(decode(this)) }
+        select.forEachRow({ decode(this) }) { action(it) }
     }
 }
 
 // Connection.statement keeps the statement out of the cache while the cursor is open, so the block can run queries.
 context(conn: Connection)
-private suspend fun Fragment.forEachRow(block: suspend SQLiteStatement.() -> Unit) {
+private suspend fun <R> Fragment.forEachRow(read: SQLiteStatement.() -> R, block: suspend (R) -> Unit) {
     conn.statement(sql) { statement ->
-        statement.bind(params)
-        while (statement.step()) {
+        conn.exclusive { statement.bind(params) }
+        while (true) {
             currentCoroutineContext().ensureActive()
-            statement.block()
+            val next = conn.exclusive { if (statement.step()) statement.read() else null } ?: break
+            block(next)
         }
     }
 }

@@ -30,6 +30,24 @@ internal class ConnectionTest {
     }
 
     @Test
+    fun `a reused statement starts over with no bindings`() = runTest {
+        val connection = connectionWithRows()
+        val sql = "SELECT ?;"
+        connection.statement(sql) { statement ->
+            statement.bindLong(1, 42)
+            statement.step()
+        }
+
+        val reused = connection.statement(sql) { statement ->
+            statement.step()
+            statement.isNull(0)
+        }
+
+        assertTrue(reused)
+        connection.close()
+    }
+
+    @Test
     fun `a nested call with the same sql gets its own statement`() = runTest {
         val connection = connectionWithRows("a", "b")
         val sql = "SELECT value FROM t ORDER BY id;"
