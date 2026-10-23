@@ -135,7 +135,7 @@ private fun Int.changed(collection: Collection<*>): Int {
 }
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
-internal val Collection<*>.table: String get() = "\"$name\""
+internal val Collection<*>.table: String get() = identifier(name)
 
 internal fun <T> Collection<T>.encode(value: T): String {
     val json = NoSqlite.Json.encodeToJsonElement(serializer, value)

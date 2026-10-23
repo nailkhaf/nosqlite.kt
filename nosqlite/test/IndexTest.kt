@@ -125,6 +125,20 @@ internal class IndexTest {
     }
 
     @Test
+    fun `reopening drops an undeclared index whose name has a quote`() = runTest {
+        withTempFile { location ->
+            val db = NoSqlite(location) { +Users }
+            db.pool().writeSql { execute("CREATE INDEX \"nsq_users_\"\"x\" ON users (data ->> '$.score')") }
+            db.close()
+
+            val reopened = NoSqlite(location) { +Users }
+
+            assertTrue("nsq_users_\"x" !in reopened.indexNames())
+            reopened.close()
+        }
+    }
+
+    @Test
     fun `unique index rejects a duplicate key and names itself`() = runTest {
         val db = NoSqlite { +Users }
         db.insert(ada)
