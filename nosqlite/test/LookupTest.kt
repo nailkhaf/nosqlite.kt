@@ -222,6 +222,13 @@ internal class LookupTest {
     }
 
     @Test
+    fun `a lookup rejects NaN and infinite numbers`() {
+        assertFailsWith<IllegalArgumentException> { Users.byAge(Double.NaN) }
+        assertFailsWith<IllegalArgumentException> { Users.byAge(Double.NEGATIVE_INFINITY) }
+        assertFailsWith<IllegalArgumentException> { Users.byId(Float.POSITIVE_INFINITY) }
+    }
+
+    @Test
     fun `a lookup reads as its index and values`() {
         assertEquals(
             "index users(name.last, name.first) = ['Lovelace', NULL]",
