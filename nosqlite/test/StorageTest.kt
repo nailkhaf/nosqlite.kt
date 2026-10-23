@@ -2,8 +2,13 @@ package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
@@ -25,7 +30,7 @@ internal class StorageTest {
 
     object People : Collection<User>("people", User.serializer())
 
-    object Numbers : Collection<Int>("numbers", Int.serializer())
+    object Elements : Collection<JsonElement>("elements", JsonElement.serializer())
 
     private val ada = buildJsonObject {
         put("name", "Ada")
@@ -137,12 +142,42 @@ internal class StorageTest {
     }
 
     @Test
+    fun `a collection of values that are not JSON objects is rejected`() {
+        val serializers = listOf(
+            Int.serializer(),
+            String.serializer(),
+            Role.serializer(),
+            Email.serializer(),
+            ListSerializer(User.serializer()),
+            User.serializer().nullable,
+        )
+
+        val messages = serializers.map { assertFailsWith<IllegalArgumentException> { Collection("docs", it) }.message }
+
+        val expected = serializers.map { "A document of 'docs' must be a JSON object, not ${it.descriptor.serialName}" }
+        assertEquals(expected, messages)
+    }
+
+    @Test
+    fun `objects maps and polymorphic values make collections`() {
+        val collections = listOf(
+            Collection("users", User.serializer()),
+            Collection("emails", MapSerializer(String.serializer(), Email.serializer())),
+            Collection("raw", JsonObject.serializer()),
+            Collection("elements", JsonElement.serializer()),
+        )
+
+        assertEquals(listOf("users", "emails", "raw", "elements"), collections.map { it.name })
+    }
+
+    @Test
     fun `a value that is not a JSON object is rejected`() = runTest {
-        val db = NoSqlite { +Numbers }
+        val db = NoSqlite { +Elements }
 
-        val error = assertFailsWith<IllegalArgumentException> { db.write { Numbers.insert(42) } }
+        val error = assertFailsWith<IllegalArgumentException> { db.write { Elements.insert(JsonPrimitive(42)) } }
 
-        assertEquals("A document of 'numbers' must be a JSON object, not 42", error.message)
+        assertEquals("A document of 'elements' must be a JSON object, not 42", error.message)
+        assertEquals(0, db.read { Elements.count() })
     }
 
     @Test
