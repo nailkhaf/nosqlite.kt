@@ -13,6 +13,21 @@ addressed by their unique indexes.
 - Streaming with an open cursor (`forEach`)
 - `observe` flows that read again after each committed write to the collection
 
+## Installation
+
+```kotlin
+// Gradle
+implementation("io.github.nailkhaf:nosqlite:0.1.0")
+```
+
+```yaml
+# Kotlin toolchain module.yaml
+dependencies:
+  - io.github.nailkhaf:nosqlite:0.1.0
+```
+
+Documents need the kotlinx.serialization compiler plugin.
+
 ## Example
 
 ```kotlin
@@ -165,6 +180,14 @@ is nothing to install.
 ./kotlin test -p jvm
 ./kotlin test -p iosSimulatorArm64
 ```
+
+## Publishing
+
+`nosqlite/module.yaml` holds the Maven coordinates and POM. `./kotlin publish -m nosqlite mavenLocal` installs the
+library into `~/.m2` to try it from another project; it signs the artifacts, so it needs `KOTLIN_TOOLCHAIN_SIGNING_KEY`
+(any ASCII-armored PGP key will do locally). The manually run Publish workflow uploads to the Maven Central Portal
+with the `MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `SIGNING_KEY` and `SIGNING_KEY_PASSPHRASE` secrets, and
+stops for a release from the Portal UI.
 
 ## Platforms and CI
 

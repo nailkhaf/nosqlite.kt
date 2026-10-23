@@ -2,6 +2,12 @@ product:
   type: kmp/lib
   platforms: [ jvm, android, iosArm64, iosSimulatorArm64 ]
 
+description: Kotlin Multiplatform document store on SQLite JSONB with kotlinx.serialization
+
+repositories:
+  - url: mavenLocal
+    publish: true
+
 dependencies:
   - $libs.androidx.sqlite.bundled: exported
   - $libs.kotlinx.coroutines.core: exported
@@ -25,3 +31,18 @@ settings:
       - kotlin.uuid.ExperimentalUuidApi
       - kotlinx.coroutines.ExperimentalCoroutinesApi
     serialization: json
+  publishing:
+    enabled: true
+    group: io.github.nailkhaf
+    version: 0.1.0
+    mavenCentral: enabled
+    signArtifacts: true
+    publishSources: true
+    pom:
+      url: https://github.com/nailkhaf/nosqlite.kt
+      scm: https://github.com/nailkhaf/nosqlite.kt.git
+      developers:
+        - name: Nail Khafizov
+      licenses:
+        - name: Apache-2.0
+          url: https://www.apache.org/licenses/LICENSE-2.0
