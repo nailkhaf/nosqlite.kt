@@ -47,6 +47,16 @@ internal class WhereTest {
     }
 
     @Test
+    fun `NaN and infinite numbers are rejected`() {
+        val nan = assertFailsWith<IllegalArgumentException> { where { "score" eq Double.NaN } }
+        assertFailsWith<IllegalArgumentException> { where { "score" gt Double.POSITIVE_INFINITY } }
+        assertFailsWith<IllegalArgumentException> { where { "score" lt Float.NEGATIVE_INFINITY } }
+        assertFailsWith<IllegalArgumentException> { where { "score" isIn listOf(1.0, Float.NaN) } }
+
+        assertEquals("Unsupported number: NaN, SQLite has no NaN or infinity", nan.message)
+    }
+
+    @Test
     fun `null checks render as IS NULL`() {
         assertEquals("data ->> '$.nickname' IS NULL", where { "nickname".isNull() }.render().sql)
         assertEquals("data ->> '$.nickname' IS NOT NULL", where { "nickname".isNotNull() }.render().sql)

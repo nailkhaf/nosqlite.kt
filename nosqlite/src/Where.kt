@@ -105,7 +105,10 @@ internal fun where(block: WhereScope.() -> Where): Where = WhereScope().block()
 internal val Number.sqlValue: SqlValue
     get() = when (this) {
         is Int, is Long, is Short, is Byte -> SqlValue.Integer(toLong())
-        is Double, is Float -> SqlValue.Real(toDouble())
+        is Double, is Float -> toDouble().let {
+            require(it.isFinite()) { "Unsupported number: $it, SQLite has no NaN or infinity" }
+            SqlValue.Real(it)
+        }
         else -> throw IllegalArgumentException("Unsupported number: ${this::class.simpleName}")
     }
 

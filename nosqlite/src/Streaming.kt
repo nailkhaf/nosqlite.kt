@@ -13,7 +13,7 @@ public suspend fun <T> Collection<T>.forEach(query: QueryScope.() -> Unit = {}, 
     val query = query(query)
     val select = Queries.selectSql(this, query)
     withConnection {
-        select.forEachRow { action(decode(row())) }
+        select.forEachRow { action(decode(this)) }
     }
 }
 

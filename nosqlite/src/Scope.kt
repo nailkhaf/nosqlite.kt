@@ -39,9 +39,12 @@ internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) (
     }
 }
 
-/** Runs [block] in a write; [onCommit] gets the collections it changed after the outermost write commits. */
+/**
+ * Runs [block] in a write; [onCommit] gets the collections it changed once the outermost write commits, even when the
+ * caller is cancelled right after the commit.
+ */
 internal suspend fun <R> ConnectionPool.write(
-    onCommit: suspend (Set<String>) -> Unit = {},
+    onCommit: (Set<String>) -> Unit = {},
     block: suspend context(WriteScope) () -> R,
 ): R {
     activeScope(this)?.let { active ->
@@ -50,12 +53,11 @@ internal suspend fun <R> ConnectionPool.write(
         return active.connection.transaction(Boundary.Savepoint) { withScope(scope, block) }
             .also { active.changed += scope.changed }
     }
-    val (result, changed) = withWriter { connection ->
+    return withWriter { connection ->
         val scope = WriteScope(connection, this)
-        connection.transaction(Boundary.Write) { withScope(scope, block) } to scope.changed.toSet()
+        connection.transaction(Boundary.Write) { withScope(scope, block) }
+            .also { onCommit(scope.changed.toSet()) }
     }
-    onCommit(changed)
-    return result
 }
 
 /** The SQL that opens, commits and rolls back one kind of transaction. */

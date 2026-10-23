@@ -46,12 +46,12 @@ internal class Connection(private val sqlite: SQLiteConnection) {
             )
             try {
                 requireSupported(sqlite.version())
-            } catch (e: NoSqliteException) {
+                for (pragma in Pragmas) sqlite.execSQL(pragma)
+                if (queryOnly) sqlite.execSQL("PRAGMA query_only = ON;")
+            } catch (e: Throwable) {
                 sqlite.close()
                 throw e
             }
-            for (pragma in Pragmas) sqlite.execSQL(pragma)
-            if (queryOnly) sqlite.execSQL("PRAGMA query_only = ON;")
             return Connection(sqlite)
         }
 
