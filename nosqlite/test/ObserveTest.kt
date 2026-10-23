@@ -1,5 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
@@ -16,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /** Covers observing queries and lookups, and the changes that drive them. */
 internal class ObserveTest {
@@ -130,9 +132,8 @@ internal class ObserveTest {
     }
 
     @Test
-    fun `a committed write publishes each collection it changed once`() = runTest {
+    fun `a committed write bumps each collection it changed once`() = runTest {
         val db = database()
-        val changes = collect(db.changes)
 
         db.write {
             Users.insert(ada)
@@ -140,14 +141,12 @@ internal class ObserveTest {
             Notes.insert(note)
         }
 
-        assertEquals(setOf("users", "notes"), changes.toSet())
-        assertEquals(2, changes.size)
+        assertEquals(mapOf("users" to 1L, "notes" to 1L), db.versions.value)
     }
 
     @Test
-    fun `every kind of write publishes a change`() = runTest {
+    fun `every kind of write bumps a version`() = runTest {
         val db = database()
-        val changes = collect(db.changes)
 
         db.write { Notes.insert(note) }
         db.write { Notes.patch(buildJsonObject { put("text", "bye") }) { "text" eq "hi" } }
@@ -155,14 +154,43 @@ internal class ObserveTest {
         db.write { Users.byId.upsert(ada) }
         db.write { Notes.delete { "text" eq "hi" } }
 
-        assertEquals(listOf("notes", "notes", "notes", "users", "notes"), changes)
+        assertEquals(mapOf("notes" to 4L, "users" to 1L), db.versions.value)
     }
 
     @Test
-    fun `writes that change nothing or roll back publish nothing`() = runTest {
+    fun `a write cancelled right after its commit still bumps its version`() = runTest {
+        var writing: Job? = null
+        val db = NoSqlite(
+            driver = SteppingDriver("COMMIT;") { writing?.cancel() },
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
+        ) { +Users }
+        val users = collect(with(db) { Users.observe() })
+
+        writing = launch { db.write { Users.insert(ada) } }
+        writing.join()
+
+        assertTrue(writing.isCancelled)
+        assertEquals(listOf(emptyList(), listOf(ada)), users)
+    }
+
+    @Test
+    fun `a slow observer still sees a write followed by many to other collections`() = runTest {
+        val db = database()
+        val users = mutableListOf<List<User>>()
+        backgroundScope.launch { with(db) { Users.observe() }.toList(users) }
+        runCurrent()
+
+        db.write { Users.insert(ada) }
+        repeat(100) { db.write { Notes.insert(note) } }
+        runCurrent()
+
+        assertEquals(listOf(emptyList(), listOf(ada)), users)
+    }
+
+    @Test
+    fun `writes that change nothing or roll back bump nothing`() = runTest {
         val db = database()
         db.write { Users.insert(ada) }
-        val changes = collect(db.changes)
 
         assertFails {
             db.write {
@@ -174,13 +202,12 @@ internal class ObserveTest {
         db.write { Users.update(User("x", 1)) { "id" eq "nobody" } }
         db.write { Users.byId("nobody").delete() }
 
-        assertEquals(emptyList(), changes)
+        assertEquals(mapOf("users" to 1L), db.versions.value)
     }
 
     @Test
     fun `a rolled back savepoint takes its changes with it`() = runTest {
         val db = database()
-        val changes = collect(db.changes)
 
         db.write {
             Notes.insert(note)
@@ -192,7 +219,7 @@ internal class ObserveTest {
             }
         }
 
-        assertEquals(listOf("notes"), changes)
+        assertEquals(mapOf("notes" to 1L), db.versions.value)
     }
 
     @Test

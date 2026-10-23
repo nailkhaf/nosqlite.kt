@@ -5,8 +5,8 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 
 /**
@@ -43,16 +43,14 @@ public class NoSqlite(
         connections
     }
 
-    /** The name of each collection a committed write changed, once per write. */
-    internal val changes = MutableSharedFlow<String>(
-        extraBufferCapacity = 64,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+    /** How many committed writes changed each collection; one no write changed yet is missing. */
+    internal val versions = MutableStateFlow(emptyMap<String, Long>())
 
     internal suspend fun pool(): ConnectionPool = ready.get()
 
-    internal suspend fun committed(changed: Set<String>) {
-        changed.forEach { changes.emit(it) }
+    internal fun committed(changed: Set<String>) {
+        if (changed.isEmpty()) return
+        versions.update { current -> current + changed.associateWith { (current[it] ?: 0) + 1 } }
     }
 
     /** Closes every connection that was opened; the database can't be used afterwards. */

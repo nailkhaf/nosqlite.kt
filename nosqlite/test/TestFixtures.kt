@@ -58,3 +58,20 @@ internal class FailingConnection(
         sqlite.close()
     }
 }
+
+/** The bundled driver, running [after] each time a statement for [sql] has stepped. */
+internal class SteppingDriver(private val sql: String, private val after: () -> Unit) : SQLiteDriver {
+    private val bundled = BundledSQLiteDriver()
+
+    override fun open(fileName: String): SQLiteConnection = Stepping(bundled.open(fileName))
+
+    private inner class Stepping(private val connection: SQLiteConnection) : SQLiteConnection by connection {
+        override fun prepare(sql: String): SQLiteStatement {
+            val statement = connection.prepare(sql)
+            if (sql != this@SteppingDriver.sql) return statement
+            return object : SQLiteStatement by statement {
+                override fun step(): Boolean = statement.step().also { after() }
+            }
+        }
+    }
+}
