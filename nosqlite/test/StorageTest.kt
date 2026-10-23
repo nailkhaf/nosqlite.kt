@@ -383,12 +383,27 @@ internal class StorageTest {
     }
 
     @Test
-    fun `document that does not decode names its collection`() = runTest {
+    fun `document that does not decode names its collection and row`() = runTest {
         val db = NoSqlite { +People }
+        db.write { People.insert(User("ada", 36)) }
         db.pool().writeSql { execute("""INSERT INTO people (data) VALUES (jsonb('{"name":1}'))""") }
 
-        val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.list { limit(1) } } }
+        val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.list() } }
 
         assertEquals("people", error.collection)
+        assertTrue(error.message!!.startsWith("Can't decode row 2 of 'people'"), error.message)
+    }
+
+    @Test
+    fun `forEach stops at a document that does not decode`() = runTest {
+        val db = NoSqlite { +People }
+        db.write { People.insert(User("ada", 36)) }
+        db.pool().writeSql { execute("""INSERT INTO people (data) VALUES (jsonb('{"name":1}'))""") }
+        db.write { People.insert(User("alan", 41)) }
+        val seen = mutableListOf<String>()
+
+        assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.forEach { seen += it.name } } }
+
+        assertEquals(listOf("ada"), seen)
     }
 }
