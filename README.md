@@ -73,6 +73,8 @@ Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDe
 
 `NoSqlite()` without a path is in memory. `NoSqlite(location, driver, dispatcher) { }` takes a `Location.File` with
 its number of readers, an `SQLiteDriver` and the dispatcher connections run on, `Dispatchers.IO` by default.
+The driver's SQLite must be 3.45 or newer for JSONB; the default `BundledSQLiteDriver` ships 3.50, and an older one
+fails to open with `NoSqliteException.UnsupportedSqlite`.
 
 ### Fields
 

@@ -44,6 +44,12 @@ internal class Connection(private val sqlite: SQLiteConnection) {
                     is Location.File -> location.path
                 },
             )
+            try {
+                requireSupported(sqlite.version())
+            } catch (e: NoSqliteException) {
+                sqlite.close()
+                throw e
+            }
             for (pragma in Pragmas) sqlite.execSQL(pragma)
             if (queryOnly) sqlite.execSQL("PRAGMA query_only = ON;")
             return Connection(sqlite)
