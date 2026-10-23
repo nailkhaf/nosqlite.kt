@@ -2,9 +2,11 @@
 
 A Kotlin Multiplatform document store on SQLite JSONB with kotlinx.serialization.
 
-Documents are `@Serializable` classes stored as JSONB, one STRICT table per collection. Fields are named by property
-references (`User::age`, `User::name / Name::last`) or by their JSON keys (`"age"`, `"name.last"`), and documents are
-addressed by their unique indexes.
+Documents are JSON objects stored as JSONB, one STRICT table per collection. Each read decodes them into the
+`@Serializable` class it asks for, and a typed write changes only the fields its class declares, so fields the app
+doesn't know yet, such as ones a newer backend sent, survive an update. Fields are named by property references
+(`User::age`, `User::name / Name::last`) or by their JSON keys (`"age"`, `"name.last"`), and documents are addressed
+by their unique indexes.
 
 - JVM, Android and iOS (arm64, simulator arm64)
 - One writer and several `query_only` readers in WAL mode; read and write transactions with nested savepoints
@@ -25,7 +27,7 @@ data class Name(val first: String, val last: String)
 @Serializable
 data class User(val id: String, val email: String, val name: Name, val age: Int, val tags: List<String> = emptyList())
 
-object Users : Collection<User>("users", User.serializer()) {
+object Users : Collection("users") {
     val byId = unique(User::id)
     val byEmail = unique(User::email)
     val byAge = index(User::age)
@@ -42,9 +44,10 @@ db.write {
 }
 
 db.read {
-    val ada: User? = Users.byId("ada").get()
-    val lovelaces: List<User> = Users.byName("Lovelace").list()
-    val adults: List<User> = Users.list {
+    val ada: User? = Users.byId("ada").get<User>()
+    val raw: JsonObject? = Users.byId("ada").get<JsonObject>()
+    val lovelaces: List<User> = Users.byName("Lovelace").list<User>()
+    val adults: List<User> = Users.list<User> {
         where { (User::age gte 18) and (User::tags contains "kotlin") }
         orderBy {
             User::age.desc
@@ -53,12 +56,12 @@ db.read {
         limit(20)
     }
     val count: Long = Users.count { User::age gte 18 }
-    Users.forEach { user -> println(user) }
+    Users.forEach<User> { user -> println(user) }
 }
 
 with(db) {
-    Users.observe { where { User::age gte 18 } }.collect { adults -> render(adults) }
-    Users.byId("ada").observe().collect { ada -> render(ada) }
+    Users.observe<User> { where { User::age gte 18 } }.collect { adults -> render(adults) }
+    Users.byId("ada").observe<User>().collect { ada -> render(ada) }
 }
 ```
 
@@ -66,9 +69,9 @@ with(db) {
 
 ### Collections
 
-A collection is a name, a serializer and its indexes. Create one directly, `Collection("notes", Note.serializer())`,
-or extend `Collection` to declare indexes with `unique(...)` and `index(...)`. A database lists the collections it
-serves, `NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
+A collection is a name and its indexes. Create one directly, `Collection("notes")`, or extend `Collection` to
+declare indexes with `unique(...)` and `index(...)`. A database lists the collections it serves,
+`NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
 Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDeclared`.
 To remove a collection, list its name with a minus, `NoSqlite("app.db") { +Users; -"notes" }`: its table and
 documents are dropped on open if they exist.
@@ -91,27 +94,48 @@ partial: `unique("nickname", where = { "active".isTrue() })`. Each index is name
 changed index is dropped and created again when the database opens, and a removed one dropped.
 
 Calling an index looks documents up by its values. A unique index takes all its fields, none `null`, and finds at most
-one document: `get()`, `update(value)` and `delete()` return the document or whether there was one. A plain index
-takes its leading fields, `null` matching a null or missing field, and finds any number: `list { }`, `count()`,
+one document: `get<T>()`, `update(value)` and `delete()` return the document or whether there was one. A plain index
+takes its leading fields, `null` matching a null or missing field, and finds any number: `list<T> { }`, `count()`,
 `update(value)` and `delete()` return the documents or how many there were. `upsert(value)` on a unique index inserts
-the document, or replaces the one with its values.
+the document, or updates the one with its values as `update` does.
 
 ### Writes
 
-Inside `db.write { }`: `insert(value)`, `update(value) { condition }` to replace every match, `delete { condition }`,
-and on a `Collection<JsonObject>`, `patch(patch) { condition }` for a JSON merge patch. They return how many documents
+Inside `db.write { }`: `insert(value)`, `update(value) { condition }` to write the value into every match,
+`delete { condition }`, and `patch(jsonObject) { condition }` for a JSON merge patch. They return how many documents
 they touched. A write commits when its block returns and rolls back when it throws; a nested `write` is a savepoint
 that rolls back alone. A duplicate key throws `NoSqliteException.UniqueViolation` naming the index; caught inside
 the write, the transaction goes on. When another `NoSqlite` or process keeps the same file locked for over 5 seconds,
 the operation throws `NoSqliteException.Busy` and can be retried; one `NoSqlite` per file never hits it.
 
-### Reads and queries
+### Types and forward compatibility
 
-Inside `db.read { }` or a write: `list { }`, `count { condition }` and `forEach(query) { action }`. A read sees one
-snapshot. The query builder sets each part at most once:
+A collection holds JSON, not a type: every read, lookup and `observe` names the type it decodes to, `list<User>()`,
+`get<UserSummary>()` or `list<JsonObject>()` for the raw documents, and each takes a `KSerializer` instead, as in
+`list(User.serializer())`. Unknown keys are ignored, so a smaller class reads a projection; a document missing a field
+the class requires fails with `NoSqliteException.DecodingFailed`.
+
+A typed `update` or `upsert` owns only the fields its class declares: they are set, one that is `null` is removed, and
+every other stored field is kept, in nested classes too. So an app can store what a newer backend sent, update it
+through its own class, and send it back with the fields it doesn't know yet:
 
 ```kotlin
-Users.list {
+db.write { Users.insert(downloaded) } // a JsonObject with a "plan" field User doesn't have
+db.write { Users.byId("ada").update(ada.copy(age = 37)) } // "plan" is still there
+val upload: JsonObject? = db.read { Users.byId("ada").get<JsonObject>() }
+```
+
+Lists, maps and polymorphic fields are replaced whole, since a merge can't tell a removed map key or a changed
+subtype. A document whose type isn't a class, such as a `JsonObject`, a map or a sealed class, replaces the stored
+one.
+
+### Reads and queries
+
+Inside `db.read { }` or a write: `list<T> { }`, `count { condition }` and `forEach<T>(query) { action }`. A read sees
+one snapshot. The query builder sets each part at most once:
+
+```kotlin
+Users.list<User> {
     where { ("age" gte 18) and not("name.last" eq "Smith") }
     orderBy {
         "age".desc

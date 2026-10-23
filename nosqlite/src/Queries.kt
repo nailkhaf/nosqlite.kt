@@ -1,10 +1,11 @@
 package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteStatement
+import kotlinx.serialization.KSerializer
 
 internal object Queries {
 
-    fun createTable(collection: Collection<*>): Command<Unit> = command(
+    fun createTable(collection: Collection): Command<Unit> = command(
         """
             CREATE TABLE IF NOT EXISTS ${collection.table} (
                 rowid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +33,7 @@ internal object Queries {
         decode = rows { getText(0) },
     )
 
-    fun createIndex(index: Index<*>): Command<Unit> = command(
+    fun createIndex(index: Index): Command<Unit> = command(
         "CREATE ${if (index.isUnique) "UNIQUE " else ""}INDEX ${identifier(index.name)} " +
             "ON ${index.collection.table} ${index.definition};",
     )
@@ -40,10 +41,10 @@ internal object Queries {
     fun dropIndex(name: String): Command<Unit> = command("DROP INDEX ${identifier(name)};")
 
     // rowid comes last, so documents with equal keys keep insertion order and pages never overlap.
-    fun <T> select(collection: Collection<T>, query: Query): Statement<Unit, List<T>> =
-        selectSql(collection, query).statement(rows { collection.decode(this) })
+    fun <T> select(collection: Collection, serializer: KSerializer<T>, query: Query): Statement<Unit, List<T>> =
+        selectSql(collection, query).statement(rows { collection.decode(serializer, this) })
 
-    fun selectSql(collection: Collection<*>, query: Query): Fragment {
+    fun selectSql(collection: Collection, query: Query): Fragment {
         val order = (query.orderBy.map { "${it.path.sql} ${if (it.descending) "DESC" else "ASC"}" } + "rowid")
             .joinToString(", ", prefix = " ORDER BY ")
         val page = Fragment(
@@ -53,32 +54,29 @@ internal object Queries {
         return Fragment("SELECT rowid, json(data) FROM ${collection.table}") + where(query.condition) + page
     }
 
-    fun count(collection: Collection<*>, condition: Where?): Statement<Unit, Long> =
+    fun count(collection: Collection, condition: Where?): Statement<Unit, Long> =
         (Fragment("SELECT count(*) FROM ${collection.table}") + where(condition) + ";").statement {
             check(step()) { "count(*) returned no row" }
             getLong(0)
         }
 
-    fun update(collection: Collection<*>, json: String, condition: Where): Statement<Unit, Int> =
-        (Fragment("UPDATE ${collection.table} SET data = jsonb(?) WHERE ", listOf(SqlValue.Text(json))) +
-            condition.render() + RETURNING).statement(countRows)
+    fun update(collection: Collection, write: Write, condition: Where): Statement<Unit, Int> =
+        (Fragment("UPDATE ${collection.table} SET data = ") + write.sql + " WHERE " + condition.render() + RETURNING)
+            .statement(countRows)
 
-    fun patch(collection: Collection<*>, patch: String, condition: Where): Statement<Unit, Int> =
+    fun patch(collection: Collection, patch: String, condition: Where): Statement<Unit, Int> =
         (Fragment("UPDATE ${collection.table} SET data = jsonb_patch(data, ?) WHERE ", listOf(SqlValue.Text(patch))) +
             condition.render() + RETURNING).statement(countRows)
 
-    fun delete(collection: Collection<*>, condition: Where): Statement<Unit, Int> =
+    fun delete(collection: Collection, condition: Where): Statement<Unit, Int> =
         (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(countRows)
 
-    /** Inserts the input JSON, or replaces the document it conflicts with in [index]. */
-    fun upsert(index: Index<*>): Statement<String, Unit> = Statement(
-        sql = "INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?)) " +
-            "ON CONFLICT ${index.definition} DO UPDATE SET data = excluded.data;",
-        encode = { json -> bindText(1, json) },
-        decode = { step() },
-    )
+    /** Inserts [json], or makes [write] to the document it conflicts with in [index]. */
+    fun upsert(index: Index, json: String, write: Write): Statement<Unit, Unit> =
+        (Fragment("INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?)) ", listOf(SqlValue.Text(json))) +
+            "ON CONFLICT ${index.definition} DO UPDATE SET data = " + write.sql + ";").statement { step() }
 
-    fun insert(collection: Collection<*>): Statement<String, Unit> = Statement(
+    fun insert(collection: Collection): Statement<String, Unit> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?));",
         encode = { json -> bindText(1, json) },
         decode = { step() },

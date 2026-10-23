@@ -26,7 +26,7 @@ internal class LookupTest {
         val nickname: String? = null,
     )
 
-    object Users : Collection<User>("users", User.serializer()) {
+    object Users : Collection("users") {
         val byId = unique("id")
         val byEmail = unique("email")
         val byNickname = unique("nickname", where = { "active".isTrue() })
@@ -51,10 +51,10 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(ada, Users.byId("ada").get())
-            assertEquals(alan, Users.byEmail("alan@x.com").get())
-            assertEquals(byron, Users.byFullName("Lovelace", "Byron").get())
-            assertNull(Users.byId("nobody").get())
+            assertEquals(ada, Users.byId("ada").get<User>())
+            assertEquals(alan, Users.byEmail("alan@x.com").get<User>())
+            assertEquals(byron, Users.byFullName("Lovelace", "Byron").get<User>())
+            assertNull(Users.byId("nobody").get<User>())
         }
     }
 
@@ -72,8 +72,8 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(ada, Users.byNickname("countess").get())
-            assertNull(Users.byNickname("amazing").get())
+            assertEquals(ada, Users.byNickname("countess").get<User>())
+            assertNull(Users.byNickname("amazing").get<User>())
         }
     }
 
@@ -88,7 +88,7 @@ internal class LookupTest {
             assertFalse(Users.byEmail("grace@x.com").delete())
         }
 
-        assertEquals(listOf(ada.copy(age = 37), alan, byron), db.read { Users.list() })
+        assertEquals(listOf(ada.copy(age = 37), alan, byron), db.read { Users.list<User>() })
     }
 
     @Test
@@ -96,10 +96,10 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(ada, grace, byron), Users.byAge(36).list())
+            assertEquals(listOf(ada, grace, byron), Users.byAge(36).list<User>())
             assertEquals(3, Users.byAge(36).count())
-            assertEquals(listOf(grace), Users.byActive(false).list())
-            assertEquals(emptyList(), Users.byAge(99).list())
+            assertEquals(listOf(grace), Users.byActive(false).list<User>())
+            assertEquals(emptyList(), Users.byAge(99).list<User>())
             assertEquals(0, Users.byAge(99).count())
         }
     }
@@ -109,9 +109,9 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(grace, ada), Users.byAge(36).list { orderBy { "name.last".asc }; limit(2) })
-            assertEquals(listOf(byron), Users.byAge(36).list { where { "name.first" eq "Byron" } })
-            assertEquals(listOf(grace, byron), Users.byAge(36).list { offset(1) })
+            assertEquals(listOf(grace, ada), Users.byAge(36).list<User> { orderBy { "name.last".asc }; limit(2) })
+            assertEquals(listOf(byron), Users.byAge(36).list<User> { where { "name.first" eq "Byron" } })
+            assertEquals(listOf(grace, byron), Users.byAge(36).list<User> { offset(1) })
         }
     }
 
@@ -120,8 +120,8 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(ada, byron), Users.byName("Lovelace").list())
-            assertEquals(listOf(ada), Users.byName("Lovelace", "Ada").list())
+            assertEquals(listOf(ada, byron), Users.byName("Lovelace").list<User>())
+            assertEquals(listOf(ada), Users.byName("Lovelace", "Ada").list<User>())
         }
     }
 
@@ -130,7 +130,7 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(alan, byron), Users.byNick(null).list())
+            assertEquals(listOf(alan, byron), Users.byNick(null).list<User>())
             assertEquals(2, Users.byNick(null).count())
         }
     }
@@ -145,14 +145,14 @@ internal class LookupTest {
             assertEquals(1, Users.byAge(41).delete())
         }
 
-        assertEquals(listOf(ada, grace.copy(age = 50), byron), db.read { Users.list() })
+        assertEquals(listOf(ada, grace.copy(age = 50), byron), db.read { Users.list<User>() })
     }
 
     @Test
     fun `a lookup reads through its index`() = runTest {
         val db = database()
         val lookup = Users.byName("Lovelace")
-        val sql = Queries.select(Users, Query(lookup.condition, emptyList(), limit = 1, offset = 0)).sql
+        val sql = Queries.selectSql(Users, Query(lookup.condition, emptyList(), limit = 1, offset = 0)).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "'x'")).joinToString { it.last()!! }
 
@@ -160,7 +160,7 @@ internal class LookupTest {
     }
 
     @Test
-    fun `upsert inserts a new document and replaces an existing one in place`() = runTest {
+    fun `upsert inserts a new document and updates an existing one in place`() = runTest {
         val db = database()
         val carol = User("carol", "carol@x.com", Name("Shaw", "Carol"), 28)
 
@@ -169,7 +169,7 @@ internal class LookupTest {
             Users.byEmail.upsert(ada.copy(id = "ada2", age = 37))
         }
 
-        assertEquals(listOf(ada.copy(id = "ada2", age = 37), alan, grace, byron, carol), db.read { Users.list() })
+        assertEquals(listOf(ada.copy(id = "ada2", age = 37), alan, grace, byron, carol), db.read { Users.list<User>() })
         assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM users WHERE data ->> '$.id' = 'ada2'"))
     }
 
@@ -184,19 +184,19 @@ internal class LookupTest {
         }
 
         db.read {
-            assertEquals(neo.copy(age = 31), Users.byNickname("amazing").get())
-            assertEquals(grace, Users.byId("grace").get())
+            assertEquals(neo.copy(age = 31), Users.byNickname("amazing").get<User>())
+            assertEquals(grace, Users.byId("grace").get<User>())
         }
     }
 
     @Test
-    fun `upsert on a composite index replaces the document with all its values`() = runTest {
+    fun `upsert on a composite index updates the document with all its values`() = runTest {
         val db = database()
         val lord = byron.copy(id = "lord", email = "lord@x.com")
 
         db.write { Users.byFullName.upsert(lord) }
 
-        assertEquals(lord, db.read { Users.byFullName("Lovelace", "Byron").get() })
+        assertEquals(lord, db.read { Users.byFullName("Lovelace", "Byron").get<User>() })
     }
 
     @Test

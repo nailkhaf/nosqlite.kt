@@ -25,12 +25,12 @@ internal class ObserveTest {
     @Serializable
     data class User(val id: String, val age: Int)
 
-    object Users : Collection<User>("users", User.serializer()) {
+    object Users : Collection("users") {
         val byId = unique("id")
         val byAge = index("age")
     }
 
-    object Notes : Collection<JsonObject>("notes", JsonObject.serializer())
+    object Notes : Collection("notes")
 
     private val ada = User("ada", 36)
     private val alan = User("alan", 41)
@@ -53,13 +53,13 @@ internal class ObserveTest {
         val db = database()
         db.write { Users.insert(ada) }
 
-        assertEquals(listOf(ada), with(db) { Users.observe().first() })
+        assertEquals(listOf(ada), with(db) { Users.observe<User>().first() })
     }
 
     @Test
     fun `observe emits again after each committed write`() = runTest {
         val db = database()
-        val users = collect(with(db) { Users.observe { orderBy { "id".asc } } })
+        val users = collect(with(db) { Users.observe<User> { orderBy { "id".asc } } })
 
         db.write { Users.insert(ada) }
         db.write { Users.byId.upsert(alan) }
@@ -82,7 +82,7 @@ internal class ObserveTest {
     fun `writes landing during a read are folded into one more read`() = runTest {
         val db = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) { +Users }
         val users = mutableListOf<List<User>>()
-        backgroundScope.launch { with(db) { Users.observe() }.toList(users) }
+        backgroundScope.launch { with(db) { Users.observe<User>() }.toList(users) }
         runCurrent()
 
         db.write { Users.insert(ada) }
@@ -96,7 +96,7 @@ internal class ObserveTest {
     @Test
     fun `observe skips results equal to the last one`() = runTest {
         val db = database()
-        val adults = collect(with(db) { Users.observe { where { "age" gte 18 } } })
+        val adults = collect(with(db) { Users.observe<User> { where { "age" gte 18 } } })
 
         db.write { Users.insert(User("kid", 10)) }
         db.write { Notes.insert(note) }
@@ -108,7 +108,7 @@ internal class ObserveTest {
     @Test
     fun `observe a unique lookup`() = runTest {
         val db = database()
-        val found = collect(with(db) { Users.byId("alan").observe() })
+        val found = collect(with(db) { Users.byId("alan").observe<User>() })
 
         db.write { Users.insert(alan) }
         db.write { Users.byId("alan").update(alan.copy(age = 42)) }
@@ -120,7 +120,7 @@ internal class ObserveTest {
     @Test
     fun `observe a lookup with its query`() = runTest {
         val db = database()
-        val found = collect(with(db) { Users.byAge(36).observe { orderBy { "id".desc } } })
+        val found = collect(with(db) { Users.byAge(36).observe<User> { orderBy { "id".desc } } })
 
         db.write {
             Users.insert(ada)
@@ -164,7 +164,7 @@ internal class ObserveTest {
             driver = SteppingDriver("COMMIT;") { writing?.cancel() },
             dispatcher = UnconfinedTestDispatcher(testScheduler),
         ) { +Users }
-        val users = collect(with(db) { Users.observe() })
+        val users = collect(with(db) { Users.observe<User>() })
 
         writing = launch { db.write { Users.insert(ada) } }
         writing.join()
@@ -177,7 +177,7 @@ internal class ObserveTest {
     fun `a slow observer still sees a write followed by many to other collections`() = runTest {
         val db = database()
         val users = mutableListOf<List<User>>()
-        backgroundScope.launch { with(db) { Users.observe() }.toList(users) }
+        backgroundScope.launch { with(db) { Users.observe<User>() }.toList(users) }
         runCurrent()
 
         db.write { Users.insert(ada) }
@@ -228,7 +228,7 @@ internal class ObserveTest {
         db.write { Users.insert(ada) }
         db.close()
 
-        val error = assertFailsWith<IllegalStateException> { with(db) { Users.observe().first() } }
+        val error = assertFailsWith<IllegalStateException> { with(db) { Users.observe<User>().first() } }
 
         assertEquals("Database is closed", error.message)
     }
@@ -237,7 +237,8 @@ internal class ObserveTest {
     fun `observe of an undeclared collection is rejected`() = runTest {
         val db = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) { +Notes }
 
-        val error = assertFailsWith<NoSqliteException.CollectionNotDeclared> { with(db) { Users.observe().first() } }
+        val error =
+            assertFailsWith<NoSqliteException.CollectionNotDeclared> { with(db) { Users.observe<User>().first() } }
 
         assertEquals("users", error.collection)
     }

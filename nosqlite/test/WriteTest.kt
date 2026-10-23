@@ -15,14 +15,14 @@ import kotlin.test.assertSame
 /** Covers update and delete of the documents matching a condition, and JSON merge patches. */
 internal class WriteTest {
 
-    object Users : Collection<User>("users", User.serializer()) {
+    object Users : Collection("users") {
         val byId = unique("id")
         val byEmail = unique("email")
     }
 
-    object Elements : Collection<JsonElement>("elements", JsonElement.serializer())
+    object Elements : Collection("elements")
 
-    object Raw : Collection<JsonObject>("raw", JsonObject.serializer())
+    object Raw : Collection("raw")
 
     private val ann = user("ann", 17, tags = listOf("kotlin"))
     private val bob = user("bob", 30, nickname = "bobby")
@@ -34,10 +34,10 @@ internal class WriteTest {
         return db
     }
 
-    private suspend fun NoSqlite.users(): List<User> = read { Users.list() }
+    private suspend fun NoSqlite.users(): List<User> = read { Users.list<User>() }
 
     @Test
-    fun `update replaces the matching document`() = runTest {
+    fun `update writes the value into the matching document`() = runTest {
         val db = seeded()
         val replacement = ann.copy(age = 18, tags = emptyList())
 
@@ -59,7 +59,7 @@ internal class WriteTest {
         val updated = db.write { Raw.update(done) { "done".isFalse() } }
 
         assertEquals(2, updated)
-        assertEquals(listOf(done, done), db.read { Raw.list() })
+        assertEquals(listOf(done, done), db.read { Raw.list<JsonObject>() })
     }
 
     @Test
@@ -100,7 +100,8 @@ internal class WriteTest {
 
         val expected = buildJsonObject { put("id", "a"); put("age", 31) }
         assertEquals(1, patched)
-        assertEquals(listOf(expected, buildJsonObject { put("id", "b"); put("age", 40) }), db.read { Raw.list() })
+        val untouched = buildJsonObject { put("id", "b"); put("age", 40) }
+        assertEquals(listOf(expected, untouched), db.read { Raw.list<JsonObject>() })
     }
 
     @Test

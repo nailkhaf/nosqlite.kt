@@ -17,7 +17,7 @@ internal class QueryTest {
     @Serializable
     data class User(val id: String, val name: Name, val age: Int? = null)
 
-    object Users : Collection<User>("users", User.serializer()) {
+    object Users : Collection("users") {
         val byAge = index("age")
     }
 
@@ -34,7 +34,7 @@ internal class QueryTest {
     fun `asc puts the smallest first and nulls first`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list { orderBy { "age".asc } } }
+        val users = db.read { Users.list<User> { orderBy { "age".asc } } }
 
         assertEquals(listOf(linus, ada, grace, alan), users)
     }
@@ -43,7 +43,7 @@ internal class QueryTest {
     fun `desc puts the largest first and nulls last`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list { orderBy { "age".desc } } }
+        val users = db.read { Users.list<User> { orderBy { "age".desc } } }
 
         assertEquals(listOf(alan, ada, grace, linus), users)
     }
@@ -52,7 +52,7 @@ internal class QueryTest {
     fun `equal keys keep insertion order`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list { where { "age" eq 36 }; orderBy { "age".asc } } }
+        val users = db.read { Users.list<User> { where { "age" eq 36 }; orderBy { "age".asc } } }
 
         assertEquals(listOf(ada, grace), users)
     }
@@ -62,7 +62,7 @@ internal class QueryTest {
         val db = database()
 
         val users = db.read {
-            Users.list { orderBy { "age".desc; "name.last".asc } }
+            Users.list<User> { orderBy { "age".desc; "name.last".asc } }
         }
 
         assertEquals(listOf(alan, grace, ada, linus), users)
@@ -72,7 +72,7 @@ internal class QueryTest {
     fun `nested fields sort`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list { orderBy { "name.last".asc } } }
+        val users = db.read { Users.list<User> { orderBy { "name.last".asc } } }
 
         assertEquals(listOf(grace, ada, linus, alan), users)
     }
@@ -81,11 +81,11 @@ internal class QueryTest {
     fun `pages follow the order`() = runTest {
         val db = database()
         db.read {
-            assertEquals(listOf(alan, ada), Users.list { orderBy { "age".desc }; limit(2) })
-            assertEquals(listOf(grace, linus), Users.list { orderBy { "age".desc }; limit(2); offset(2) })
+            assertEquals(listOf(alan, ada), Users.list<User> { orderBy { "age".desc }; limit(2) })
+            assertEquals(listOf(grace, linus), Users.list<User> { orderBy { "age".desc }; limit(2); offset(2) })
             assertEquals(
                 listOf(ada),
-                Users.list {
+                Users.list<User> {
                     where { "age".isNotNull() }
                     orderBy { "age".desc }
                     limit(1)
@@ -98,7 +98,7 @@ internal class QueryTest {
     @Test
     fun `sorting by an indexed field reads the index in order`() = runTest {
         val db = database()
-        val sql = Queries.select(Users, query { orderBy { "age".asc } }).sql
+        val sql = Queries.selectSql(Users, query { orderBy { "age".asc } }).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
 

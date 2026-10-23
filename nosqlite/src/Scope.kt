@@ -23,7 +23,7 @@ public class WriteScope internal constructor(connection: Connection, pool: Conne
 
 /** Records that the current write changed this collection. */
 context(scope: WriteScope)
-internal fun Collection<*>.changed() {
+internal fun Collection.changed() {
     scope.changed += name
 }
 
