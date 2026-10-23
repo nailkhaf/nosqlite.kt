@@ -9,7 +9,7 @@ import kotlin.reflect.KProperty1
 
 /**
  * A named set of [T] documents, stored as JSON in its own table. Create one directly, or extend it to declare
- * indexes, and list it in `Database { }`:
+ * indexes, and list it in `NoSqlite { }`:
  * ```
  * val Notes = Collection("notes", Note.serializer())
  *
@@ -19,7 +19,7 @@ import kotlin.reflect.KProperty1
  *     val byName = index("name.last", "name.first")
  * }
  *
- * val db = Database("app.db") {
+ * val db = NoSqlite("app.db") {
  *     +Notes
  *     +Users
  * }
@@ -136,15 +136,15 @@ private fun Int.changed(collection: Collection<*>): Int {
 internal val Collection<*>.table: String get() = "\"$name\""
 
 internal fun <T> Collection<T>.encode(value: T): String {
-    val json = Database.Json.encodeToJsonElement(serializer, value)
+    val json = NoSqlite.Json.encodeToJsonElement(serializer, value)
     require(json is JsonObject) { "A document of '$name' must be a JSON object, not $json" }
     return json.toString()
 }
 
 internal fun <T> Collection<T>.decode(row: Row): T = try {
-    Database.Json.decodeFromString(serializer, row.json)
+    NoSqlite.Json.decodeFromString(serializer, row.json)
 } catch (e: SerializationException) {
-    throw NosqliteException.DecodingFailed(name, row.id, e)
+    throw NoSqliteException.DecodingFailed(name, row.id, e)
 }
 
 /** Runs [block] on the transaction's connection, with SQLite's errors about this collection made typed. */
@@ -163,11 +163,11 @@ internal inline fun <R> Collection<*>.mapErrors(block: () -> R): R = try {
 } catch (e: SQLiteException) {
     val message = e.message.orEmpty()
     when {
-        "no such table: $name" in message -> throw NosqliteException.CollectionNotDeclared(name, e)
+        "no such table: $name" in message -> throw NoSqliteException.CollectionNotDeclared(name, e)
 
         "UNIQUE constraint failed" in message -> {
             val index = IndexName.find(message)?.groupValues?.get(1)
-            throw NosqliteException.UniqueViolation(name, indexes.firstOrNull { it.name == index }, e)
+            throw NoSqliteException.UniqueViolation(name, indexes.firstOrNull { it.name == index }, e)
         }
 
         else -> throw e

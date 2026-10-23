@@ -32,7 +32,7 @@ object Users : Collection<User>("users", User.serializer()) {
     val byName = index(User::name / Name::last, User::name / Name::first)
 }
 
-val db = Database("app.db") { +Users }
+val db = NoSqlite("app.db") { +Users }
 
 db.write {
     Users.insert(User("ada", "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
@@ -68,10 +68,10 @@ with(db) {
 
 A collection is a name, a serializer and its indexes. Create one directly, `Collection("notes", Note.serializer())`,
 or extend `Collection` to declare indexes with `unique(...)` and `index(...)`. A database lists the collections it
-serves, `Database("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
-Using a collection it doesn't list fails with `NosqliteException.CollectionNotDeclared`.
+serves, `NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
+Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDeclared`.
 
-`Database()` without a path is in memory. `Database(location, driver, dispatcher) { }` takes a `Location.File` with
+`NoSqlite()` without a path is in memory. `NoSqlite(location, driver, dispatcher) { }` takes a `Location.File` with
 its number of readers, an `SQLiteDriver` and the dispatcher connections run on, `Dispatchers.IO` by default.
 
 ### Fields
@@ -96,7 +96,7 @@ the document, or replaces the one with its values.
 Inside `db.write { }`: `insert(value)`, `update(value) { condition }` to replace every match, `delete { condition }`,
 and on a `Collection<JsonObject>`, `patch(patch) { condition }` for a JSON merge patch. They return how many documents
 they touched. A write commits when its block returns and rolls back when it throws; a nested `write` is a savepoint
-that rolls back alone. A duplicate key throws `NosqliteException.UniqueViolation` naming the index; caught inside
+that rolls back alone. A duplicate key throws `NoSqliteException.UniqueViolation` naming the index; caught inside
 the write, the transaction goes on.
 
 ### Reads and queries
@@ -135,7 +135,7 @@ builds the same condition, sort key or index as its string form, so the two mix 
 
 ### Observing
 
-`observe` runs in a `Database` context and returns a `Flow` that reads now and again after every committed write
+`observe` runs in a `NoSqlite` context and returns a `Flow` that reads now and again after every committed write
 that changed the collection. Writes that land while it reads are folded into one more read, and a result equal to
 the last one isn't emitted. Changes are tracked per collection.
 

@@ -94,7 +94,7 @@ internal class WhereTest {
 
     @Test
     fun `conditions match stored documents`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         db.write {
             Users.insert(user("ann", 17, tags = listOf("kotlin", "sql"), role = Role.Admin))
             Users.insert(user("bob", 30, active = false, score = 2.5, nickname = "bobby"))
@@ -130,7 +130,7 @@ internal class WhereTest {
 
     private fun matching(vararg ids: String, block: WhereScope.() -> Where) = where(block) to ids.toList()
 
-    private suspend fun Database.idsWhere(condition: Where): List<String> {
+    private suspend fun NoSqlite.idsWhere(condition: Where): List<String> {
         val fragment = condition.render()
         return pool().readSql {
             statement("SELECT data ->> '$.id' FROM users WHERE ${fragment.sql} ORDER BY rowid") { statement ->

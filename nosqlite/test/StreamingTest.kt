@@ -28,7 +28,7 @@ internal class StreamingTest {
         User("gus", 20, 2.5),
     )
 
-    private suspend fun database(): Database = Database {
+    private suspend fun database(): NoSqlite = NoSqlite {
         +Users
         +Log
     }.also { db -> db.write { users.forEach { Users.insert(it) } } }

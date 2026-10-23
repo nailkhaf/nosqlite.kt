@@ -31,14 +31,14 @@ internal class IndexTest {
     private val ada = user("ada", 36)
     private val alan = user("alan", 41)
 
-    private suspend fun Database.insert(user: User) = write { Users.insert(user) }
+    private suspend fun NoSqlite.insert(user: User) = write { Users.insert(user) }
 
-    private suspend fun Database.indexNames(): Set<String?> =
+    private suspend fun NoSqlite.indexNames(): Set<String?> =
         querySql("SELECT name FROM sqlite_schema WHERE type = 'index'").map { it.single() }.toSet()
 
     @Test
     fun `declared indexes are created on first use`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
 
         db.read { }
 
@@ -81,9 +81,9 @@ internal class IndexTest {
                 val byEmail = unique("email")
                 val byLastName = index("name.last")
             }
-            Database(location) { +before }.apply { read { } }.close()
+            NoSqlite(location) { +before }.apply { read { } }.close()
 
-            val db = Database(location) { +after }
+            val db = NoSqlite(location) { +after }
 
             assertEquals(setOf(after.byEmail.name, after.byLastName.name), db.indexNames())
             assertEquals(before.byEmail.name, after.byEmail.name)
@@ -100,9 +100,9 @@ internal class IndexTest {
             val unique = object : Collection<User>("users", User.serializer()) {
                 val byEmail = unique("email")
             }
-            Database(location) { +plain }.apply { read { } }.close()
+            NoSqlite(location) { +plain }.apply { read { } }.close()
 
-            val db = Database(location) { +unique }
+            val db = NoSqlite(location) { +unique }
 
             assertEquals(setOf(unique.byEmail.name), db.indexNames())
             assertTrue(plain.byEmail.name != unique.byEmail.name)
@@ -113,11 +113,11 @@ internal class IndexTest {
     @Test
     fun `reopening keeps indexes nosqlite does not manage`() = runTest {
         withTempFile { location ->
-            val db = Database(location) { +Users }
+            val db = NoSqlite(location) { +Users }
             db.pool().writeSql { execute("CREATE INDEX mine ON users (data ->> '$.score')") }
             db.close()
 
-            val reopened = Database(location) { +Users }
+            val reopened = NoSqlite(location) { +Users }
 
             assertTrue("mine" in reopened.indexNames())
             reopened.close()
@@ -126,10 +126,10 @@ internal class IndexTest {
 
     @Test
     fun `unique index rejects a duplicate key and names itself`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         db.insert(ada)
 
-        val error = assertFailsWith<NosqliteException.UniqueViolation> { db.insert(alan.copy(email = ada.email)) }
+        val error = assertFailsWith<NoSqliteException.UniqueViolation> { db.insert(alan.copy(email = ada.email)) }
 
         assertSame(Users.byEmail, error.index)
         assertEquals("users", error.collection)
@@ -141,13 +141,13 @@ internal class IndexTest {
         val people = object : Collection<User>("people", User.serializer()) {
             val byFullName = unique("name.first", "name.last")
         }
-        val db = Database { +people }
+        val db = NoSqlite { +people }
         db.write {
             people.insert(user("ada", 36, first = "Ada", last = "Lovelace"))
             people.insert(user("ada2", 20, first = "Ada", last = "Byron"))
         }
 
-        val error = assertFailsWith<NosqliteException.UniqueViolation> {
+        val error = assertFailsWith<NoSqliteException.UniqueViolation> {
             db.write { people.insert(user("ada3", 50, first = "Ada", last = "Lovelace")) }
         }
 
@@ -156,7 +156,7 @@ internal class IndexTest {
 
     @Test
     fun `plain index lets documents share a value`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
 
         db.insert(ada)
         db.insert(alan.copy(age = ada.age))
@@ -166,11 +166,11 @@ internal class IndexTest {
 
     @Test
     fun `caught violation leaves the write usable`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
 
         db.write {
             Users.insert(ada)
-            assertFailsWith<NosqliteException.UniqueViolation> { Users.insert(ada) }
+            assertFailsWith<NoSqliteException.UniqueViolation> { Users.insert(ada) }
             Users.insert(alan)
         }
 
@@ -179,12 +179,12 @@ internal class IndexTest {
 
     @Test
     fun `partial unique index only covers matching documents`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         db.insert(user("ann", 30, nickname = "twin", active = false))
         db.insert(user("bob", 30, nickname = "twin", active = false))
         db.insert(user("cid", 30, nickname = "twin"))
 
-        val error = assertFailsWith<NosqliteException.UniqueViolation> { db.insert(user("dan", 30, nickname = "twin")) }
+        val error = assertFailsWith<NoSqliteException.UniqueViolation> { db.insert(user("dan", 30, nickname = "twin")) }
 
         assertSame(Users.activeNickname, error.index)
         val active = db.read { Users.list { where { ("nickname" eq "twin") and "active".isTrue() } } }
@@ -193,7 +193,7 @@ internal class IndexTest {
 
     @Test
     fun `a condition on a unique field finds its document`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         db.insert(ada)
         db.insert(alan)
 
@@ -206,7 +206,7 @@ internal class IndexTest {
 
     @Test
     fun `a condition on a unique field uses its index`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         val condition = where { "email" eq ada.email.value }.render(inline = true).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM users WHERE $condition").joinToString {
@@ -218,7 +218,7 @@ internal class IndexTest {
 
     @Test
     fun `a condition implying a partial index's own uses it`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         val condition = where { ("nickname" eq "twin") and "active".isTrue() }.render(inline = true).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM users WHERE $condition").joinToString {
@@ -230,13 +230,13 @@ internal class IndexTest {
 
     @Test
     fun `path indexes cover nested fields`() = runTest {
-        val db = Database { +Teams }
+        val db = NoSqlite { +Teams }
         val core = Team("core", Name("Ada", "Lovelace"))
         db.write { Teams.insert(core) }
 
         assertEquals(setOf(Teams.byLead.name, Teams.byLeadFirst.name), db.indexNames())
         assertEquals(listOf(core), db.read { Teams.list { where { "lead.last" eq "Lovelace" } } })
-        assertFailsWith<NosqliteException.UniqueViolation> {
+        assertFailsWith<NoSqliteException.UniqueViolation> {
             db.write { Teams.insert(Team("other", Name("Byron", "Lovelace"))) }
         }
     }
@@ -257,14 +257,14 @@ internal class IndexTest {
     fun `unique index over existing duplicates fails on open`() = runTest {
         withTempFile { location ->
             val plain = object : Collection<User>("users", User.serializer()) {}
-            val withDuplicates = Database(location) { +plain }
+            val withDuplicates = NoSqlite(location) { +plain }
             withDuplicates.write { repeat(2) { plain.insert(ada) } }
             withDuplicates.close()
             val unique = object : Collection<User>("users", User.serializer()) {
                 val byId = unique("id")
             }
 
-            val error = assertFailsWith<NosqliteException.UniqueViolation> { Database(location) { +unique }.read { } }
+            val error = assertFailsWith<NoSqliteException.UniqueViolation> { NoSqlite(location) { +unique }.read { } }
 
             assertEquals("users", error.collection)
         }

@@ -34,7 +34,7 @@ internal class ObserveTest {
     private val alan = User("alan", 41)
     private val note = buildJsonObject { put("text", "hi") }
 
-    private fun TestScope.database() = Database(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
+    private fun TestScope.database() = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
         +Users
         +Notes
     }
@@ -78,7 +78,7 @@ internal class ObserveTest {
 
     @Test
     fun `writes landing during a read are folded into one more read`() = runTest {
-        val db = Database(dispatcher = UnconfinedTestDispatcher(testScheduler)) { +Users }
+        val db = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) { +Users }
         val users = mutableListOf<List<User>>()
         backgroundScope.launch { with(db) { Users.observe() }.toList(users) }
         runCurrent()
@@ -208,9 +208,9 @@ internal class ObserveTest {
 
     @Test
     fun `observe of an undeclared collection is rejected`() = runTest {
-        val db = Database(dispatcher = UnconfinedTestDispatcher(testScheduler)) { +Notes }
+        val db = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) { +Notes }
 
-        val error = assertFailsWith<NosqliteException.CollectionNotDeclared> { with(db) { Users.observe().first() } }
+        val error = assertFailsWith<NoSqliteException.CollectionNotDeclared> { with(db) { Users.observe().first() } }
 
         assertEquals("users", error.collection)
     }

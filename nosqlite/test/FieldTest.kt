@@ -101,7 +101,7 @@ internal class FieldTest {
 
     @Test
     fun `property queries find the documents`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         val ada = user("ada", 36, last = "Lovelace", tags = listOf("math"))
         val alan = user("alan", 41, last = "Turing", tags = listOf("math", "kotlin"))
         db.write {
