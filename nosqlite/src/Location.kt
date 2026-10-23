@@ -21,8 +21,8 @@ public sealed class Location {
     }
 }
 
-/** Deletes the database files, WAL sidecars included. */
-public suspend fun Location.delete() {
+/** Deletes the database files, WAL sidecars included; [NoSqlite.delete] closes the connections first. */
+internal suspend fun Location.delete() {
     when (this) {
         is Location.InMemory -> Unit
 

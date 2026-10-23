@@ -1,5 +1,8 @@
 package io.github.nailkhaf.nosqlite
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.jvm.JvmName
 
 /** A filter on documents, built in [WhereScope]. */
@@ -106,6 +109,20 @@ internal val Number.sqlValue: SqlValue
         else -> throw IllegalArgumentException("Unsupported number: ${this::class.simpleName}")
     }
 
+private val List<SqlValue>.jsonArray: SqlValue
+    get() = SqlValue.Text(
+        JsonArray(
+            map {
+                when (it) {
+                    is SqlValue.Text -> JsonPrimitive(it.value)
+                    is SqlValue.Integer -> JsonPrimitive(it.value)
+                    is SqlValue.Real -> JsonPrimitive(it.value)
+                    SqlValue.Null -> JsonNull
+                }
+            },
+        ).toString(),
+    )
+
 /** The condition as SQL; with [inline] its values are literals instead of parameters. */
 internal fun Where.render(inline: Boolean = false): Fragment {
     fun value(value: SqlValue): Fragment = if (inline) Fragment(value.literal) else Fragment("?", listOf(value))
@@ -114,10 +131,11 @@ internal fun Where.render(inline: Boolean = false): Fragment {
         is Where.Compare -> Fragment("${path.sql} ${comparison.sql} ") + value(value)
 
         is Where.In ->
-            if (values.isEmpty()) {
-                Fragment("0 = 1")
-            } else {
-                values.map(::value).joinToFragment(", ", prefix = "${path.sql} IN (", postfix = ")")
+            when {
+                values.isEmpty() -> Fragment("0 = 1")
+                inline -> values.map(::value).joinToFragment(", ", prefix = "${path.sql} IN (", postfix = ")")
+                // One parameter however many values, so SQLite's limit on parameters never applies.
+                else -> Fragment("${path.sql} IN (SELECT value FROM json_each(?))", listOf(values.jsonArray))
             }
 
         is Where.IsNull -> Fragment("${path.sql} IS NULL")

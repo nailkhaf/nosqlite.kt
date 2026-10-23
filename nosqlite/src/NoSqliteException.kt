@@ -18,6 +18,13 @@ public sealed class NoSqliteException(message: String, cause: Throwable? = null)
     public class DecodingFailed internal constructor(public val collection: String, id: DocumentId, cause: Throwable) :
         NoSqliteException("Can't decode $id of '$collection': ${cause.message}", cause)
 
+    /** A table named [collection] exists with [columns] instead of a collection's, so something else created it. */
+    public class IncompatibleTable internal constructor(public val collection: String, public val columns: List<String>) :
+        NoSqliteException(
+            "Table '$collection' has columns (${columns.joinToString()}), " +
+                "not a collection's (${Queries.TableColumns.joinToString()})",
+        )
+
     /** The driver's SQLite is [version], older than 3.45.0, the first with the JSONB functions storage needs. */
     public class UnsupportedSqlite internal constructor(public val version: String) :
         NoSqliteException("SQLite $version is older than $MinSqliteVersion; use BundledSQLiteDriver")
