@@ -1,11 +1,13 @@
 package io.github.nailkhaf.nosqlite
 
+import androidx.sqlite.SQLiteException
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
-/** Covers how a [Connection] lends its prepared statements. */
+/** Covers how a [Connection] opens and lends its prepared statements. */
 internal class ConnectionTest {
 
     private suspend fun connectionWithRows(vararg values: String): Connection =
@@ -58,5 +60,14 @@ internal class ConnectionTest {
         // A reused statement would continue after the first row; a new one starts over.
         assertEquals(listOf("a"), connection.values())
         connection.close()
+    }
+
+    @Test
+    fun `a connection whose pragma fails is closed`() = runTest {
+        val driver = FailingDriver("PRAGMA busy_timeout = 5000;")
+
+        assertFailsWith<SQLiteException> { Connection.open(driver, Location.InMemory) }
+
+        assertTrue(driver.connections.single().closed)
     }
 }
