@@ -3,27 +3,14 @@ package io.github.nailkhaf.nosqlite
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
-import kotlin.concurrent.Volatile
 import kotlin.coroutines.CoroutineContext
 
 /**
  * Inside `read { }` or `write { }`: documents can be read.
  * A read transaction sees one snapshot. It never nests: a read inside any transaction runs in that transaction.
- * The scope belongs to the coroutine running the block: coroutines started inside it share its connection in turns
- * and must finish inside it, since one that uses the scope after the block has returned fails.
+ * Coroutines started inside the block share its connection in turns and must finish inside it.
  */
-public open class ReadScope internal constructor(internal val connection: Connection, internal val pool: ConnectionPool) {
-    @Volatile
-    private var ended = false
-
-    internal fun end() {
-        ended = true
-    }
-
-    internal fun checkActive() {
-        check(!ended) { "Transaction has ended, a coroutine started inside read { } or write { } must finish inside it" }
-    }
-}
+public open class ReadScope internal constructor(internal val connection: Connection, internal val pool: ConnectionPool)
 
 /**
  * Inside `write { }`: documents can also be inserted, updated, patched and deleted.
@@ -42,10 +29,7 @@ internal fun Collection<*>.changed() {
 }
 
 context(scope: ReadScope)
-internal fun connection(): Connection {
-    scope.checkActive()
-    return scope.connection
-}
+internal fun connection(): Connection = scope.connection
 
 // Inside an active transaction of this pool, block runs in it, so a read inside a write sees its changes.
 internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) () -> R): R {
@@ -120,11 +104,8 @@ private suspend fun activeScope(pool: ConnectionPool): ReadScope? {
     return active
 }
 
-private suspend fun <S : ReadScope, R> withScope(scope: S, block: suspend context(S) () -> R): R = try {
+private suspend fun <S : ReadScope, R> withScope(scope: S, block: suspend context(S) () -> R): R =
     withContext(ActiveScope(scope)) { context(scope) { block() } }
-} finally {
-    scope.end()
-}
 
 private class ActiveScope(val scope: ReadScope) : CoroutineContext.Element {
     override val key: CoroutineContext.Key<*> get() = Key

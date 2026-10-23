@@ -205,21 +205,6 @@ internal class TransactionTest {
     }
 
     @Test
-    fun `a coroutine that outlives a write can't use its transaction`() = runTest {
-        val db = NoSqlite { +Users }
-
-        val late = db.write { suspend { Users.insert(user("ada", 36)) } }
-
-        val error = assertFailsWith<IllegalStateException> { late() }
-        assertEquals(
-            "Transaction has ended, a coroutine started inside read { } or write { } must finish inside it",
-            error.message,
-        )
-        assertEquals(0, db.read { Users.count() })
-        db.close()
-    }
-
-    @Test
     fun `connection left in a transaction is rejected`() = runTest {
         val pool = ConnectionPool()
         pool.withWriter { it.execute("BEGIN;") }
