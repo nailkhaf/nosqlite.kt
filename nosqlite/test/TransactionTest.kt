@@ -1,6 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -12,6 +13,8 @@ import kotlin.test.assertFailsWith
 
 /** Covers read and write transactions: commit, rollback, savepoints and snapshots. */
 internal class TransactionTest {
+
+    private object Users : Collection<User>("users", User.serializer())
 
     private suspend fun poolWithTable(): ConnectionPool = ConnectionPool().apply { writeSql { createTable() } }
 
@@ -175,6 +178,30 @@ internal class TransactionTest {
         val error = assertFailsWith<IllegalStateException> { first.readSql { second.readSql { } } }
 
         assertEquals("Active transaction belongs to another database", error.message)
+    }
+
+    @Test
+    fun `coroutines started inside a write take turns on its connection`() = runTest {
+        val driver = GateDriver()
+        val db = NoSqlite(driver = driver) { +Users }
+        db.write { }
+        val inner = CompletableDeferred<Unit>()
+
+        db.write {
+            launch(Dispatchers.Default) {
+                driver.entered.await()
+                driver.release()
+                Users.insert(user("bob", 30))
+                inner.complete(Unit)
+            }
+            // The insert's step() is held until the inner coroutine is waiting for the connection.
+            driver.hold()
+            Users.insert(user("ada", 36))
+            inner.await()
+        }
+
+        assertEquals(listOf(30, 36), db.read { Users.list { orderBy { "age".asc } } }.map { it.age })
+        db.close()
     }
 
     @Test

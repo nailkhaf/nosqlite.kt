@@ -6,10 +6,16 @@ import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.execSQL
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
-/** One SQLite connection and the prepared statements it keeps for reuse. */
+/**
+ * One SQLite connection and the prepared statements it keeps for reuse. SQLite is called through [locked], so two
+ * coroutines reaching the connection at the same time take turns instead of crashing the process.
+ */
 internal class Connection(private val sqlite: SQLiteConnection) {
     private val statements = StatementCache()
+    private val lock = Mutex()
 
     /**
      * Runs [block] with a prepared statement for [sql], reused across calls. While [block] runs the statement is out
@@ -17,22 +23,29 @@ internal class Connection(private val sqlite: SQLiteConnection) {
      */
     suspend fun <R> statement(sql: String, block: suspend (SQLiteStatement) -> R): R {
         currentCoroutineContext().ensureActive()
-        val statement = statements.take(sql) ?: sqlite.prepare(sql)
+        val statement = statements.take(sql) ?: locked { sqlite.prepare(sql) }
         val result = try {
             block(statement)
         } catch (e: Throwable) {
-            statement.close()
+            locked { statement.close() }
             throw e
+        }
+        locked {
+            statement.reset()
+            statement.clearBindings()
         }
         statements.put(sql, statement)
         return result
     }
 
-    fun inTransaction(): Boolean = sqlite.inTransaction()
+    /** Runs [block], which calls SQLite, while no other coroutine does; held for one call, never across user code. */
+    suspend fun <R> locked(block: () -> R): R = lock.withLock { block() }
+
+    suspend fun inTransaction(): Boolean = locked { sqlite.inTransaction() }
 
     suspend fun close() {
         statements.close()
-        sqlite.close()
+        locked { sqlite.close() }
     }
 
     companion object {

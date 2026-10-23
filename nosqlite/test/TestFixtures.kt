@@ -5,6 +5,8 @@ import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.atomicfu.atomic
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
@@ -72,6 +74,41 @@ internal class SteppingDriver(private val sql: String, private val after: () -> 
             return object : SQLiteStatement by statement {
                 override fun step(): Boolean = statement.step().also { after() }
             }
+        }
+    }
+}
+
+/** The bundled driver, whose statements can be held inside `step()` until a test lets them go. */
+internal class GateDriver : SQLiteDriver {
+    private val bundled = BundledSQLiteDriver()
+    private val holding = atomic(false)
+    private val released = atomic(false)
+
+    /** Completes when a statement is held inside `step()`. */
+    val entered = CompletableDeferred<Unit>()
+
+    /** Holds the next `step()` on the thread that calls it until [release]. */
+    fun hold() {
+        holding.value = true
+    }
+
+    fun release() {
+        released.value = true
+    }
+
+    override fun open(fileName: String): SQLiteConnection = GatedConnection(bundled.open(fileName))
+
+    private inner class GatedConnection(private val connection: SQLiteConnection) : SQLiteConnection by connection {
+        override fun prepare(sql: String): SQLiteStatement = GatedStatement(connection.prepare(sql))
+    }
+
+    private inner class GatedStatement(private val statement: SQLiteStatement) : SQLiteStatement by statement {
+        override fun step(): Boolean {
+            if (holding.compareAndSet(expect = true, update = false)) {
+                entered.complete(Unit)
+                while (!released.value) Unit
+            }
+            return statement.step()
         }
     }
 }

@@ -19,8 +19,10 @@ internal fun <R> rows(row: SQLiteStatement.() -> R): SQLiteStatement.() -> List<
 
 context(conn: Connection)
 internal suspend fun <I, O> Statement<I, O>.execute(input: I): O = conn.statement(sql) { statement ->
-    statement.encode(input)
-    statement.decode()
+    conn.locked {
+        statement.encode(input)
+        statement.decode()
+    }
 }
 
 context(conn: Connection)

@@ -71,7 +71,8 @@ or extend `Collection` to declare indexes with `unique(...)` and `index(...)`. A
 serves, `NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
 Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDeclared`.
 To remove a collection, list its name with a minus, `NoSqlite("app.db") { +Users; -"notes" }`: its table and
-documents are dropped on open if they exist.
+documents are dropped on open if they exist, with no way back. To keep what a removed collection held, leave it
+declared for one more version, copy its documents in a `write`, and remove it in the next.
 
 `NoSqlite()` without a path is in memory. `NoSqlite(location, driver, dispatcher) { }` takes a `Location.File` with
 its number of readers, an `SQLiteDriver` and the dispatcher connections run on, `Dispatchers.IO` by default.
@@ -103,7 +104,9 @@ and on a `Collection<JsonObject>`, `patch(patch) { condition }` for a JSON merge
 they touched. A write commits when its block returns and rolls back when it throws; a nested `write` is a savepoint
 that rolls back alone. A duplicate key throws `NoSqliteException.UniqueViolation` naming the index; caught inside
 the write, the transaction goes on. When another `NoSqlite` or process keeps the same file locked for over 5 seconds,
-the operation throws `NoSqliteException.Busy` and can be retried; one `NoSqlite` per file never hits it.
+the operation throws `NoSqliteException.Busy` and can be retried; one `NoSqlite` per file never hits it. A transaction
+belongs to the coroutine running its block: coroutines started inside `read { }` or `write { }` share its connection
+in turns and must finish before the block returns.
 
 ### Reads and queries
 
