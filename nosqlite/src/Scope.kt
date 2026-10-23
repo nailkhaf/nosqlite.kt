@@ -12,7 +12,7 @@ import kotlin.coroutines.CoroutineContext
 public open class ReadScope internal constructor(internal val connection: Connection, internal val pool: ConnectionPool)
 
 /**
- * Inside `write { }`: documents can also be inserted, updated, patched and deleted.
+ * Inside `write { }`: documents can also be inserted, updated, replaced and deleted.
  * A nested write is a savepoint that rolls back alone.
  */
 public class WriteScope internal constructor(connection: Connection, pool: ConnectionPool) :
@@ -23,7 +23,7 @@ public class WriteScope internal constructor(connection: Connection, pool: Conne
 
 /** Records that the current write changed this collection. */
 context(scope: WriteScope)
-internal fun Collection<*>.changed() {
+internal fun Collection.changed() {
     scope.changed += name
 }
 

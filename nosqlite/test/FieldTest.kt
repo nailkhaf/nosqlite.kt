@@ -10,7 +10,7 @@ import kotlin.test.assertFailsWith
 /** Covers property references: the same conditions, sort keys and indexes as their field names. */
 internal class FieldTest {
 
-    object Users : Collection<User>("users", User.serializer()) {
+    object Users : Collection("users") {
         val byEmail = unique(User::email)
         val byName = index(User::name / Name::last, User::name / Name::first)
         val activeNickname = unique(User::nickname, where = { User::active eq true })
@@ -59,13 +59,13 @@ internal class FieldTest {
     @Test
     fun `property indexes are the same as field name indexes`() {
         // Read through the base type: Kotlin/Native fails to link an internal member read through a test object.
-        val byStrings: Collection<User> = object : Collection<User>("users", User.serializer()) {
+        val byStrings: Collection = object : Collection("users") {
             val byEmail = unique("email")
             val byName = index("name.last", "name.first")
             val activeNickname = unique("nickname", where = { "active".isTrue() })
         }
 
-        val byProperties: Collection<User> = Users
+        val byProperties: Collection = Users
 
         assertEquals(byStrings.indexes.map { it.name }, byProperties.indexes.map { it.name })
     }
@@ -73,7 +73,7 @@ internal class FieldTest {
     @Test
     fun `a property renamed with SerialName can't be indexed by reference`() {
         val error = assertFailsWith<IllegalArgumentException> {
-            object : Collection<Renamed>("renamed", Renamed.serializer()) {
+            object : Collection("renamed") {
                 val byName = index(Renamed::name)
             }
         }
@@ -87,7 +87,7 @@ internal class FieldTest {
     @Test
     fun `nested property indexes check every key`() {
         val error = assertFailsWith<IllegalArgumentException> {
-            object : Collection<Renamed>("renamed", Renamed.serializer()) {
+            object : Collection("renamed") {
                 val byFirst = index(Renamed::owner / Owner::first)
                 val byLast = index(Renamed::owner / Owner::last)
             }
@@ -111,7 +111,7 @@ internal class FieldTest {
         }
 
         val found = db.read {
-            Users.list {
+            Users.list<User> {
                 where { (User::age gte 18) and (User::tags contains "math") }
                 orderBy { (User::name / Name::last).desc }
             }

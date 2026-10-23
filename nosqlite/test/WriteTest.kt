@@ -12,17 +12,17 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
 
-/** Covers update and delete of the documents matching a condition, and JSON merge patches. */
+/** Covers update, replace and delete of the documents matching a condition. */
 internal class WriteTest {
 
-    object Users : Collection<User>("users", User.serializer()) {
+    object Users : Collection("users") {
         val byId = unique("id")
         val byEmail = unique("email")
     }
 
-    object Elements : Collection<JsonElement>("elements", JsonElement.serializer())
+    object Elements : Collection("elements")
 
-    object Raw : Collection<JsonObject>("raw", JsonObject.serializer())
+    object Raw : Collection("raw")
 
     private val ann = user("ann", 17, tags = listOf("kotlin"))
     private val bob = user("bob", 30, nickname = "bobby")
@@ -34,10 +34,10 @@ internal class WriteTest {
         return db
     }
 
-    private suspend fun NoSqlite.users(): List<User> = read { Users.list() }
+    private suspend fun NoSqlite.users(): List<User> = read { Users.list<User>() }
 
     @Test
-    fun `update replaces the matching document`() = runTest {
+    fun `update writes the value into the matching document`() = runTest {
         val db = seeded()
         val replacement = ann.copy(age = 18, tags = emptyList())
 
@@ -48,7 +48,7 @@ internal class WriteTest {
     }
 
     @Test
-    fun `update replaces every match with the same value`() = runTest {
+    fun `update writes the value into every match`() = runTest {
         val db = NoSqlite { +Raw }
         val done = buildJsonObject { put("done", true) }
         db.write {
@@ -59,7 +59,19 @@ internal class WriteTest {
         val updated = db.write { Raw.update(done) { "done".isFalse() } }
 
         assertEquals(2, updated)
-        assertEquals(listOf(done, done), db.read { Raw.list() })
+        assertEquals(listOf(done, done), db.read { Raw.list<JsonObject>() })
+    }
+
+    @Test
+    fun `replace stores the value as the whole document`() = runTest {
+        val db = NoSqlite { +Raw }
+        db.write { Raw.insert(buildJsonObject { put("id", "a"); put("age", 30); put("nickname", "x") }) }
+        val replacement = buildJsonObject { put("id", "a"); put("age", 31) }
+
+        val replaced = db.write { Raw.replace(replacement) { "id" eq "a" } }
+
+        assertEquals(1, replaced)
+        assertEquals(listOf(replacement), db.read { Raw.list<JsonObject>() })
     }
 
     @Test
@@ -78,6 +90,7 @@ internal class WriteTest {
 
         db.write {
             assertEquals(0, Users.update(ann) { "id" eq "nobody" })
+            assertEquals(0, Users.replace(ann) { "id" eq "nobody" })
             assertEquals(0, Users.delete { "id" eq "nobody" })
         }
 
@@ -85,7 +98,7 @@ internal class WriteTest {
     }
 
     @Test
-    fun `patch merges fields and removes nulls`() = runTest {
+    fun `update merges fields and removes nulls`() = runTest {
         val db = NoSqlite { +Raw }
         db.write {
             Raw.insert(buildJsonObject { put("id", "a"); put("age", 30); put("nickname", "x") })
@@ -96,11 +109,12 @@ internal class WriteTest {
             put("nickname", JsonNull)
         }
 
-        val patched = db.write { Raw.patch(patch) { "id" eq "a" } }
+        val patched = db.write { Raw.update(patch) { "id" eq "a" } }
 
         val expected = buildJsonObject { put("id", "a"); put("age", 31) }
         assertEquals(1, patched)
-        assertEquals(listOf(expected, buildJsonObject { put("id", "b"); put("age", 40) }), db.read { Raw.list() })
+        val untouched = buildJsonObject { put("id", "b"); put("age", 40) }
+        assertEquals(listOf(expected, untouched), db.read { Raw.list<JsonObject>() })
     }
 
     @Test
