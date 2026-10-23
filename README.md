@@ -102,7 +102,8 @@ Inside `db.write { }`: `insert(value)`, `update(value) { condition }` to replace
 and on a `Collection<JsonObject>`, `patch(patch) { condition }` for a JSON merge patch. They return how many documents
 they touched. A write commits when its block returns and rolls back when it throws; a nested `write` is a savepoint
 that rolls back alone. A duplicate key throws `NoSqliteException.UniqueViolation` naming the index; caught inside
-the write, the transaction goes on.
+the write, the transaction goes on. When another `NoSqlite` or process keeps the same file locked for over 5 seconds,
+the operation throws `NoSqliteException.Busy` and can be retried; one `NoSqlite` per file never hits it.
 
 ### Reads and queries
 
