@@ -14,9 +14,9 @@ public sealed class NoSqliteException(message: String, cause: Throwable? = null)
         cause: Throwable,
     ) : NoSqliteException("Unique constraint violated in '$collection': ${index ?: cause.message}", cause)
 
-    /** A document of [collection] can't be decoded into the requested type. */
-    public class DecodingFailed internal constructor(public val collection: String, id: DocumentId, cause: Throwable) :
-        NoSqliteException("Can't decode $id of '$collection': ${cause.message}", cause)
+    /** A document of [collection], stored in row [rowid] of its table, can't be decoded into the requested type. */
+    public class DecodingFailed internal constructor(public val collection: String, rowid: Long, cause: Throwable) :
+        NoSqliteException("Can't decode row $rowid of '$collection': ${cause.message}", cause)
 
     /** The driver's SQLite is [version], older than 3.45.0, the first with the JSONB functions storage needs. */
     public class UnsupportedSqlite internal constructor(public val version: String) :

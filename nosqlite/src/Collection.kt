@@ -1,6 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteException
+import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encoding.CompositeDecoder
@@ -97,7 +98,7 @@ public suspend fun <T> Collection<T>.list(query: QueryScope.() -> Unit = {}): Li
 
 context(_: ReadScope)
 internal suspend fun <T> Collection<T>.list(query: Query): List<T> =
-    withConnection { Queries.select(this@list, query).execute().map { decode(it) } }
+    withConnection { Queries.select(this@list, query).execute() }
 
 /** How many documents match [condition], or all of them without one. */
 context(_: ReadScope)
@@ -143,10 +144,11 @@ internal fun <T> Collection<T>.encode(value: T): String {
     return json.toString()
 }
 
-internal fun <T> Collection<T>.decode(row: Row): T = try {
-    NoSqlite.Json.decodeFromString(serializer, row.json)
+/** The document in the current row of a [Queries.selectSql] statement. */
+internal fun <T> Collection<T>.decode(row: SQLiteStatement): T = try {
+    NoSqlite.Json.decodeFromString(serializer, row.getText(1))
 } catch (e: SerializationException) {
-    throw NoSqliteException.DecodingFailed(name, row.id, e)
+    throw NoSqliteException.DecodingFailed(name, row.getLong(0), e)
 }
 
 /** Runs [block] on the transaction's connection, with SQLite's errors about this collection made typed. */
