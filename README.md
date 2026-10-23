@@ -71,7 +71,8 @@ or extend `Collection` to declare indexes with `unique(...)` and `index(...)`. A
 serves, `NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
 Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDeclared`.
 To remove a collection, list its name with a minus, `NoSqlite("app.db") { +Users; -"notes" }`: its table and
-documents are dropped on open if they exist.
+documents are dropped on open if they exist, with no way back. To keep what a removed collection held, leave it
+declared for one more version, copy its documents in a `write`, and remove it in the next.
 
 `NoSqlite()` without a path is in memory. `NoSqlite(location, driver, dispatcher) { }` takes a `Location.File` with
 its number of readers, an `SQLiteDriver` and the dispatcher connections run on, `Dispatchers.IO` by default.
