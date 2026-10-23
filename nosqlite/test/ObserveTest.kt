@@ -1,5 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
@@ -16,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /** Covers observing queries and lookups, and the changes that drive them. */
 internal class ObserveTest {
@@ -156,6 +158,22 @@ internal class ObserveTest {
         db.write { Notes.delete { "text" eq "hi" } }
 
         assertEquals(listOf("notes", "notes", "notes", "users", "notes"), changes)
+    }
+
+    @Test
+    fun `a write cancelled right after its commit still publishes its change`() = runTest {
+        var writing: Job? = null
+        val db = NoSqlite(
+            driver = SteppingDriver("COMMIT;") { writing?.cancel() },
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
+        ) { +Users }
+        val users = collect(with(db) { Users.observe() })
+
+        writing = launch { db.write { Users.insert(ada) } }
+        writing.join()
+
+        assertTrue(writing.isCancelled)
+        assertEquals(listOf(emptyList(), listOf(ada)), users)
     }
 
     @Test
