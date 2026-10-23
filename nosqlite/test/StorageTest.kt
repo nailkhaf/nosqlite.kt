@@ -159,7 +159,7 @@ internal class StorageTest {
     }
 
     @Test
-    fun `objects, maps and polymorphic values make collections`() {
+    fun `objects maps and polymorphic values make collections`() {
         val collections = listOf(
             Collection("users", User.serializer()),
             Collection("emails", MapSerializer(String.serializer(), Email.serializer())),
