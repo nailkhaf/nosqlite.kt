@@ -1,9 +1,10 @@
 package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
@@ -19,7 +20,7 @@ internal class WriteTest {
         val byEmail = unique("email")
     }
 
-    object Numbers : Collection<Int>("numbers", Int.serializer())
+    object Elements : Collection<JsonElement>("elements", JsonElement.serializer())
 
     object Raw : Collection<JsonObject>("raw", JsonObject.serializer())
 
@@ -104,11 +105,13 @@ internal class WriteTest {
 
     @Test
     fun `update of a value that is not an object is rejected`() = runTest {
-        val db = NoSqlite { +Numbers }
+        val db = NoSqlite { +Elements }
 
-        val error = assertFailsWith<IllegalArgumentException> { db.write { Numbers.update(42) { "id" eq 1 } } }
+        val error = assertFailsWith<IllegalArgumentException> {
+            db.write { Elements.update(JsonPrimitive(42)) { "id" eq 1 } }
+        }
 
-        assertEquals("A document of 'numbers' must be a JSON object, not 42", error.message)
+        assertEquals("A document of 'elements' must be a JSON object, not 42", error.message)
     }
 
     @Test

@@ -3,13 +3,16 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.descriptors.PolymorphicKind
+import kotlinx.serialization.descriptors.SerialKind
+import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.encoding.CompositeDecoder
 import kotlinx.serialization.json.JsonObject
 import kotlin.reflect.KProperty1
 
 /**
- * A named set of [T] documents, stored as JSON in its own table. Create one directly, or extend it to declare
- * indexes, and list it in `NoSqlite { }`:
+ * A named set of [T] documents, stored as JSON in its own table; [T] must encode to a JSON object, so a class or a
+ * map. Create one directly, or extend it to declare indexes, and list it in `NoSqlite { }`:
  * ```
  * val Notes = Collection("notes", Note.serializer())
  *
@@ -28,6 +31,7 @@ import kotlin.reflect.KProperty1
 public open class Collection<T>(public val name: String, internal val serializer: KSerializer<T>) {
     init {
         requireCollectionName(name)
+        requireObjectDocuments()
     }
 
     internal val indexes: List<Index<T>>
@@ -71,6 +75,18 @@ public open class Collection<T>(public val name: String, internal val serializer
         require(indexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
         indexes += index
         return index
+    }
+
+    // The kinds that encode to an object; polymorphic and contextual ones may not, so encode checks those too.
+    private fun requireObjectDocuments() {
+        var descriptor = serializer.descriptor
+        while (descriptor.isInline) descriptor = descriptor.getElementDescriptor(0)
+        val kind = descriptor.kind
+        val isObject = kind == StructureKind.CLASS || kind == StructureKind.OBJECT || kind == StructureKind.MAP ||
+            kind is PolymorphicKind || kind == SerialKind.CONTEXTUAL
+        require(isObject && !descriptor.isNullable) {
+            "A document of '$name' must be a JSON object, not ${serializer.descriptor.serialName}"
+        }
     }
 
     override fun toString(): String = "Collection($name)"
@@ -138,9 +154,9 @@ private fun Int.changed(collection: Collection<*>): Int {
 internal val Collection<*>.table: String get() = identifier(name)
 
 internal fun <T> Collection<T>.encode(value: T): String {
-    val json = NoSqlite.Json.encodeToJsonElement(serializer, value)
-    require(json is JsonObject) { "A document of '$name' must be a JSON object, not $json" }
-    return json.toString()
+    val json = NoSqlite.Json.encodeToString(serializer, value)
+    require(json.startsWith('{')) { "A document of '$name' must be a JSON object, not $json" }
+    return json
 }
 
 /**
