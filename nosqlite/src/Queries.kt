@@ -13,6 +13,16 @@ internal object Queries {
         """.trimIndent(),
     )
 
+    /** The columns [createTable] makes, as [tableColumns] lists them. */
+    val TableColumns = listOf("rowid INTEGER PRIMARY KEY", "data BLOB")
+
+    /** The input table's columns: name, type, and whether it is the primary key. */
+    val tableColumns: Statement<String, List<String>> = Statement(
+        sql = "SELECT name || ' ' || upper(type) || iif(pk, ' PRIMARY KEY', '') FROM pragma_table_info(?) ORDER BY cid;",
+        encode = { table -> bindText(1, table) },
+        decode = rows { getText(0) },
+    )
+
     fun dropTable(name: String): Command<Unit> = command("DROP TABLE IF EXISTS ${identifier(name)};")
 
     /** The indexes nosqlite manages on the input table; others are left alone. */

@@ -77,6 +77,7 @@ documents are dropped on open if they exist.
 its number of readers, an `SQLiteDriver` and the dispatcher connections run on, `Dispatchers.IO` by default.
 The driver's SQLite must be 3.45 or newer for JSONB; the default `BundledSQLiteDriver` ships 3.50, and an older one
 fails to open with `NoSqliteException.UnsupportedSqlite`.
+`db.close()` closes its connections; `db.delete()` closes them and deletes the file with its WAL sidecars.
 
 ### Fields
 

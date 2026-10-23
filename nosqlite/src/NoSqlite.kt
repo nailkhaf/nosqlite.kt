@@ -22,7 +22,7 @@ import kotlinx.serialization.json.Json
  * [close] closes every connection that was opened.
  */
 public class NoSqlite(
-    location: Location = Location.InMemory,
+    private val location: Location = Location.InMemory,
     driver: SQLiteDriver = BundledSQLiteDriver(),
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
     schema: SchemaBuilder.() -> Unit,
@@ -55,6 +55,15 @@ public class NoSqlite(
 
     /** Closes every connection that was opened; the database can't be used afterwards. */
     public suspend fun close(): Unit = connections.close()
+
+    /**
+     * Closes the database and deletes its files, WAL sidecars included; it can't be used afterwards.
+     * Run it when no [read] or [write] is in progress, as a connection still in use keeps writing to the deleted file.
+     */
+    public suspend fun delete() {
+        close()
+        location.delete()
+    }
 
     public companion object {
         /** How documents are encoded and decoded: unknown keys are ignored, so a smaller class reads a projection. */
@@ -104,6 +113,8 @@ public suspend fun <R> NoSqlite.write(block: suspend context(WriteScope) () -> R
 context(_: Connection)
 internal suspend fun createSchema(collection: Collection<*>) {
     Queries.createTable(collection).execute()
+    val columns = Queries.tableColumns.execute(collection.name)
+    if (columns != Queries.TableColumns) throw NoSqliteException.IncompatibleTable(collection.name, columns)
     val current = Queries.indexNames.execute(collection.name)
     val wanted = collection.indexes.associateBy { it.name }
     current.filter { it !in wanted }.forEach { Queries.dropIndex(it).execute() }

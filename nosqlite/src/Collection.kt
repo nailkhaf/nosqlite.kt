@@ -3,7 +3,6 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.PolymorphicKind
 import kotlinx.serialization.descriptors.SerialKind
 import kotlinx.serialization.descriptors.StructureKind
@@ -160,10 +159,13 @@ internal fun <T> Collection<T>.encode(value: T): String {
     return json
 }
 
-/** The document in the current row of a [Queries.selectSql] statement. */
+/**
+ * The document in the current row of a [Queries.selectSql] statement.
+ * Custom serializers and init blocks fail with any exception, not only SerializationException.
+ */
 internal fun <T> Collection<T>.decode(row: SQLiteStatement): T = try {
     NoSqlite.Json.decodeFromString(serializer, row.getText(1))
-} catch (e: SerializationException) {
+} catch (e: Exception) {
     throw NoSqliteException.DecodingFailed(name, row.getLong(0), e)
 }
 
@@ -177,6 +179,7 @@ private val IndexName = Regex("index '([^']+)'")
 /**
  * Only declared collections have a table, so SQLite not knowing this collection's table means it wasn't declared.
  * A unique constraint error names the index only when it is an expression index, which all of ours are.
+ * Both are matched by SQLite's message text, which IndexTest and WriteTest pin for the bundled driver.
  */
 internal inline fun <R> Collection<*>.mapErrors(block: () -> R): R = try {
     block()

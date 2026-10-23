@@ -1,5 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import androidx.sqlite.execSQL
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -31,6 +33,15 @@ internal class StorageTest {
     object People : Collection<User>("people", User.serializer())
 
     object Elements : Collection<JsonElement>("elements", JsonElement.serializer())
+
+    @Serializable
+    data class Adult(val age: Int) {
+        init {
+            require(age >= 18) { "Too young: $age" }
+        }
+    }
+
+    object Adults : Collection<Adult>("adults", Adult.serializer())
 
     private val ada = buildJsonObject {
         put("name", "Ada")
@@ -284,6 +295,42 @@ internal class StorageTest {
     }
 
     @Test
+    fun `delete closes the database and removes its file`() = runTest {
+        withTempFile { location ->
+            val db = NoSqlite(location) { +Users }
+            db.write { Users.insert(ada) }
+
+            db.delete()
+
+            assertFalse(location.exists())
+            assertFailsWith<IllegalStateException> { db.read { } }
+            val reopened = NoSqlite(location) { +Users }
+            assertEquals(0, reopened.read { Users.count() })
+            reopened.close()
+        }
+    }
+
+    @Test
+    fun `table of another shape fails on open`() = runTest {
+        withTempFile { location ->
+            BundledSQLiteDriver().open(location.path).apply {
+                execSQL("CREATE TABLE users (id TEXT, data BLOB);")
+                close()
+            }
+            val db = NoSqlite(location) { +Users }
+
+            val error = assertFailsWith<NoSqliteException.IncompatibleTable> { db.read { } }
+
+            assertEquals(listOf("id TEXT", "data BLOB"), error.columns)
+            assertEquals(
+                "Table 'users' has columns (id TEXT, data BLOB), not a collection's (rowid INTEGER PRIMARY KEY, data BLOB)",
+                error.message,
+            )
+            db.close()
+        }
+    }
+
+    @Test
     fun `a closed database can't be used`() = runTest {
         val db = NoSqlite { +Users }
         db.write { Users.insert(ada) }
@@ -440,5 +487,16 @@ internal class StorageTest {
         assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.forEach { seen += it.name } } }
 
         assertEquals(listOf("ada"), seen)
+    }
+
+    @Test
+    fun `document its class rejects names its collection`() = runTest {
+        val db = NoSqlite { +Adults }
+        db.pool().writeSql { execute("""INSERT INTO adults (data) VALUES (jsonb('{"age":17}'))""") }
+
+        val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { Adults.list() } }
+
+        assertEquals("adults", error.collection)
+        assertEquals("Can't decode row 1 of 'adults': Too young: 17", error.message)
     }
 }

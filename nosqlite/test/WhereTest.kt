@@ -71,11 +71,16 @@ internal class WhereTest {
     }
 
     @Test
-    fun `isIn binds one placeholder per value`() {
-        val fragment = where { "age" isIn listOf(30, 40) }.render()
+    fun `isIn binds its values as one JSON array`() {
+        val fragment = where { "age" isIn listOf(30, 40.5) }.render()
 
-        assertEquals("data ->> '$.age' IN (?, ?)", fragment.sql)
-        assertEquals(listOf(SqlValue.Integer(30), SqlValue.Integer(40)), fragment.params)
+        assertEquals("data ->> '$.age' IN (SELECT value FROM json_each(?))", fragment.sql)
+        assertEquals(listOf(SqlValue.Text("[30,40.5]")), fragment.params)
+    }
+
+    @Test
+    fun `isIn spells out its values inline`() {
+        assertEquals("data ->> '$.id' IN ('ann', 'o''brien')", where { "id" isIn listOf("ann", "o'brien") }.toString())
     }
 
     @Test
@@ -131,11 +136,26 @@ internal class WhereTest {
             matching("bob") { "id" like "b_b" },
             matching { "id" like "b_" },
             matching { "age" isIn emptyList<String>() },
+            matching("ann", "cid") { "age" isIn listOf(17, 45) },
+            matching("bob") { "score" isIn listOf(2.5, 3) },
         )
 
         for ((condition, ids) in expected) {
             assertEquals(ids, db.idsWhere(condition), condition.toString())
         }
+    }
+
+    @Test
+    fun `isIn takes more values than SQLite takes parameters`() = runTest {
+        val db = NoSqlite { +Users }
+        db.write {
+            Users.insert(user("ann", 17))
+            Users.insert(user("bob", 40_000))
+        }
+
+        val ids = db.idsWhere(where { "age" isIn (17..50_000).filter { it != 40_000 } })
+
+        assertEquals(listOf("ann"), ids)
     }
 
     private fun matching(vararg ids: String, block: WhereScope.() -> Where) = where(block) to ids.toList()
