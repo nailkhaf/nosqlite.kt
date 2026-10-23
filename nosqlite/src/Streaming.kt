@@ -22,10 +22,10 @@ public suspend fun <T> Collection<T>.forEach(query: QueryScope.() -> Unit = {}, 
 context(conn: Connection)
 private suspend fun <R> Fragment.forEachRow(read: SQLiteStatement.() -> R, block: suspend (R) -> Unit) {
     conn.statement(sql) { statement ->
-        conn.exclusive { statement.bind(params) }
+        conn.locked { statement.bind(params) }
         while (true) {
             currentCoroutineContext().ensureActive()
-            val next = conn.exclusive { if (statement.step()) statement.read() else null } ?: break
+            val next = conn.locked { if (statement.step()) statement.read() else null } ?: break
             block(next)
         }
     }

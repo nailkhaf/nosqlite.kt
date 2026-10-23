@@ -4,17 +4,18 @@ import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.execSQL
-import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
- * One SQLite connection and the prepared statements it keeps for reuse. SQLite is called through [exclusive], so two
- * coroutines reaching the connection at the same time fail instead of crashing the process.
+ * One SQLite connection and the prepared statements it keeps for reuse. SQLite is called through [locked], so two
+ * coroutines reaching the connection at the same time take turns instead of crashing the process.
  */
 internal class Connection(private val sqlite: SQLiteConnection) {
     private val statements = StatementCache()
-    private val busy = atomic(false)
+    private val lock = Mutex()
 
     /**
      * Runs [block] with a prepared statement for [sql], reused across calls. While [block] runs the statement is out
@@ -22,14 +23,14 @@ internal class Connection(private val sqlite: SQLiteConnection) {
      */
     suspend fun <R> statement(sql: String, block: suspend (SQLiteStatement) -> R): R {
         currentCoroutineContext().ensureActive()
-        val statement = statements.take(sql) ?: exclusive { sqlite.prepare(sql) }
+        val statement = statements.take(sql) ?: locked { sqlite.prepare(sql) }
         val result = try {
             block(statement)
         } catch (e: Throwable) {
-            exclusive { statement.close() }
+            locked { statement.close() }
             throw e
         }
-        exclusive {
+        locked {
             statement.reset()
             statement.clearBindings()
         }
@@ -37,23 +38,14 @@ internal class Connection(private val sqlite: SQLiteConnection) {
         return result
     }
 
-    /** Runs [block], which calls SQLite, while no other coroutine does; a second one arriving meanwhile fails. */
-    fun <R> exclusive(block: () -> R): R {
-        check(busy.compareAndSet(expect = false, update = true)) {
-            "Connection is used by two coroutines at once, don't start coroutines inside read { } or write { }"
-        }
-        try {
-            return block()
-        } finally {
-            busy.value = false
-        }
-    }
+    /** Runs [block], which calls SQLite, while no other coroutine does; held for one call, never across user code. */
+    suspend fun <R> locked(block: () -> R): R = lock.withLock { block() }
 
-    fun inTransaction(): Boolean = exclusive { sqlite.inTransaction() }
+    suspend fun inTransaction(): Boolean = locked { sqlite.inTransaction() }
 
     suspend fun close() {
         statements.close()
-        exclusive { sqlite.close() }
+        locked { sqlite.close() }
     }
 
     companion object {

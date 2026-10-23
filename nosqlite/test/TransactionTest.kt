@@ -181,29 +181,26 @@ internal class TransactionTest {
     }
 
     @Test
-    fun `a coroutine started inside a write can't use the connection at the same time`() = runTest {
+    fun `coroutines started inside a write take turns on its connection`() = runTest {
         val driver = GateDriver()
         val db = NoSqlite(driver = driver) { +Users }
         db.write { }
-        val inner = CompletableDeferred<Result<Unit>>()
+        val inner = CompletableDeferred<Unit>()
 
         db.write {
             launch(Dispatchers.Default) {
                 driver.entered.await()
-                inner.complete(runCatching { Users.insert(user("bob", 30)) })
                 driver.release()
+                Users.insert(user("bob", 30))
+                inner.complete(Unit)
             }
-            // The insert's step() is held until the inner coroutine has tried to use the connection.
+            // The insert's step() is held until the inner coroutine is waiting for the connection.
             driver.hold()
             Users.insert(user("ada", 36))
+            inner.await()
         }
 
-        val error = assertFailsWith<IllegalStateException> { inner.await().getOrThrow() }
-        assertEquals(
-            "Connection is used by two coroutines at once, don't start coroutines inside read { } or write { }",
-            error.message,
-        )
-        assertEquals(1, db.read { Users.count() })
+        assertEquals(listOf(30, 36), db.read { Users.list { orderBy { "age".asc } } }.map { it.age })
         db.close()
     }
 

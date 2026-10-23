@@ -103,8 +103,8 @@ Inside `db.write { }`: `insert(value)`, `update(value) { condition }` to replace
 and on a `Collection<JsonObject>`, `patch(patch) { condition }` for a JSON merge patch. They return how many documents
 they touched. A write commits when its block returns and rolls back when it throws; a nested `write` is a savepoint
 that rolls back alone. A duplicate key throws `NoSqliteException.UniqueViolation` naming the index; caught inside
-the write, the transaction goes on. A transaction belongs to the coroutine running its block: a coroutine started
-inside `read { }` or `write { }` must not use the database at the same time, nor after the block has returned.
+the write, the transaction goes on. A transaction belongs to the coroutine running its block: coroutines started
+inside `read { }` or `write { }` share its connection in turns and must finish before the block returns.
 
 ### Reads and queries
 
