@@ -13,7 +13,7 @@ internal object Queries {
         """.trimIndent(),
     )
 
-    fun dropTable(name: String): Command<Unit> = command("DROP TABLE IF EXISTS \"$name\";")
+    fun dropTable(name: String): Command<Unit> = command("DROP TABLE IF EXISTS ${identifier(name)};")
 
     /** The indexes nosqlite manages on the input table; others are left alone. */
     val indexNames: Statement<String, List<String>> = Statement(
@@ -23,11 +23,11 @@ internal object Queries {
     )
 
     fun createIndex(index: Index<*>): Command<Unit> = command(
-        "CREATE ${if (index.isUnique) "UNIQUE " else ""}INDEX \"${index.name}\" " +
+        "CREATE ${if (index.isUnique) "UNIQUE " else ""}INDEX ${identifier(index.name)} " +
             "ON ${index.collection.table} ${index.definition};",
     )
 
-    fun dropIndex(name: String): Command<Unit> = command("DROP INDEX \"$name\";")
+    fun dropIndex(name: String): Command<Unit> = command("DROP INDEX ${identifier(name)};")
 
     // rowid comes last, so documents with equal keys keep insertion order and pages never overlap.
     fun select(collection: Collection<*>, query: Query): Statement<Unit, List<Row>> =
@@ -74,6 +74,9 @@ internal object Queries {
         decode = { step() },
     )
 }
+
+// Identifiers can't be bound, so they are quoted into the SQL text with their own quotes doubled.
+internal fun identifier(name: String): String = "\"${name.replace("\"", "\"\"")}\""
 
 private fun where(condition: Where?): Fragment =
     condition?.let { Fragment(" WHERE ") + it.render() } ?: Fragment.Empty
