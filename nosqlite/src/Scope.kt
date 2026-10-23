@@ -44,7 +44,7 @@ internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) (
  * caller is cancelled right after the commit.
  */
 internal suspend fun <R> ConnectionPool.write(
-    onCommit: suspend (Set<String>) -> Unit = {},
+    onCommit: (Set<String>) -> Unit = {},
     block: suspend context(WriteScope) () -> R,
 ): R {
     activeScope(this)?.let { active ->
@@ -56,7 +56,7 @@ internal suspend fun <R> ConnectionPool.write(
     return withWriter { connection ->
         val scope = WriteScope(connection, this)
         connection.transaction(Boundary.Write) { withScope(scope, block) }
-            .also { withContext(NonCancellable) { onCommit(scope.changed.toSet()) } }
+            .also { onCommit(scope.changed.toSet()) }
     }
 }
 

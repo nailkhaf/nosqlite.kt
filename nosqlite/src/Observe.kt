@@ -1,13 +1,10 @@
 package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onStart
 
 /**
  * The documents [query] selects, now and after every committed write that changed this collection: `with(db) {
@@ -31,10 +28,8 @@ public fun <T> Lookup.Unique<T>.observe(): Flow<T?> = db.observe(index.collectio
 
 private fun <R> NoSqlite.observe(collection: Collection<*>, read: suspend context(ReadScope) () -> R): Flow<R> = flow {
     emitAll(
-        changes.filter { it == collection.name }
-            .map { }
-            .onStart { emit(Unit) }
-            .conflate()
+        versions.map { it[collection.name] }
+            .distinctUntilChanged()
             .map { read(read) },
     )
 }.distinctUntilChanged()

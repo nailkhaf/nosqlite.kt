@@ -132,9 +132,8 @@ internal class ObserveTest {
     }
 
     @Test
-    fun `a committed write publishes each collection it changed once`() = runTest {
+    fun `a committed write bumps each collection it changed once`() = runTest {
         val db = database()
-        val changes = collect(db.changes)
 
         db.write {
             Users.insert(ada)
@@ -142,14 +141,12 @@ internal class ObserveTest {
             Notes.insert(note)
         }
 
-        assertEquals(setOf("users", "notes"), changes.toSet())
-        assertEquals(2, changes.size)
+        assertEquals(mapOf("users" to 1L, "notes" to 1L), db.versions.value)
     }
 
     @Test
-    fun `every kind of write publishes a change`() = runTest {
+    fun `every kind of write bumps a version`() = runTest {
         val db = database()
-        val changes = collect(db.changes)
 
         db.write { Notes.insert(note) }
         db.write { Notes.patch(buildJsonObject { put("text", "bye") }) { "text" eq "hi" } }
@@ -157,11 +154,11 @@ internal class ObserveTest {
         db.write { Users.byId.upsert(ada) }
         db.write { Notes.delete { "text" eq "hi" } }
 
-        assertEquals(listOf("notes", "notes", "notes", "users", "notes"), changes)
+        assertEquals(mapOf("notes" to 4L, "users" to 1L), db.versions.value)
     }
 
     @Test
-    fun `a write cancelled right after its commit still publishes its change`() = runTest {
+    fun `a write cancelled right after its commit still bumps its version`() = runTest {
         var writing: Job? = null
         val db = NoSqlite(
             driver = SteppingDriver("COMMIT;") { writing?.cancel() },
@@ -177,10 +174,23 @@ internal class ObserveTest {
     }
 
     @Test
-    fun `writes that change nothing or roll back publish nothing`() = runTest {
+    fun `a slow observer still sees a write followed by many to other collections`() = runTest {
+        val db = database()
+        val users = mutableListOf<List<User>>()
+        backgroundScope.launch { with(db) { Users.observe() }.toList(users) }
+        runCurrent()
+
+        db.write { Users.insert(ada) }
+        repeat(100) { db.write { Notes.insert(note) } }
+        runCurrent()
+
+        assertEquals(listOf(emptyList(), listOf(ada)), users)
+    }
+
+    @Test
+    fun `writes that change nothing or roll back bump nothing`() = runTest {
         val db = database()
         db.write { Users.insert(ada) }
-        val changes = collect(db.changes)
 
         assertFails {
             db.write {
@@ -192,13 +202,12 @@ internal class ObserveTest {
         db.write { Users.update(User("x", 1)) { "id" eq "nobody" } }
         db.write { Users.byId("nobody").delete() }
 
-        assertEquals(emptyList(), changes)
+        assertEquals(mapOf("users" to 1L), db.versions.value)
     }
 
     @Test
     fun `a rolled back savepoint takes its changes with it`() = runTest {
         val db = database()
-        val changes = collect(db.changes)
 
         db.write {
             Notes.insert(note)
@@ -210,7 +219,7 @@ internal class ObserveTest {
             }
         }
 
-        assertEquals(listOf("notes"), changes)
+        assertEquals(mapOf("notes" to 1L), db.versions.value)
     }
 
     @Test
