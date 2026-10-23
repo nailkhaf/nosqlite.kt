@@ -38,7 +38,7 @@ internal class StorageTest {
 
     @Test
     fun `inserted documents get ids in order`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
 
         db.write {
             Users.insert(ada)
@@ -50,7 +50,7 @@ internal class StorageTest {
 
     @Test
     fun `list returns the inserted documents in order`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         db.write {
             Users.insert(ada)
             Users.insert(alan)
@@ -62,7 +62,7 @@ internal class StorageTest {
 
     @Test
     fun `list without a limit returns every document`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         db.write {
             Users.insert(ada)
             Users.insert(alan)
@@ -77,7 +77,7 @@ internal class StorageTest {
 
     @Test
     fun `list returns only matching documents`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         db.write {
             Users.insert(ada)
             Users.insert(alan)
@@ -89,7 +89,7 @@ internal class StorageTest {
 
     @Test
     fun `list pages with limit and offset`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         val people = (1..5).map { buildJsonObject { put("age", it) } }
         db.write { people.forEach { Users.insert(it) } }
 
@@ -104,7 +104,7 @@ internal class StorageTest {
 
     @Test
     fun `list needs a positive limit and no negative offset`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
 
         val limit = assertFailsWith<IllegalArgumentException> { db.read { Users.list { limit(0) } } }
         val offset = assertFailsWith<IllegalArgumentException> { db.read { Users.list { offset(-1) } } }
@@ -119,7 +119,7 @@ internal class StorageTest {
     @Test
     fun `a collection can be created without a subclass`() = runTest {
         val notes = Collection("notes", JsonObject.serializer())
-        val db = Database { +notes }
+        val db = NoSqlite { +notes }
 
         db.write { notes.insert(ada) }
 
@@ -128,7 +128,7 @@ internal class StorageTest {
 
     @Test
     fun `a serializable value is stored as its JSON`() = runTest {
-        val db = Database { +People }
+        val db = NoSqlite { +People }
 
         db.write { People.insert(User("Ada", 36)) }
 
@@ -138,7 +138,7 @@ internal class StorageTest {
 
     @Test
     fun `a value that is not a JSON object is rejected`() = runTest {
-        val db = Database { +Numbers }
+        val db = NoSqlite { +Numbers }
 
         val error = assertFailsWith<IllegalArgumentException> { db.write { Numbers.insert(42) } }
 
@@ -147,7 +147,7 @@ internal class StorageTest {
 
     @Test
     fun `the id of a deleted document is never given out again`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         db.write { Users.insert(ada) }
         db.pool().writeSql { execute("DELETE FROM users") }
 
@@ -158,7 +158,7 @@ internal class StorageTest {
 
     @Test
     fun `each collection is a strict table of rowid and jsonb data`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
 
         db.write { Users.insert(ada) }
 
@@ -180,7 +180,7 @@ internal class StorageTest {
 
     @Test
     fun `the id is not written into the document`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
 
         db.write { Users.insert(ada) }
 
@@ -189,7 +189,7 @@ internal class StorageTest {
 
     @Test
     fun `every declared collection gets a table on first use`() = runTest {
-        val db = Database {
+        val db = NoSqlite {
             +Users
             +Notes
         }
@@ -205,7 +205,7 @@ internal class StorageTest {
 
     @Test
     fun `failed write leaves every collection unchanged`() = runTest {
-        val db = Database {
+        val db = NoSqlite {
             +Users
             +Notes
         }
@@ -227,11 +227,11 @@ internal class StorageTest {
     @Test
     fun `documents survive closing and reopening the file`() = runTest {
         withTempFile { location ->
-            val first = Database(location) { +Users }
+            val first = NoSqlite(location) { +Users }
             first.write { Users.insert(ada) }
             first.close()
 
-            val second = Database(location.path) { +Users }
+            val second = NoSqlite(location.path) { +Users }
             val stored = second.read { Users.list { limit(1) } }
 
             assertEquals(listOf(ada), stored)
@@ -242,7 +242,7 @@ internal class StorageTest {
     @Test
     fun `closing an unused database creates no file`() = runTest {
         withTempFile { location ->
-            Database(location) { +Users }.close()
+            NoSqlite(location) { +Users }.close()
 
             assertFalse(location.exists())
         }
@@ -250,7 +250,7 @@ internal class StorageTest {
 
     @Test
     fun `a closed database can't be used`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
         db.write { Users.insert(ada) }
         db.close()
 
@@ -261,17 +261,17 @@ internal class StorageTest {
 
     @Test
     fun `undeclared collection is rejected`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
 
-        val error = assertFailsWith<NosqliteException.CollectionNotDeclared> { db.write { Undeclared.insert(ada) } }
+        val error = assertFailsWith<NoSqliteException.CollectionNotDeclared> { db.write { Undeclared.insert(ada) } }
 
-        assertEquals("Collection 'undeclared' is not declared, add +undeclared to Database { }", error.message)
+        assertEquals("Collection 'undeclared' is not declared, add +undeclared to NoSqlite { }", error.message)
     }
 
     @Test
     fun `collection declared twice is rejected`() {
         val error = assertFailsWith<IllegalArgumentException> {
-            Database {
+            NoSqlite {
                 +Users
                 +Users
             }
@@ -298,10 +298,10 @@ internal class StorageTest {
 
     @Test
     fun `document that does not decode names its collection`() = runTest {
-        val db = Database { +People }
+        val db = NoSqlite { +People }
         db.pool().writeSql { execute("""INSERT INTO people (data) VALUES (jsonb('{"name":1}'))""") }
 
-        val error = assertFailsWith<NosqliteException.DecodingFailed> { db.read { People.list { limit(1) } } }
+        val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.list { limit(1) } } }
 
         assertEquals("people", error.collection)
     }

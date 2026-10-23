@@ -83,7 +83,7 @@ public suspend fun Lookup.Unique<*>.delete(): Boolean = index.collection.delete 
 
 /**
  * Inserts [value], or replaces the document that has its values in this index. A conflict in another unique index
- * still fails with [NosqliteException.UniqueViolation].
+ * still fails with [NoSqliteException.UniqueViolation].
  */
 context(_: WriteScope)
 public suspend fun <T> UniqueIndex<T>.upsert(value: T) {

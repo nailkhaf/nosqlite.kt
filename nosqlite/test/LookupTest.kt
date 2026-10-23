@@ -42,7 +42,7 @@ internal class LookupTest {
     private val grace = User("grace", "grace@x.com", Name("Hopper", "Grace"), 36, active = false, nickname = "amazing")
     private val byron = User("byron", "byron@x.com", Name("Lovelace", "Byron"), 36)
 
-    private suspend fun database(): Database = Database { +Users }.also { db ->
+    private suspend fun database(): NoSqlite = NoSqlite { +Users }.also { db ->
         db.write { listOf(ada, alan, grace, byron).forEach { Users.insert(it) } }
     }
 
@@ -203,7 +203,7 @@ internal class LookupTest {
     fun `upsert that conflicts in another unique index fails`() = runTest {
         val db = database()
 
-        val error = assertFailsWith<NosqliteException.UniqueViolation> {
+        val error = assertFailsWith<NoSqliteException.UniqueViolation> {
             db.write { Users.byEmail.upsert(alan.copy(id = "ada", email = "new@x.com", name = Name("New", "Name"))) }
         }
 

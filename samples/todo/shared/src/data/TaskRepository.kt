@@ -1,6 +1,6 @@
 package io.github.nailkhaf.todo.data
 
-import io.github.nailkhaf.nosqlite.Database
+import io.github.nailkhaf.nosqlite.NoSqlite
 import io.github.nailkhaf.nosqlite.Location
 import io.github.nailkhaf.nosqlite.asc
 import io.github.nailkhaf.nosqlite.delete
@@ -14,7 +14,7 @@ import kotlin.uuid.Uuid
 
 /** The tasks, stored in a nosqlite database at [location]. */
 class TaskRepository(location: Location) {
-    private val db = Database(location) { +Tasks }
+    private val db = NoSqlite(location) { +Tasks }
 
     /** Open tasks first, each group in the order it was added. */
     val tasks: Flow<List<Task>> = with(db) { Tasks.observe { orderBy { Task::done.asc } } }

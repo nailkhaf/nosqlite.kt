@@ -26,7 +26,7 @@ internal class QueryTest {
     private val grace = User("grace", Name("Grace", "Hopper"), 36)
     private val linus = User("linus", Name("Linus", "Torvalds"))
 
-    private suspend fun database(): Database = Database { +Users }.also { db ->
+    private suspend fun database(): NoSqlite = NoSqlite { +Users }.also { db ->
         db.write { listOf(ada, alan, grace, linus).forEach { Users.insert(it) } }
     }
 
@@ -158,7 +158,7 @@ internal class QueryTest {
 
     @Test
     fun `count of an empty collection is zero`() = runTest {
-        val db = Database { +Users }
+        val db = NoSqlite { +Users }
 
         assertEquals(0, db.read { Users.count() })
     }

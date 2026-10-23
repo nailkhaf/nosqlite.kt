@@ -12,7 +12,7 @@ import kotlinx.serialization.json.Json
 /**
  * A document database. Every collection it serves is declared up front:
  * ```
- * val db = Database("app.db") {
+ * val db = NoSqlite("app.db") {
  *     +Users
  *     +Notes
  * }
@@ -20,7 +20,7 @@ import kotlinx.serialization.json.Json
  * Nothing touches the file until the first [read] or [write], which creates the collections' tables in one write
  * transaction before anything else runs. [close] closes every connection that was opened.
  */
-public class Database(
+public class NoSqlite(
     location: Location = Location.InMemory,
     driver: SQLiteDriver = BundledSQLiteDriver(),
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -77,13 +77,13 @@ public class SchemaBuilder internal constructor() {
 }
 
 /** Runs [block] in a read transaction: every read in it sees one snapshot. Inside [write] it runs in that write. */
-public suspend fun <R> Database.read(block: suspend context(ReadScope) () -> R): R = pool().read(block)
+public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R): R = pool().read(block)
 
 /**
  * Runs [block] in a write transaction that commits when it returns and rolls back when it throws.
  * Inside another write it is a savepoint that rolls back alone.
  */
-public suspend fun <R> Database.write(block: suspend context(WriteScope) () -> R): R =
+public suspend fun <R> NoSqlite.write(block: suspend context(WriteScope) () -> R): R =
     pool().write(onCommit = ::committed, block)
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
