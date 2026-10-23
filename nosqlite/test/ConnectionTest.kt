@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /** Covers how a [Connection] lends its prepared statements. */
 internal class ConnectionTest {
@@ -24,6 +25,24 @@ internal class ConnectionTest {
 
         assertEquals(listOf("a"), first)
         assertEquals(listOf("a", "b"), second)
+        connection.close()
+    }
+
+    @Test
+    fun `a reused statement starts over with no bindings`() = runTest {
+        val connection = connectionWithRows()
+        val sql = "SELECT ?;"
+        connection.statement(sql) { statement ->
+            statement.bindLong(1, 42)
+            statement.step()
+        }
+
+        val reused = connection.statement(sql) { statement ->
+            statement.step()
+            statement.isNull(0)
+        }
+
+        assertTrue(reused)
         connection.close()
     }
 

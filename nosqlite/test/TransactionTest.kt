@@ -1,6 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -12,6 +13,8 @@ import kotlin.test.assertFailsWith
 
 /** Covers read and write transactions: commit, rollback, savepoints and snapshots. */
 internal class TransactionTest {
+
+    private object Users : Collection<User>("users", User.serializer())
 
     private suspend fun poolWithTable(): ConnectionPool = ConnectionPool().apply { writeSql { createTable() } }
 
@@ -175,6 +178,48 @@ internal class TransactionTest {
         val error = assertFailsWith<IllegalStateException> { first.readSql { second.readSql { } } }
 
         assertEquals("Active transaction belongs to another database", error.message)
+    }
+
+    @Test
+    fun `a coroutine started inside a write can't use the connection at the same time`() = runTest {
+        val driver = GateDriver()
+        val db = NoSqlite(driver = driver) { +Users }
+        db.write { }
+        val inner = CompletableDeferred<Result<Unit>>()
+
+        db.write {
+            launch(Dispatchers.Default) {
+                driver.entered.await()
+                inner.complete(runCatching { Users.insert(user("bob", 30)) })
+                driver.release()
+            }
+            // The insert's step() is held until the inner coroutine has tried to use the connection.
+            driver.hold()
+            Users.insert(user("ada", 36))
+        }
+
+        val error = assertFailsWith<IllegalStateException> { inner.await().getOrThrow() }
+        assertEquals(
+            "Connection is used by two coroutines at once, don't start coroutines inside read { } or write { }",
+            error.message,
+        )
+        assertEquals(1, db.read { Users.count() })
+        db.close()
+    }
+
+    @Test
+    fun `a coroutine that outlives a write can't use its transaction`() = runTest {
+        val db = NoSqlite { +Users }
+
+        val late = db.write { suspend { Users.insert(user("ada", 36)) } }
+
+        val error = assertFailsWith<IllegalStateException> { late() }
+        assertEquals(
+            "Transaction has ended, a coroutine started inside read { } or write { } must finish inside it",
+            error.message,
+        )
+        assertEquals(0, db.read { Users.count() })
+        db.close()
     }
 
     @Test

@@ -4,12 +4,17 @@ import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.execSQL
+import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
-/** One SQLite connection and the prepared statements it keeps for reuse. */
+/**
+ * One SQLite connection and the prepared statements it keeps for reuse. SQLite is called through [exclusive], so two
+ * coroutines reaching the connection at the same time fail instead of crashing the process.
+ */
 internal class Connection(private val sqlite: SQLiteConnection) {
     private val statements = StatementCache()
+    private val busy = atomic(false)
 
     /**
      * Runs [block] with a prepared statement for [sql], reused across calls. While [block] runs the statement is out
@@ -17,22 +22,38 @@ internal class Connection(private val sqlite: SQLiteConnection) {
      */
     suspend fun <R> statement(sql: String, block: suspend (SQLiteStatement) -> R): R {
         currentCoroutineContext().ensureActive()
-        val statement = statements.take(sql) ?: sqlite.prepare(sql)
+        val statement = statements.take(sql) ?: exclusive { sqlite.prepare(sql) }
         val result = try {
             block(statement)
         } catch (e: Throwable) {
-            statement.close()
+            exclusive { statement.close() }
             throw e
+        }
+        exclusive {
+            statement.reset()
+            statement.clearBindings()
         }
         statements.put(sql, statement)
         return result
     }
 
-    fun inTransaction(): Boolean = sqlite.inTransaction()
+    /** Runs [block], which calls SQLite, while no other coroutine does; a second one arriving meanwhile fails. */
+    fun <R> exclusive(block: () -> R): R {
+        check(busy.compareAndSet(expect = false, update = true)) {
+            "Connection is used by two coroutines at once, don't start coroutines inside read { } or write { }"
+        }
+        try {
+            return block()
+        } finally {
+            busy.value = false
+        }
+    }
+
+    fun inTransaction(): Boolean = exclusive { sqlite.inTransaction() }
 
     suspend fun close() {
         statements.close()
-        sqlite.close()
+        exclusive { sqlite.close() }
     }
 
     companion object {
