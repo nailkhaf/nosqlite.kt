@@ -27,8 +27,7 @@ import kotlin.reflect.KProperty1
  */
 public open class Collection<T>(public val name: String, internal val serializer: KSerializer<T>) {
     init {
-        require(name.matches(Name)) { "Invalid collection name: '$name'" }
-        require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
+        requireCollectionName(name)
     }
 
     internal val indexes: List<Index<T>>
@@ -75,10 +74,13 @@ public open class Collection<T>(public val name: String, internal val serializer
     }
 
     override fun toString(): String = "Collection($name)"
+}
 
-    private companion object {
-        val Name = Regex("[A-Za-z_][A-Za-z0-9_]*")
-    }
+private val CollectionName = Regex("[A-Za-z_][A-Za-z0-9_]*")
+
+internal fun requireCollectionName(name: String) {
+    require(name.matches(CollectionName)) { "Invalid collection name: '$name'" }
+    require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
 }
 
 /** Inserts [value] as a new document; it must encode to a JSON object. */
