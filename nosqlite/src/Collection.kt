@@ -4,7 +4,7 @@ import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.encoding.CompositeDecoder
-import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 import kotlin.reflect.KProperty1
 
@@ -137,10 +137,9 @@ public suspend fun Collection.count(condition: (WhereScope.() -> Where)? = null)
     withConnection { Queries.count(this@count, condition?.let(::where)).execute() }
 
 /**
- * Writes [value] into every document matching [condition], so match on a unique field to update one; the result is how
- * many documents were updated. A class changes only the fields it declares: they are set, a `null` one is removed, and
- * fields it doesn't know are kept, in nested classes too. Lists, maps and polymorphic fields are replaced whole.
- * A document of any other type, such as a [JsonObject], a map or a sealed class, replaces the stored one.
+ * Applies [value] as a JSON merge patch to every document matching [condition], so match on a unique field to update
+ * one: its fields replace theirs, a `null` removes one, and fields it doesn't have are kept. The result is how many
+ * documents were updated.
  */
 context(_: WriteScope)
 public suspend inline fun <reified T> Collection.update(value: T, noinline condition: WhereScope.() -> Where): Int =
@@ -148,22 +147,29 @@ public suspend inline fun <reified T> Collection.update(value: T, noinline condi
 
 context(_: WriteScope)
 public suspend fun <T> Collection.update(serializer: KSerializer<T>, value: T, condition: WhereScope.() -> Where): Int {
-    val write = writeOf(serializer, value)
-    return withConnection { Queries.update(this@update, write, where(condition)).execute() }.changed(this)
+    val patch = encodePatch(serializer, value)
+    return withConnection { Queries.update(this@update, patch, where(condition)).execute() }.changed(this)
+}
+
+/** Replaces every document matching [condition] with [value]; the result is how many documents were replaced. */
+context(_: WriteScope)
+public suspend inline fun <reified T> Collection.replace(value: T, noinline condition: WhereScope.() -> Where): Int =
+    replace(serializer(), value, condition)
+
+context(_: WriteScope)
+public suspend fun <T> Collection.replace(
+    serializer: KSerializer<T>,
+    value: T,
+    condition: WhereScope.() -> Where,
+): Int {
+    val json = encode(serializer, value)
+    return withConnection { Queries.replace(this@replace, json, where(condition)).execute() }.changed(this)
 }
 
 /** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
 public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int =
     withConnection { Queries.delete(this@delete, where(condition)).execute() }.changed(this)
-
-/**
- * Applies the JSON merge [patch] to every document matching [condition]: its fields replace theirs, and a `null`
- * removes one. The result is how many documents were patched.
- */
-context(_: WriteScope)
-public suspend fun Collection.patch(patch: JsonObject, condition: WhereScope.() -> Where): Int =
-    withConnection { Queries.patch(this@patch, patch.toString(), where(condition)).execute() }.changed(this)
 
 /** The number of documents a write touched, recording a change when there were any. */
 context(_: WriteScope)
@@ -174,6 +180,19 @@ private fun Int.changed(collection: Collection): Int {
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
 internal val Collection.table: String get() = identifier(name)
+
+internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String =
+    NoSqlite.Json.encodeToString(serializer, value).also(::requireObject)
+
+// A merge patch removes a field by its null, so nulls are spelled out instead of left out.
+internal fun <T> Collection.encodePatch(serializer: KSerializer<T>, value: T): String =
+    ExplicitNulls.encodeToString(serializer, value).also(::requireObject)
+
+private fun Collection.requireObject(json: String) {
+    require(json.startsWith('{')) { "A document of '$name' must be a JSON object, not $json" }
+}
+
+private val ExplicitNulls = Json(NoSqlite.Json) { explicitNulls = true }
 
 /**
  * The document in the current row of a [Queries.selectSql] statement, as [serializer] reads it.

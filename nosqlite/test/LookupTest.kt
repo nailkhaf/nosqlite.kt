@@ -78,17 +78,19 @@ internal class LookupTest {
     }
 
     @Test
-    fun `update and delete of a unique lookup tell whether there was a document`() = runTest {
+    fun `writes of a unique lookup tell whether there was a document`() = runTest {
         val db = database()
 
         db.write {
             assertTrue(Users.byId("ada").update(ada.copy(age = 37)))
             assertFalse(Users.byId("nobody").update(ada))
+            assertTrue(Users.byId("alan").replace(alan.copy(age = 42)))
+            assertFalse(Users.byId("nobody").replace(ada))
             assertTrue(Users.byEmail("grace@x.com").delete())
             assertFalse(Users.byEmail("grace@x.com").delete())
         }
 
-        assertEquals(listOf(ada.copy(age = 37), alan, byron), db.read { Users.list<User>() })
+        assertEquals(listOf(ada.copy(age = 37), alan.copy(age = 42), byron), db.read { Users.list<User>() })
     }
 
     @Test
@@ -136,16 +138,17 @@ internal class LookupTest {
     }
 
     @Test
-    fun `update and delete of a lookup count what they touched`() = runTest {
+    fun `writes of a lookup count what they touched`() = runTest {
         val db = database()
 
         db.write {
             assertEquals(1, Users.byActive(false).update(grace.copy(age = 50)))
+            assertEquals(1, Users.byActive(false).replace(grace.copy(age = 51)))
             assertEquals(0, Users.byAge(99).delete())
             assertEquals(1, Users.byAge(41).delete())
         }
 
-        assertEquals(listOf(ada, grace.copy(age = 50), byron), db.read { Users.list<User>() })
+        assertEquals(listOf(ada, grace.copy(age = 51), byron), db.read { Users.list<User>() })
     }
 
     @Test

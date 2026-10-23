@@ -66,13 +66,21 @@ public suspend fun <T> Lookup.Many.list(serializer: KSerializer<T>, query: Query
 context(_: ReadScope)
 public suspend fun Lookup.Many.count(): Long = index.collection.count { condition }
 
-/** Writes [value] into the documents found, as `update` does; the result is how many were updated. */
+/** Applies [value] as a merge patch to the documents found, as `update` does; the result is how many were updated. */
 context(_: WriteScope)
 public suspend inline fun <reified T> Lookup.Many.update(value: T): Int = update(serializer(), value)
 
 context(_: WriteScope)
 public suspend fun <T> Lookup.Many.update(serializer: KSerializer<T>, value: T): Int =
     index.collection.update(serializer, value) { condition }
+
+/** Replaces the documents found with [value]; the result is how many were replaced. */
+context(_: WriteScope)
+public suspend inline fun <reified T> Lookup.Many.replace(value: T): Int = replace(serializer(), value)
+
+context(_: WriteScope)
+public suspend fun <T> Lookup.Many.replace(serializer: KSerializer<T>, value: T): Int =
+    index.collection.replace(serializer, value) { condition }
 
 /** Deletes the documents found; the result is how many were deleted. */
 context(_: WriteScope)
@@ -86,7 +94,7 @@ context(_: ReadScope)
 public suspend fun <T> Lookup.Unique.get(serializer: KSerializer<T>): T? =
     index.collection.list(serializer, Query(condition, emptyList(), limit = 1, offset = 0)).firstOrNull()
 
-/** Writes [value] into the document found, as `update` does; the result is whether there was one. */
+/** Applies [value] as a merge patch to the document found, as `update` does; the result is whether there was one. */
 context(_: WriteScope)
 public suspend inline fun <reified T> Lookup.Unique.update(value: T): Boolean = update(serializer(), value)
 
@@ -94,21 +102,28 @@ context(_: WriteScope)
 public suspend fun <T> Lookup.Unique.update(serializer: KSerializer<T>, value: T): Boolean =
     index.collection.update(serializer, value) { condition } > 0
 
+/** Replaces the document found with [value]; the result is whether there was one. */
+context(_: WriteScope)
+public suspend inline fun <reified T> Lookup.Unique.replace(value: T): Boolean = replace(serializer(), value)
+
+context(_: WriteScope)
+public suspend fun <T> Lookup.Unique.replace(serializer: KSerializer<T>, value: T): Boolean =
+    index.collection.replace(serializer, value) { condition } > 0
+
 /** Deletes the document found; the result is whether there was one. */
 context(_: WriteScope)
 public suspend fun Lookup.Unique.delete(): Boolean = index.collection.delete { condition } > 0
 
 /**
- * Inserts [value], or writes it into the document that has its values in this index, as `update` does. A conflict in
- * another unique index still fails with [NoSqliteException.UniqueViolation].
+ * Inserts [value], or applies it as a JSON merge patch to the document that has its values in this index, as `update`
+ * does. A conflict in another unique index still fails with [NoSqliteException.UniqueViolation].
  */
 context(_: WriteScope)
 public suspend inline fun <reified T> UniqueIndex.upsert(value: T): Unit = upsert(serializer(), value)
 
 context(_: WriteScope)
 public suspend fun <T> UniqueIndex.upsert(serializer: KSerializer<T>, value: T) {
-    val json = collection.encode(serializer, value)
-    val write = collection.writeOf(serializer, value)
-    collection.withConnection { Queries.upsert(this@upsert, json, write).execute() }
+    val documents = collection.encode(serializer, value) to collection.encodePatch(serializer, value)
+    collection.withConnection { Queries.upsert(this@upsert).execute(documents) }
     collection.changed()
 }

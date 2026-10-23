@@ -9,7 +9,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-/** Covers reading documents as different types, and typed writes keeping the fields their type doesn't declare. */
+/** Covers reading documents as different types, and typed updates keeping the fields their type doesn't declare. */
 internal class ProjectionTest {
 
     @Serializable
@@ -83,27 +83,28 @@ internal class ProjectionTest {
 
         db.write { Profiles.update(Profile("ada", Address("London"), nickname = null)) { "id" eq "ada" } }
 
-        val expected = json("""{"id":"ada","address":{"city":"London","zip":"N1"},"settings":{},"plan":"pro"}""")
+        val expected = json(
+            """{"id":"ada","address":{"city":"London","zip":"N1"},"settings":{"theme":"dark","lang":"en"},"plan":"pro"}""",
+        )
         assertEquals(expected, db.stored())
     }
 
     @Test
-    fun `a typed update replaces a map field whole`() = runTest {
+    fun `a typed update merges a map field`() = runTest {
         val db = seeded()
 
         db.write { Profiles.byId("ada").update(Profile("ada", Address("London"), mapOf("theme" to "light"))) }
 
-        assertEquals(json("""{"theme":"light"}"""), db.stored()["settings"])
+        assertEquals(json("""{"theme":"light","lang":"en"}"""), db.stored()["settings"])
     }
 
     @Test
-    fun `a JsonObject update replaces the document`() = runTest {
+    fun `a replace drops the fields its type does not declare`() = runTest {
         val db = seeded()
-        val replacement = json("""{"id":"ada","address":{"city":"Rome"}}""")
 
-        db.write { Profiles.byId("ada").update(replacement) }
+        db.write { Profiles.byId("ada").replace(Profile("ada", Address("Rome"), mapOf("theme" to "light"))) }
 
-        assertEquals(replacement, db.stored())
+        assertEquals(json("""{"id":"ada","address":{"city":"Rome"},"settings":{"theme":"light"}}"""), db.stored())
     }
 
     @Test

@@ -60,21 +60,27 @@ internal object Queries {
             getLong(0)
         }
 
-    fun update(collection: Collection, write: Write, condition: Where): Statement<Unit, Int> =
-        (Fragment("UPDATE ${collection.table} SET data = ") + write.sql + " WHERE " + condition.render() + RETURNING)
-            .statement(countRows)
-
-    fun patch(collection: Collection, patch: String, condition: Where): Statement<Unit, Int> =
+    fun update(collection: Collection, patch: String, condition: Where): Statement<Unit, Int> =
         (Fragment("UPDATE ${collection.table} SET data = jsonb_patch(data, ?) WHERE ", listOf(SqlValue.Text(patch))) +
+            condition.render() + RETURNING).statement(countRows)
+
+    fun replace(collection: Collection, json: String, condition: Where): Statement<Unit, Int> =
+        (Fragment("UPDATE ${collection.table} SET data = jsonb(?) WHERE ", listOf(SqlValue.Text(json))) +
             condition.render() + RETURNING).statement(countRows)
 
     fun delete(collection: Collection, condition: Where): Statement<Unit, Int> =
         (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(countRows)
 
-    /** Inserts [json], or makes [write] to the document it conflicts with in [index]. */
-    fun upsert(index: Index, json: String, write: Write): Statement<Unit, Unit> =
-        (Fragment("INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?)) ", listOf(SqlValue.Text(json))) +
-            "ON CONFLICT ${index.definition} DO UPDATE SET data = " + write.sql + ";").statement { step() }
+    /** Inserts the input's JSON, or applies its patch to the document it conflicts with in [index]. */
+    fun upsert(index: Index): Statement<Pair<String, String>, Unit> = Statement(
+        sql = "INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?)) " +
+            "ON CONFLICT ${index.definition} DO UPDATE SET data = jsonb_patch(data, ?);",
+        encode = { (json, patch) ->
+            bindText(1, json)
+            bindText(2, patch)
+        },
+        decode = { step() },
+    )
 
     fun insert(collection: Collection): Statement<String, Unit> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?));",

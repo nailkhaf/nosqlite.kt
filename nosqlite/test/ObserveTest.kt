@@ -149,8 +149,8 @@ internal class ObserveTest {
         val db = database()
 
         db.write { Notes.insert(note) }
-        db.write { Notes.patch(buildJsonObject { put("text", "bye") }) { "text" eq "hi" } }
-        db.write { Notes.update(note) { "text" eq "bye" } }
+        db.write { Notes.update(buildJsonObject { put("text", "bye") }) { "text" eq "hi" } }
+        db.write { Notes.replace(note) { "text" eq "bye" } }
         db.write { Users.byId.upsert(ada) }
         db.write { Notes.delete { "text" eq "hi" } }
 
