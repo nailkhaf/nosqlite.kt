@@ -17,4 +17,8 @@ public sealed class NoSqliteException(message: String, cause: Throwable? = null)
     /** A document of [collection] can't be decoded into the requested type. */
     public class DecodingFailed internal constructor(public val collection: String, id: DocumentId, cause: Throwable) :
         NoSqliteException("Can't decode $id of '$collection': ${cause.message}", cause)
+
+    /** The driver's SQLite is [version], older than 3.45.0, the first with the JSONB functions storage needs. */
+    public class UnsupportedSqlite internal constructor(public val version: String) :
+        NoSqliteException("SQLite $version is older than $MinSqliteVersion; use BundledSQLiteDriver")
 }
