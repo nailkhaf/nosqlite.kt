@@ -6,7 +6,8 @@ import kotlinx.coroutines.ensureActive
 
 /**
  * Runs [action] on every document [query] selects, reading one row at a time from an open cursor, so a large result
- * never sits in memory at once.
+ * never sits in memory at once. The read transaction stays open until the last document, and no write can be
+ * checkpointed meanwhile, so do slow work after the loop, not in [action].
  */
 context(_: ReadScope)
 public suspend fun <T> Collection<T>.forEach(query: QueryScope.() -> Unit = {}, action: suspend (T) -> Unit) {
