@@ -17,7 +17,7 @@ class TaskRepository(location: Location) {
     private val db = NoSqlite(location) { +Tasks }
 
     /** Open tasks first, each group in the order it was added. */
-    val tasks: Flow<List<Task>> = with(db) { Tasks.observe { orderBy { Task::done.asc } } }
+    val tasks: Flow<List<Task>> = with(db) { Tasks.observe<Task> { orderBy { Task::done.asc } } }
 
     suspend fun add(title: String) {
         db.write { Tasks.insert(Task(Uuid.random(), title)) }

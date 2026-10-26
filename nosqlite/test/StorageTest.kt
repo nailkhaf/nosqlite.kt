@@ -24,15 +24,15 @@ import kotlin.test.assertTrue
 /** Covers declaring collections, their tables, and storing JSON documents. */
 internal class StorageTest {
 
-    object Users : Collection<JsonObject>("users", JsonObject.serializer())
+    object Users : Collection("users")
 
-    object Notes : Collection<JsonObject>("notes", JsonObject.serializer())
+    object Notes : Collection("notes")
 
-    object Undeclared : Collection<JsonObject>("undeclared", JsonObject.serializer())
+    object Undeclared : Collection("undeclared")
 
-    object People : Collection<User>("people", User.serializer())
+    object People : Collection("people")
 
-    object Elements : Collection<JsonElement>("elements", JsonElement.serializer())
+    object Elements : Collection("elements")
 
     @Serializable
     data class Adult(val age: Int) {
@@ -41,7 +41,7 @@ internal class StorageTest {
         }
     }
 
-    object Adults : Collection<Adult>("adults", Adult.serializer())
+    object Adults : Collection("adults")
 
     private val ada = buildJsonObject {
         put("name", "Ada")
@@ -53,18 +53,6 @@ internal class StorageTest {
     }
 
     @Test
-    fun `inserted documents get ids in order`() = runTest {
-        val db = NoSqlite { +Users }
-
-        db.write {
-            Users.insert(ada)
-            Users.insert(alan)
-        }
-
-        assertEquals(listOf(listOf("1"), listOf("2")), db.querySql("SELECT rowid FROM users"))
-    }
-
-    @Test
     fun `list returns the inserted documents in order`() = runTest {
         val db = NoSqlite { +Users }
         db.write {
@@ -72,8 +60,8 @@ internal class StorageTest {
             Users.insert(alan)
         }
 
-        assertEquals(listOf(ada, alan), db.read { Users.list() })
-        assertEquals(listOf(ada), db.read { Users.list { limit(1) } })
+        assertEquals(listOf(ada, alan), db.read { Users.list<JsonObject>() })
+        assertEquals(listOf(ada), db.read { Users.list<JsonObject> { limit(1) } })
     }
 
     @Test
@@ -85,9 +73,9 @@ internal class StorageTest {
         }
 
         db.read {
-            assertEquals(listOf(ada, alan), Users.list())
-            assertEquals(listOf(alan), Users.list { offset(1) })
-            assertEquals(listOf(alan), Users.list { where { "age" gt 40 } })
+            assertEquals(listOf(ada, alan), Users.list<JsonObject>())
+            assertEquals(listOf(alan), Users.list<JsonObject> { offset(1) })
+            assertEquals(listOf(alan), Users.list<JsonObject> { where { "age" gt 40 } })
         }
     }
 
@@ -99,8 +87,8 @@ internal class StorageTest {
             Users.insert(alan)
         }
 
-        assertEquals(listOf(alan), db.read { Users.list { where { "age" gt 40 } } })
-        assertEquals(emptyList(), db.read { Users.list { where { "age" gt 50 } } })
+        assertEquals(listOf(alan), db.read { Users.list<JsonObject> { where { "age" gt 40 } } })
+        assertEquals(emptyList(), db.read { Users.list<JsonObject> { where { "age" gt 50 } } })
     }
 
     @Test
@@ -110,11 +98,11 @@ internal class StorageTest {
         db.write { people.forEach { Users.insert(it) } }
 
         db.read {
-            assertEquals(people.subList(0, 2), Users.list { limit(2) })
-            assertEquals(people.subList(2, 4), Users.list { limit(2); offset(2) })
-            assertEquals(people.subList(4, 5), Users.list { limit(2); offset(4) })
-            assertEquals(emptyList(), Users.list { limit(2); offset(5) })
-            assertEquals(people.subList(3, 5), Users.list { where { "age" gt 2 }; offset(1) })
+            assertEquals(people.subList(0, 2), Users.list<JsonObject> { limit(2) })
+            assertEquals(people.subList(2, 4), Users.list<JsonObject> { limit(2); offset(2) })
+            assertEquals(people.subList(4, 5), Users.list<JsonObject> { limit(2); offset(4) })
+            assertEquals(emptyList(), Users.list<JsonObject> { limit(2); offset(5) })
+            assertEquals(people.subList(3, 5), Users.list<JsonObject> { where { "age" gt 2 }; offset(1) })
         }
     }
 
@@ -122,8 +110,8 @@ internal class StorageTest {
     fun `list needs a positive limit and no negative offset`() = runTest {
         val db = NoSqlite { +Users }
 
-        val limit = assertFailsWith<IllegalArgumentException> { db.read { Users.list { limit(0) } } }
-        val offset = assertFailsWith<IllegalArgumentException> { db.read { Users.list { offset(-1) } } }
+        val limit = assertFailsWith<IllegalArgumentException> { db.read { Users.list<JsonObject> { limit(0) } } }
+        val offset = assertFailsWith<IllegalArgumentException> { db.read { Users.list<JsonObject> { offset(-1) } } }
 
         assertEquals("Limit must be positive: 0", limit.message)
         assertEquals("Offset must not be negative: -1", offset.message)
@@ -134,12 +122,12 @@ internal class StorageTest {
 
     @Test
     fun `a collection can be created without a subclass`() = runTest {
-        val notes = Collection("notes", JsonObject.serializer())
+        val notes = Collection("notes")
         val db = NoSqlite { +notes }
 
         db.write { notes.insert(ada) }
 
-        assertEquals(listOf(ada), db.read { notes.list { limit(1) } })
+        assertEquals(listOf(ada), db.read { notes.list<JsonObject> { limit(1) } })
     }
 
     @Test
@@ -148,37 +136,8 @@ internal class StorageTest {
 
         db.write { People.insert(User("Ada", 36)) }
 
-        assertEquals(listOf(User("Ada", 36)), db.read { People.list { limit(1) } })
+        assertEquals(listOf(User("Ada", 36)), db.read { People.list<User> { limit(1) } })
         assertEquals(listOf(listOf("""{"name":"Ada","age":36}""")), db.querySql("SELECT json(data) FROM people"))
-    }
-
-    @Test
-    fun `a collection of values that are not JSON objects is rejected`() {
-        val serializers = listOf(
-            Int.serializer(),
-            String.serializer(),
-            Role.serializer(),
-            Email.serializer(),
-            ListSerializer(User.serializer()),
-            User.serializer().nullable,
-        )
-
-        val messages = serializers.map { assertFailsWith<IllegalArgumentException> { Collection("docs", it) }.message }
-
-        val expected = serializers.map { "A document of 'docs' must be a JSON object, not ${it.descriptor.serialName}" }
-        assertEquals(expected, messages)
-    }
-
-    @Test
-    fun `objects maps and polymorphic values make collections`() {
-        val collections = listOf(
-            Collection("users", User.serializer()),
-            Collection("emails", MapSerializer(String.serializer(), Email.serializer())),
-            Collection("raw", JsonObject.serializer()),
-            Collection("elements", JsonElement.serializer()),
-        )
-
-        assertEquals(listOf("users", "emails", "raw", "elements"), collections.map { it.name })
     }
 
     @Test
@@ -192,18 +151,7 @@ internal class StorageTest {
     }
 
     @Test
-    fun `the id of a deleted document is never given out again`() = runTest {
-        val db = NoSqlite { +Users }
-        db.write { Users.insert(ada) }
-        db.pool().writeSql { execute("DELETE FROM users") }
-
-        db.write { Users.insert(alan) }
-
-        assertEquals(listOf(listOf("2")), db.querySql("SELECT rowid FROM users"))
-    }
-
-    @Test
-    fun `each collection is a strict table of rowid and jsonb data`() = runTest {
+    fun `each collection is a strict table of jsonb data`() = runTest {
         val db = NoSqlite { +Users }
 
         db.write { Users.insert(ada) }
@@ -213,7 +161,6 @@ internal class StorageTest {
                 listOf(
                     """
                     CREATE TABLE "users" (
-                        rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                         data BLOB NOT NULL
                     ) STRICT
                     """.trimIndent(),
@@ -221,11 +168,11 @@ internal class StorageTest {
             ),
             db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'users'"),
         )
-        assertEquals(listOf(listOf("1", "blob")), db.querySql("SELECT rowid, typeof(data) FROM users"))
+        assertEquals(listOf(listOf("blob")), db.querySql("SELECT typeof(data) FROM users"))
     }
 
     @Test
-    fun `the id is not written into the document`() = runTest {
+    fun `a document is stored as its JSON alone`() = runTest {
         val db = NoSqlite { +Users }
 
         db.write { Users.insert(ada) }
@@ -278,7 +225,7 @@ internal class StorageTest {
             first.close()
 
             val second = NoSqlite(location.path) { +Users }
-            val stored = second.read { Users.list { limit(1) } }
+            val stored = second.read { Users.list<JsonObject> { limit(1) } }
 
             assertEquals(listOf(ada), stored)
             second.close()
@@ -323,7 +270,7 @@ internal class StorageTest {
 
             assertEquals(listOf("id TEXT", "data BLOB"), error.columns)
             assertEquals(
-                "Table 'users' has columns (id TEXT, data BLOB), not a collection's (rowid INTEGER PRIMARY KEY, data BLOB)",
+                "Table 'users' has columns (id TEXT, data BLOB), not a collection's (data BLOB)",
                 error.message,
             )
             db.close()
@@ -336,7 +283,7 @@ internal class StorageTest {
         db.write { Users.insert(ada) }
         db.close()
 
-        val error = assertFailsWith<IllegalStateException> { db.read { Users.list { limit(1) } } }
+        val error = assertFailsWith<IllegalStateException> { db.read { Users.list<JsonObject> { limit(1) } } }
 
         assertEquals("Database is closed", error.message)
     }
@@ -392,8 +339,7 @@ internal class StorageTest {
             val db = NoSqlite(location) { +Notes }
             db.write { Notes.insert(alan) }
 
-            assertEquals(listOf(alan), db.read { Notes.list() })
-            assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM notes"))
+            assertEquals(listOf(alan), db.read { Notes.list<JsonObject>() })
             db.close()
         }
     }
@@ -458,7 +404,7 @@ internal class StorageTest {
 
         for ((name, message) in invalid) {
             val error = assertFailsWith<IllegalArgumentException> {
-                object : Collection<JsonObject>(name, JsonObject.serializer()) {}
+                object : Collection(name) {}
             }
             assertEquals(message, error.message)
         }
@@ -470,10 +416,10 @@ internal class StorageTest {
         db.write { People.insert(User("ada", 36)) }
         db.pool().writeSql { execute("""INSERT INTO people (data) VALUES (jsonb('{"name":1}'))""") }
 
-        val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.list() } }
+        val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.list<User>() } }
 
         assertEquals("people", error.collection)
-        assertTrue(error.message!!.startsWith("Can't decode row 2 of 'people'"), error.message)
+        assertTrue(error.message!!.startsWith("Can't decode a document of 'people'"), error.message)
     }
 
     @Test
@@ -484,7 +430,7 @@ internal class StorageTest {
         db.write { People.insert(User("alan", 41)) }
         val seen = mutableListOf<String>()
 
-        assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.forEach { seen += it.name } } }
+        assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.forEach<User> { seen += it.name } } }
 
         assertEquals(listOf("ada"), seen)
     }
@@ -494,9 +440,9 @@ internal class StorageTest {
         val db = NoSqlite { +Adults }
         db.pool().writeSql { execute("""INSERT INTO adults (data) VALUES (jsonb('{"age":17}'))""") }
 
-        val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { Adults.list() } }
+        val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { Adults.list<Adult>() } }
 
         assertEquals("adults", error.collection)
-        assertEquals("Can't decode row 1 of 'adults': Too young: 17", error.message)
+        assertEquals("Can't decode a document of 'adults': Too young: 17", error.message)
     }
 }

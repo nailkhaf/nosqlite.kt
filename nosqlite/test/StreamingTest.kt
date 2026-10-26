@@ -14,9 +14,9 @@ internal class StreamingTest {
     @Serializable
     data class User(val id: String, val age: Int? = null, val score: Double? = null)
 
-    object Users : Collection<User>("users", User.serializer())
+    object Users : Collection("users")
 
-    object Log : Collection<User>("log", User.serializer())
+    object Log : Collection("log")
 
     private val users = listOf(
         User("ann", 30, 1.5),
@@ -47,7 +47,7 @@ internal class StreamingTest {
         val db = database()
         val visited = mutableListOf<User>()
 
-        db.read { Users.forEach { visited += it } }
+        db.read { Users.forEach<User> { visited += it } }
 
         assertEquals(users, visited)
     }
@@ -59,9 +59,9 @@ internal class StreamingTest {
         for ((i, order) in orders.withIndex()) {
             val query: QueryScope.() -> Unit = { order(); where { "age".isNotNull() } }
             val visited = mutableListOf<User>()
-            db.read { Users.forEach(query) { visited += it } }
+            db.read { Users.forEach<User>(query) { visited += it } }
 
-            assertEquals(db.read { Users.list(query) }, visited, "order $i")
+            assertEquals(db.read { Users.list<User>(query) }, visited, "order $i")
         }
     }
 
@@ -71,10 +71,10 @@ internal class StreamingTest {
         val pairs = mutableListOf<Pair<String, Int>>()
 
         db.read {
-            Users.forEach { outer ->
+            Users.forEach<User> { outer ->
                 var inner = 0
-                Users.forEach { inner++ }
-                pairs += outer.id to inner + Users.list().size
+                Users.forEach<User> { inner++ }
+                pairs += outer.id to inner + Users.list<User>().size
             }
         }
 
@@ -85,9 +85,9 @@ internal class StreamingTest {
     fun `forEach inside a write can write to other collections`() = runTest {
         val db = database()
 
-        db.write { Users.forEach { if (it.age == 20) Log.insert(it) } }
+        db.write { Users.forEach<User> { if (it.age == 20) Log.insert(it) } }
 
-        assertEquals(users.filter { it.age == 20 }, db.read { Log.list() })
+        assertEquals(users.filter { it.age == 20 }, db.read { Log.list<User>() })
     }
 
     @Test
@@ -97,7 +97,7 @@ internal class StreamingTest {
 
         assertFailsWith<IllegalStateException> {
             db.read {
-                Users.forEach {
+                Users.forEach<User> {
                     visited++
                     if (visited == 3) error("stop")
                 }
@@ -105,7 +105,7 @@ internal class StreamingTest {
         }
 
         assertEquals(3, visited)
-        assertEquals(users, db.read { Users.list() })
+        assertEquals(users, db.read { Users.list<User>() })
     }
 
     @Test
@@ -115,7 +115,7 @@ internal class StreamingTest {
 
         launch {
             db.read {
-                Users.forEach {
+                Users.forEach<User> {
                     visited++
                     if (visited == 2) cancel()
                 }
@@ -130,8 +130,8 @@ internal class StreamingTest {
         val db = database()
         val visited = mutableListOf<User>()
 
-        db.read { Users.forEach({ orderBy { "age".asc }; limit(2); offset(1) }) { visited += it } }
+        db.read { Users.forEach<User>({ orderBy { "age".asc }; limit(2); offset(1) }) { visited += it } }
 
-        assertEquals(db.read { Users.list { orderBy { "age".asc }; limit(2); offset(1) } }, visited)
+        assertEquals(db.read { Users.list<User> { orderBy { "age".asc }; limit(2); offset(1) } }, visited)
     }
 }
