@@ -164,8 +164,8 @@ run other queries.
 
 Fields can also be named by property references, which the compiler checks: `User::age gte 18`,
 `User::name / Name::last` for a nested field, `User::age.asc` in `orderBy`, and `unique(User::email)` or
-`index(User::name / Name::last)` in a collection. A property reference names the field by its property name, so an
-index on a property renamed with `@SerialName` fails when the collection is created; name that field by its string.
+`index(User::name / Name::last)` in a collection. A property reference names the field by its property name, so a
+property renamed with `@SerialName` is named by its string instead.
 Values must be of the property's type: `User::age gte 18` compiles, `User::age gte "18"` doesn't. Each typed call
 builds the same condition, sort key or index as its string form, so the two mix freely.
 

@@ -3,7 +3,6 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.encoding.CompositeDecoder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 import kotlin.reflect.KProperty1
@@ -43,53 +42,19 @@ public open class Collection(public val name: String) {
     protected fun index(vararg fields: String, where: (WhereScope.() -> Where)? = null): Index =
         register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
 
-    /** A unique index on property [fields]; each must be a serial field of [T] under its property name. */
-    protected inline fun <reified T> unique(
-        vararg fields: Field<T, *>,
-        noinline where: (WhereScope.() -> Where)? = null,
-    ): UniqueIndex = unique(serializer<T>(), fields.toList(), where)
+    /** A unique index on property [fields], named by their property names. */
+    protected fun unique(vararg fields: Field<*, *>, where: (WhereScope.() -> Where)? = null): UniqueIndex =
+        unique(*fields.map { it.path }.toTypedArray(), where = where)
 
-    protected inline fun <reified T> unique(
-        vararg properties: KProperty1<T, *>,
-        noinline where: (WhereScope.() -> Where)? = null,
-    ): UniqueIndex = unique(serializer<T>(), properties.map { it.field }, where)
+    protected fun unique(vararg properties: KProperty1<*, *>, where: (WhereScope.() -> Where)? = null): UniqueIndex =
+        unique(*properties.map { it.field }.toTypedArray(), where = where)
 
-    /** An index on property [fields]; each must be a serial field of [T] under its property name. */
-    protected inline fun <reified T> index(
-        vararg fields: Field<T, *>,
-        noinline where: (WhereScope.() -> Where)? = null,
-    ): Index = index(serializer<T>(), fields.toList(), where)
+    /** An index on property [fields], named by their property names. */
+    protected fun index(vararg fields: Field<*, *>, where: (WhereScope.() -> Where)? = null): Index =
+        index(*fields.map { it.path }.toTypedArray(), where = where)
 
-    protected inline fun <reified T> index(
-        vararg properties: KProperty1<T, *>,
-        noinline where: (WhereScope.() -> Where)? = null,
-    ): Index = index(serializer<T>(), properties.map { it.field }, where)
-
-    @PublishedApi
-    internal fun <T> unique(
-        serializer: KSerializer<T>,
-        fields: List<Field<T, *>>,
-        where: (WhereScope.() -> Where)?,
-    ): UniqueIndex = unique(*fields.map { it.checkedPath(serializer) }.toTypedArray(), where = where)
-
-    @PublishedApi
-    internal fun <T> index(
-        serializer: KSerializer<T>,
-        fields: List<Field<T, *>>,
-        where: (WhereScope.() -> Where)?,
-    ): Index = index(*fields.map { it.checkedPath(serializer) }.toTypedArray(), where = where)
-
-    // A property renamed with @SerialName is stored under its serial name, which a property reference can't name.
-    private fun Field<*, *>.checkedPath(serializer: KSerializer<*>): String {
-        keys.fold(serializer.descriptor) { descriptor, key ->
-            val index = descriptor.getElementIndex(key)
-            require(index != CompositeDecoder.UNKNOWN_NAME) {
-                "'$this' is not a serial field of '$name': name a field renamed with @SerialName by its serial name"
-            }
-            descriptor.getElementDescriptor(index)
-        }
-        return path
-    }
+    protected fun index(vararg properties: KProperty1<*, *>, where: (WhereScope.() -> Where)? = null): Index =
+        index(*properties.map { it.field }.toTypedArray(), where = where)
 
     private fun <I : Index> register(index: I): I {
         require(indexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }

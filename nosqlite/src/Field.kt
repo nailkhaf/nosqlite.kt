@@ -16,5 +16,4 @@ public operator fun <T, M, V> KProperty1<T, M?>.div(next: KProperty1<M, V>): Fie
 
 public operator fun <T, M, V> Field<T, M?>.div(next: KProperty1<M, V>): Field<T, V> = Field(keys + next.name)
 
-@PublishedApi
 internal val <T, V> KProperty1<T, V>.field: Field<T, V> get() = Field(listOf(name))

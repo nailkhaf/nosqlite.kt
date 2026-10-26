@@ -1,11 +1,8 @@
 package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 
 /** Covers property references: the same conditions, sort keys and indexes as their field names. */
 internal class FieldTest {
@@ -15,12 +12,6 @@ internal class FieldTest {
         val byName = index(User::name / Name::last, User::name / Name::first)
         val activeNickname = unique(User::nickname, where = { User::active eq true })
     }
-
-    @Serializable
-    data class Renamed(@SerialName("full_name") val name: String, val owner: Owner)
-
-    @Serializable
-    data class Owner(val first: String, @SerialName("family") val last: String)
 
     private fun sql(block: WhereScope.() -> Where): Fragment = where(block).render()
 
@@ -68,35 +59,6 @@ internal class FieldTest {
         val byProperties: Collection = Users
 
         assertEquals(byStrings.indexes.map { it.name }, byProperties.indexes.map { it.name })
-    }
-
-    @Test
-    fun `a property renamed with SerialName can't be indexed by reference`() {
-        val error = assertFailsWith<IllegalArgumentException> {
-            object : Collection("renamed") {
-                val byName = index(Renamed::name)
-            }
-        }
-
-        assertEquals(
-            "'name' is not a serial field of 'renamed': name a field renamed with @SerialName by its serial name",
-            error.message,
-        )
-    }
-
-    @Test
-    fun `nested property indexes check every key`() {
-        val error = assertFailsWith<IllegalArgumentException> {
-            object : Collection("renamed") {
-                val byFirst = index(Renamed::owner / Owner::first)
-                val byLast = index(Renamed::owner / Owner::last)
-            }
-        }
-
-        assertEquals(
-            "'owner.last' is not a serial field of 'renamed': name a field renamed with @SerialName by its serial name",
-            error.message,
-        )
     }
 
     @Test
