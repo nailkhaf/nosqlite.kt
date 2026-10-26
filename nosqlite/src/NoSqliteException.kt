@@ -10,13 +10,13 @@ public sealed class NoSqliteException(message: String, cause: Throwable? = null)
     /** A write would give two documents of [collection] the same key in a unique [index], `null` when unknown. */
     public class UniqueViolation internal constructor(
         public val collection: String,
-        public val index: Index<*>?,
+        public val index: Index?,
         cause: Throwable,
     ) : NoSqliteException("Unique constraint violated in '$collection': ${index ?: cause.message}", cause)
 
-    /** A document of [collection], stored in row [rowid] of its table, can't be decoded into the requested type. */
-    public class DecodingFailed internal constructor(public val collection: String, rowid: Long, cause: Throwable) :
-        NoSqliteException("Can't decode row $rowid of '$collection': ${cause.message}", cause)
+    /** A document of [collection] can't be decoded into the requested type. */
+    public class DecodingFailed internal constructor(public val collection: String, cause: Throwable) :
+        NoSqliteException("Can't decode a document of '$collection': ${cause.message}", cause)
 
     /** A table named [collection] exists with [columns] instead of a collection's, so something else created it. */
     public class IncompatibleTable internal constructor(public val collection: String, public val columns: List<String>) :

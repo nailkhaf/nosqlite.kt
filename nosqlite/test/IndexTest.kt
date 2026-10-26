@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 /** Covers declaring indexes, syncing them with the file, unique violations and lookups by unique field. */
 internal class IndexTest {
 
-    object Users : Collection<User>("users", User.serializer()) {
+    object Users : Collection("users") {
         val byId = unique("id")
         val byEmail = unique("email")
         val byAge = index("age")
@@ -20,7 +20,7 @@ internal class IndexTest {
         val activeNickname = unique("nickname", where = { "active".isTrue() })
     }
 
-    object Teams : Collection<Team>("teams", Team.serializer()) {
+    object Teams : Collection("teams") {
         val byLead = unique("lead.last")
         val byLeadFirst = index("lead.first")
     }
@@ -60,7 +60,7 @@ internal class IndexTest {
     fun `index names hash their definition`() {
         assertTrue(Users.byEmail.name.matches(Regex("nsq_users_[0-9a-f]{16}")))
         // Read through the base type: Kotlin/Native fails to link an internal member read through a test object.
-        val collection: Collection<User> = Users
+        val collection: Collection = Users
         assertEquals(5, collection.indexes.map { it.name }.toSet().size)
     }
 
@@ -73,11 +73,11 @@ internal class IndexTest {
     @Test
     fun `reopening drops removed indexes and creates new ones`() = runTest {
         withTempFile { location ->
-            val before = object : Collection<User>("users", User.serializer()) {
+            val before = object : Collection("users") {
                 val byAge = index("age")
                 val byEmail = unique("email")
             }
-            val after = object : Collection<User>("users", User.serializer()) {
+            val after = object : Collection("users") {
                 val byEmail = unique("email")
                 val byLastName = index("name.last")
             }
@@ -94,10 +94,10 @@ internal class IndexTest {
     @Test
     fun `making an index unique recreates it`() = runTest {
         withTempFile { location ->
-            val plain = object : Collection<User>("users", User.serializer()) {
+            val plain = object : Collection("users") {
                 val byEmail = index("email")
             }
-            val unique = object : Collection<User>("users", User.serializer()) {
+            val unique = object : Collection("users") {
                 val byEmail = unique("email")
             }
             NoSqlite(location) { +plain }.apply { read { } }.close()
@@ -152,7 +152,7 @@ internal class IndexTest {
 
     @Test
     fun `composite unique index rejects only a repeated combination`() = runTest {
-        val people = object : Collection<User>("people", User.serializer()) {
+        val people = object : Collection("people") {
             val byFullName = unique("name.first", "name.last")
         }
         val db = NoSqlite { +people }
@@ -201,7 +201,7 @@ internal class IndexTest {
         val error = assertFailsWith<NoSqliteException.UniqueViolation> { db.insert(user("dan", 30, nickname = "twin")) }
 
         assertSame(Users.activeNickname, error.index)
-        val active = db.read { Users.list { where { ("nickname" eq "twin") and "active".isTrue() } } }
+        val active = db.read { Users.list<User> { where { ("nickname" eq "twin") and "active".isTrue() } } }
         assertEquals(listOf("cid"), active.map { it.id })
     }
 
@@ -212,9 +212,9 @@ internal class IndexTest {
         db.insert(alan)
 
         db.read {
-            assertEquals(listOf(ada), Users.list { where { "email" eq ada.email.value } })
-            assertEquals(listOf(alan), Users.list { where { "id" eq "alan" } })
-            assertEquals(emptyList(), Users.list { where { "id" eq "nobody" } })
+            assertEquals(listOf(ada), Users.list<User> { where { "email" eq ada.email.value } })
+            assertEquals(listOf(alan), Users.list<User> { where { "id" eq "alan" } })
+            assertEquals(emptyList(), Users.list<User> { where { "id" eq "nobody" } })
         }
     }
 
@@ -249,7 +249,7 @@ internal class IndexTest {
         db.write { Teams.insert(core) }
 
         assertEquals(setOf(Teams.byLead.name, Teams.byLeadFirst.name), db.indexNames())
-        assertEquals(listOf(core), db.read { Teams.list { where { "lead.last" eq "Lovelace" } } })
+        assertEquals(listOf(core), db.read { Teams.list<Team> { where { "lead.last" eq "Lovelace" } } })
         assertFailsWith<NoSqliteException.UniqueViolation> {
             db.write { Teams.insert(Team("other", Name("Byron", "Lovelace"))) }
         }
@@ -258,7 +258,7 @@ internal class IndexTest {
     @Test
     fun `same index declared twice is rejected`() {
         val error = assertFailsWith<IllegalArgumentException> {
-            object : Collection<User>("twice", User.serializer()) {
+            object : Collection("twice") {
                 val first = index("age")
                 val second = index("age")
             }
@@ -270,11 +270,11 @@ internal class IndexTest {
     @Test
     fun `unique index over existing duplicates fails on open`() = runTest {
         withTempFile { location ->
-            val plain = object : Collection<User>("users", User.serializer()) {}
+            val plain = object : Collection("users") {}
             val withDuplicates = NoSqlite(location) { +plain }
             withDuplicates.write { repeat(2) { plain.insert(ada) } }
             withDuplicates.close()
-            val unique = object : Collection<User>("users", User.serializer()) {
+            val unique = object : Collection("users") {
                 val byId = unique("id")
             }
 

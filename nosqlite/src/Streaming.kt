@@ -2,6 +2,8 @@ package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.serializer
 
 /**
  * Runs [action] on every document [query] selects, reading one row at a time from an open cursor, so a large result
@@ -9,11 +11,21 @@ import kotlinx.coroutines.ensureActive
  * checkpointed meanwhile, so do slow work after the loop, not in [action].
  */
 context(_: ReadScope)
-public suspend fun <T> Collection<T>.forEach(query: QueryScope.() -> Unit = {}, action: suspend (T) -> Unit) {
+public suspend inline fun <reified T> Collection.forEach(
+    noinline query: QueryScope.() -> Unit = {},
+    noinline action: suspend (T) -> Unit,
+): Unit = forEach(serializer(), query, action)
+
+context(_: ReadScope)
+public suspend fun <T> Collection.forEach(
+    serializer: KSerializer<T>,
+    query: QueryScope.() -> Unit = {},
+    action: suspend (T) -> Unit,
+) {
     val query = query(query)
     val select = Queries.selectSql(this, query)
     withConnection {
-        select.forEachRow { action(decode(this)) }
+        select.forEachRow { action(decode(serializer, this)) }
     }
 }
 

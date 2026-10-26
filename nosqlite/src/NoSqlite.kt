@@ -66,11 +66,13 @@ public class NoSqlite(
     }
 
     public companion object {
-        /** How documents are encoded and decoded: unknown keys are ignored, so a smaller class reads a projection. */
+        /**
+         * How documents are encoded and decoded: unknown keys are ignored, so a smaller class reads a projection, and
+         * nulls are written, so an update's merge patch removes the fields set to null.
+         */
         public val Json: Json = Json {
             ignoreUnknownKeys = true
             encodeDefaults = true
-            explicitNulls = false
         }
     }
 }
@@ -80,11 +82,11 @@ public annotation class SchemaDsl
 
 @SchemaDsl
 public class SchemaBuilder internal constructor() {
-    internal val collections = mutableListOf<Collection<*>>()
+    internal val collections = mutableListOf<Collection>()
     internal val removed = mutableListOf<String>()
 
     /** Declares this collection; each name can be declared once. */
-    public operator fun Collection<*>.unaryPlus() {
+    public operator fun Collection.unaryPlus() {
         require(collections.none { it.name == name }) { "Collection '$name' is declared more than once" }
         require(name !in removed) { "Collection '$name' is both declared and removed" }
         collections += this
@@ -111,7 +113,7 @@ public suspend fun <R> NoSqlite.write(block: suspend context(WriteScope) () -> R
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
 context(_: Connection)
-internal suspend fun createSchema(collection: Collection<*>) {
+internal suspend fun createSchema(collection: Collection) {
     Queries.createTable(collection).execute()
     val columns = Queries.tableColumns.execute(collection.name)
     if (columns != Queries.TableColumns) throw NoSqliteException.IncompatibleTable(collection.name, columns)

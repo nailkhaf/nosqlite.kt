@@ -14,7 +14,7 @@ import kotlin.test.assertFailsWith
 /** Covers read and write transactions: commit, rollback, savepoints and snapshots. */
 internal class TransactionTest {
 
-    private object Users : Collection<User>("users", User.serializer())
+    private object Users : Collection("users")
 
     private suspend fun poolWithTable(): ConnectionPool = ConnectionPool().apply { writeSql { createTable() } }
 
@@ -200,7 +200,7 @@ internal class TransactionTest {
             inner.await()
         }
 
-        assertEquals(listOf(30, 36), db.read { Users.list { orderBy { "age".asc } } }.map { it.age })
+        assertEquals(listOf(30, 36), db.read { Users.list<User> { orderBy { "age".asc } } }.map { it.age })
         db.close()
     }
 
