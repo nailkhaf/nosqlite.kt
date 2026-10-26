@@ -111,8 +111,10 @@ public suspend inline fun <reified T> Collection.update(value: T, noinline condi
 
 context(_: WriteScope)
 public suspend fun <T> Collection.update(serializer: KSerializer<T>, value: T, condition: WhereScope.() -> Where): Int {
-    val patch = encode(serializer, value)
-    return touching { Queries.update(this@update, patch, where(condition)).execute() }
+    val json = encode(serializer, value)
+    val updated = withConnection { Queries.update(this@update, json, where(condition)).execute() }
+    if (updated > 0) changed()
+    return updated
 }
 
 /** Replaces every document matching [condition] with [value]; the result is how many documents were replaced. */
@@ -127,20 +129,17 @@ public suspend fun <T> Collection.replace(
     condition: WhereScope.() -> Where,
 ): Int {
     val json = encode(serializer, value)
-    return touching { Queries.replace(this@replace, json, where(condition)).execute() }
+    val replaced = withConnection { Queries.replace(this@replace, json, where(condition)).execute() }
+    if (replaced > 0) changed()
+    return replaced
 }
 
 /** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
-public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int =
-    touching { Queries.delete(this@delete, where(condition)).execute() }
-
-/** Runs [write], which returns how many documents it touched, and records a change when there were any. */
-context(_: WriteScope)
-private suspend fun Collection.touching(write: suspend context(Connection) () -> Int): Int {
-    val touched = withConnection(write)
-    if (touched > 0) changed()
-    return touched
+public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
+    val deleted = withConnection { Queries.delete(this@delete, where(condition)).execute() }
+    if (deleted > 0) changed()
+    return deleted
 }
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
