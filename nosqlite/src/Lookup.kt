@@ -123,7 +123,7 @@ public suspend inline fun <reified T> UniqueIndex.upsert(value: T): Unit = upser
 
 context(_: WriteScope)
 public suspend fun <T> UniqueIndex.upsert(serializer: KSerializer<T>, value: T) {
-    val documents = collection.encode(serializer, value) to collection.encodePatch(serializer, value)
-    collection.withConnection { Queries.upsert(this@upsert).execute(documents) }
+    val json = collection.encode(serializer, value)
+    collection.withConnection { Queries.upsert(this@upsert).execute(json) }
     collection.changed()
 }

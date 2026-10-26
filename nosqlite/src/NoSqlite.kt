@@ -66,11 +66,13 @@ public class NoSqlite(
     }
 
     public companion object {
-        /** How documents are encoded and decoded: unknown keys are ignored, so a smaller class reads a projection. */
+        /**
+         * How documents are encoded and decoded: unknown keys are ignored, so a smaller class reads a projection, and
+         * nulls are written, so an update's merge patch removes the fields set to null.
+         */
         public val Json: Json = Json {
             ignoreUnknownKeys = true
             encodeDefaults = true
-            explicitNulls = false
         }
     }
 }

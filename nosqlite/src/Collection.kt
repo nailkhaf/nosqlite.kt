@@ -3,7 +3,6 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 import kotlin.reflect.KProperty1
 
@@ -112,8 +111,8 @@ public suspend inline fun <reified T> Collection.update(value: T, noinline condi
 
 context(_: WriteScope)
 public suspend fun <T> Collection.update(serializer: KSerializer<T>, value: T, condition: WhereScope.() -> Where): Int {
-    val patch = encodePatch(serializer, value)
-    return withConnection { Queries.update(this@update, patch, where(condition)).execute() }.changed(this)
+    val patch = encode(serializer, value)
+    return touching { Queries.update(this@update, patch, where(condition)).execute() }
 }
 
 /** Replaces every document matching [condition] with [value]; the result is how many documents were replaced. */
@@ -128,36 +127,30 @@ public suspend fun <T> Collection.replace(
     condition: WhereScope.() -> Where,
 ): Int {
     val json = encode(serializer, value)
-    return withConnection { Queries.replace(this@replace, json, where(condition)).execute() }.changed(this)
+    return touching { Queries.replace(this@replace, json, where(condition)).execute() }
 }
 
 /** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
 public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int =
-    withConnection { Queries.delete(this@delete, where(condition)).execute() }.changed(this)
+    touching { Queries.delete(this@delete, where(condition)).execute() }
 
-/** The number of documents a write touched, recording a change when there were any. */
+/** Runs [write], which returns how many documents it touched, and records a change when there were any. */
 context(_: WriteScope)
-private fun Int.changed(collection: Collection): Int {
-    if (this > 0) collection.changed()
-    return this
+private suspend fun Collection.touching(write: suspend context(Connection) () -> Int): Int {
+    val touched = withConnection(write)
+    if (touched > 0) changed()
+    return touched
 }
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
 internal val Collection.table: String get() = identifier(name)
 
-internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String =
-    NoSqlite.Json.encodeToString(serializer, value).also(::requireObject)
-
-// A merge patch removes a field by its null, so nulls are spelled out instead of left out.
-internal fun <T> Collection.encodePatch(serializer: KSerializer<T>, value: T): String =
-    ExplicitNulls.encodeToString(serializer, value).also(::requireObject)
-
-private fun Collection.requireObject(json: String) {
+internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String {
+    val json = NoSqlite.Json.encodeToString(serializer, value)
     require(json.startsWith('{')) { "A document of '$name' must be a JSON object, not $json" }
+    return json
 }
-
-private val ExplicitNulls = Json(NoSqlite.Json) { explicitNulls = true }
 
 /**
  * The document in the current row of a [Queries.selectSql] statement, as [serializer] reads it.

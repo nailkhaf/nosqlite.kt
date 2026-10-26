@@ -104,7 +104,8 @@ internal class ProjectionTest {
 
         db.write { Profiles.byId("ada").replace(Profile("ada", Address("Rome"), mapOf("theme" to "light"))) }
 
-        assertEquals(json("""{"id":"ada","address":{"city":"Rome"},"settings":{"theme":"light"}}"""), db.stored())
+        val expected = json("""{"id":"ada","address":{"city":"Rome"},"settings":{"theme":"light"},"nickname":null}""")
+        assertEquals(expected, db.stored())
     }
 
     @Test
@@ -122,7 +123,7 @@ internal class ProjectionTest {
              "nickname":"countess","plan":"pro"}
             """,
         )
-        val alan = json("""{"id":"alan","address":{"city":"Wilmslow"},"settings":{}}""")
+        val alan = json("""{"id":"alan","address":{"city":"Wilmslow"},"settings":{},"nickname":null}""")
         assertEquals(listOf(ada, alan), db.read { Profiles.list<JsonObject>() })
     }
 

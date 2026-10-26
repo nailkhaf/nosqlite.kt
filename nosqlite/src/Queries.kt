@@ -70,14 +70,11 @@ internal object Queries {
     fun delete(collection: Collection, condition: Where): Statement<Unit, Int> =
         (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(countRows)
 
-    /** Inserts the input's JSON, or applies its patch to the document it conflicts with in [index]. */
-    fun upsert(index: Index): Statement<Pair<String, String>, Unit> = Statement(
-        sql = "INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?)) " +
-            "ON CONFLICT ${index.definition} DO UPDATE SET data = jsonb_patch(data, ?);",
-        encode = { (json, patch) ->
-            bindText(1, json)
-            bindText(2, patch)
-        },
+    /** Inserts the input JSON, or applies it as a merge patch to the document it conflicts with in [index]. */
+    fun upsert(index: Index): Statement<String, Unit> = Statement(
+        sql = "INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?1)) " +
+            "ON CONFLICT ${index.definition} DO UPDATE SET data = jsonb_patch(data, ?1);",
+        encode = { json -> bindText(1, json) },
         decode = { step() },
     )
 
