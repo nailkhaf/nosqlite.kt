@@ -8,7 +8,6 @@ import kotlin.coroutines.CoroutineContext
 /**
  * Inside `read { }` or `write { }`: documents can be read.
  * A read transaction sees one snapshot. It never nests: a read inside any transaction runs in that transaction.
- * Coroutines started inside the block share its connection in turns and must finish inside it.
  */
 public open class ReadScope internal constructor(internal val connection: Connection, internal val pool: ConnectionPool)
 
@@ -94,7 +93,7 @@ private suspend fun <R> Connection.transaction(boundary: Boundary, block: suspen
 }
 
 private suspend fun Connection.execute(sql: String) {
-    mapErrors { statement(sql) { statement -> locked { statement.step() } } }
+    mapErrors { statement(sql) { it.step() } }
 }
 
 /** The transaction the current coroutine runs in, when it belongs to [pool]. */

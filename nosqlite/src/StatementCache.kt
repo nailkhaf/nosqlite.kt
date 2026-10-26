@@ -6,7 +6,7 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * Prepared statements by SQL, least recently used first: [take] removes a statement while it is in use, [put]
- * adds it back at the end, closing the oldest one beyond [capacity].
+ * resets it and adds it back at the end, closing the oldest one beyond [capacity].
  */
 internal class StatementCache(private val capacity: Int = 64) {
     private val statements = LinkedHashMap<String, SQLiteStatement>()
@@ -20,6 +20,8 @@ internal class StatementCache(private val capacity: Int = 64) {
 
     /** Caches [statement] for [sql]; when one is already cached, [statement] is closed instead. */
     suspend fun put(sql: String, statement: SQLiteStatement) {
+        statement.reset()
+        statement.clearBindings()
         val dropped = lock.withLock {
             if (sql in statements) return@withLock statement
             statements[sql] = statement

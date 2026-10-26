@@ -42,6 +42,20 @@ internal class StatementCacheTest {
     }
 
     @Test
+    fun `a cached statement comes back reset with no bindings`() = runTest {
+        val cache = StatementCache()
+        val statement = statement("SELECT ?;")
+        statement.bindLong(1, 42)
+        statement.step()
+
+        cache.put("SELECT ?;", statement)
+        val reused = cache.take("SELECT ?;")!!
+
+        assertTrue(reused.step())
+        assertTrue(reused.isNull(0))
+    }
+
+    @Test
     fun `a second statement for the same sql is closed`() = runTest {
         val cache = StatementCache()
         val first = statement("SELECT 1;")
