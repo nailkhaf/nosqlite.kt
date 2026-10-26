@@ -1,19 +1,17 @@
 package io.github.nailkhaf.nosqlite
 
-import androidx.sqlite.SQLiteStatement
-
 // Building a statement never touches the database; execute is the only place it runs.
 internal class Statement<I, O>(
     val sql: String,
-    val encode: SQLiteStatement.(I) -> Unit,
-    val decode: SQLiteStatement.() -> O,
+    val encode: suspend LockedStatement.(I) -> Unit,
+    val decode: suspend LockedStatement.() -> O,
 )
 
 internal typealias Command<I> = Statement<I, Unit>
 
 internal fun command(sql: String): Command<Unit> = Statement(sql, encode = {}, decode = { step() })
 
-internal fun <R> rows(row: SQLiteStatement.() -> R): SQLiteStatement.() -> List<R> = {
+internal fun <R> rows(row: suspend LockedStatement.() -> R): suspend LockedStatement.() -> List<R> = {
     buildList { while (step()) add(row()) }
 }
 

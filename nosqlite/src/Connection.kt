@@ -2,22 +2,24 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteDriver
-import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.execSQL
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
-/** One SQLite connection and the prepared statements it keeps for reuse. */
+/** One SQLite connection and the prepared statements it keeps for reuse; every SQLite call takes its [lock]. */
 internal class Connection(private val sqlite: SQLiteConnection) {
     private val statements = StatementCache()
+    private val lock = Mutex()
 
     /**
      * Runs [block] with a prepared statement for [sql], reused across calls. While [block] runs the statement is out
      * of the cache, so a nested call with the same SQL gets its own; one whose block throws is closed, not reused.
      */
-    suspend fun <R> statement(sql: String, block: suspend (SQLiteStatement) -> R): R {
+    suspend fun <R> statement(sql: String, block: suspend (LockedStatement) -> R): R {
         currentCoroutineContext().ensureActive()
-        val statement = statements.take(sql) ?: sqlite.prepare(sql)
+        val statement = statements.take(sql) ?: lock.withLock { LockedStatement(sqlite.prepare(sql), lock) }
         val result = try {
             block(statement)
         } catch (e: Throwable) {
@@ -28,23 +30,21 @@ internal class Connection(private val sqlite: SQLiteConnection) {
         return result
     }
 
-    fun inTransaction(): Boolean = sqlite.inTransaction()
+    suspend fun inTransaction(): Boolean = lock.withLock { sqlite.inTransaction() }
 
     suspend fun close() {
         statements.close()
-        sqlite.close()
+        lock.withLock { sqlite.close() }
     }
 
     companion object {
         /** Opens [location]; a [queryOnly] connection refuses to write. Opening a file blocks the thread. */
         fun open(driver: SQLiteDriver, location: Location, queryOnly: Boolean = false): Connection {
-            val sqlite = LockedConnection(
-                driver.open(
-                    when (location) {
-                        Location.InMemory -> ":memory:"
-                        is Location.File -> location.path
-                    },
-                ),
+            val sqlite = driver.open(
+                when (location) {
+                    Location.InMemory -> ":memory:"
+                    is Location.File -> location.path
+                },
             )
             try {
                 requireSupported(sqlite.version())

@@ -1,6 +1,5 @@
 package io.github.nailkhaf.nosqlite
 
-import androidx.sqlite.SQLiteStatement
 
 internal object Queries {
 
@@ -94,7 +93,7 @@ private fun where(condition: Where?): Fragment =
 // A row per document a write touched, counted as they come: androidx.sqlite has no changes().
 private const val RETURNING = " RETURNING 1;"
 
-private val countRows: SQLiteStatement.() -> Int = {
+private val countRows: suspend LockedStatement.() -> Int = {
     var count = 0
     while (step()) count++
     count

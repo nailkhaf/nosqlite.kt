@@ -1,6 +1,5 @@
 package io.github.nailkhaf.nosqlite
 
-import androidx.sqlite.SQLiteStatement
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -20,7 +19,7 @@ public suspend fun <T> Collection<T>.forEach(query: QueryScope.() -> Unit = {}, 
 
 // Connection.statement keeps the statement out of the cache while the cursor is open, so the block can run queries.
 context(conn: Connection)
-private suspend fun Fragment.forEachRow(block: suspend SQLiteStatement.() -> Unit) {
+private suspend fun Fragment.forEachRow(block: suspend LockedStatement.() -> Unit) {
     conn.statement(sql) { statement ->
         statement.bind(params)
         while (statement.step()) {

@@ -2,6 +2,7 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -16,11 +17,22 @@ import kotlin.test.assertTrue
 internal class StatementCacheTest {
 
     private val sqlite = BundledSQLiteDriver().open(":memory:")
+    private val lock = Mutex()
+    private val closed = mutableSetOf<LockedStatement>()
 
     @AfterTest
     fun close() = sqlite.close()
 
-    private fun statement(sql: String) = TrackedStatement(sqlite.prepare(sql))
+    /** A statement that [closed] remembers once it is closed. */
+    private fun statement(sql: String): LockedStatement {
+        lateinit var locked: LockedStatement
+        val tracked = object : SQLiteStatement by sqlite.prepare(sql) {
+            override fun close() {
+                closed += locked
+            }
+        }
+        return LockedStatement(tracked, lock).also { locked = it }
+    }
 
     @Test
     fun `nothing is cached at first`() = runTest {
@@ -38,7 +50,7 @@ internal class StatementCacheTest {
 
         assertSame(statement, cache.take("SELECT 1;"))
         assertNull(cache.take("SELECT 1;"))
-        assertFalse(statement.closed)
+        assertFalse(statement in closed)
     }
 
     @Test
@@ -64,7 +76,7 @@ internal class StatementCacheTest {
         cache.put("SELECT 1;", first)
         cache.put("SELECT 1;", second)
 
-        assertTrue(second.closed)
+        assertTrue(second in closed)
         assertSame(first, cache.take("SELECT 1;"))
     }
 
@@ -80,7 +92,7 @@ internal class StatementCacheTest {
 
         cache.put("c", c)
 
-        assertTrue(b.closed)
+        assertTrue(b in closed)
         assertNull(cache.take("b"))
         assertSame(a, cache.take("a"))
         assertSame(c, cache.take("c"))
@@ -96,7 +108,7 @@ internal class StatementCacheTest {
 
         cache.close()
 
-        assertTrue(a.closed && b.closed)
+        assertTrue(a in closed && b in closed)
         assertNull(cache.take("a"))
     }
 
@@ -105,16 +117,5 @@ internal class StatementCacheTest {
         val error = assertFailsWith<IllegalArgumentException> { StatementCache(capacity = 0) }
 
         assertEquals("Capacity must be positive: 0", error.message)
-    }
-}
-
-/** A statement that remembers whether it was closed. */
-private class TrackedStatement(private val delegate: SQLiteStatement) : SQLiteStatement by delegate {
-    var closed = false
-        private set
-
-    override fun close() {
-        closed = true
-        delegate.close()
     }
 }

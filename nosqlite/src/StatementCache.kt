@@ -1,6 +1,5 @@
 package io.github.nailkhaf.nosqlite
 
-import androidx.sqlite.SQLiteStatement
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -9,17 +8,17 @@ import kotlinx.coroutines.sync.withLock
  * resets it and adds it back at the end, closing the oldest one beyond [capacity].
  */
 internal class StatementCache(private val capacity: Int = 64) {
-    private val statements = LinkedHashMap<String, SQLiteStatement>()
+    private val statements = LinkedHashMap<String, LockedStatement>()
     private val lock = Mutex()
 
     init {
         require(capacity > 0) { "Capacity must be positive: $capacity" }
     }
 
-    suspend fun take(sql: String): SQLiteStatement? = lock.withLock { statements.remove(sql) }
+    suspend fun take(sql: String): LockedStatement? = lock.withLock { statements.remove(sql) }
 
     /** Caches [statement] for [sql]; when one is already cached, [statement] is closed instead. */
-    suspend fun put(sql: String, statement: SQLiteStatement) {
+    suspend fun put(sql: String, statement: LockedStatement) {
         statement.reset()
         statement.clearBindings()
         val dropped = lock.withLock {

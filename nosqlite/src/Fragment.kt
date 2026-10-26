@@ -1,6 +1,5 @@
 package io.github.nailkhaf.nosqlite
 
-import androidx.sqlite.SQLiteStatement
 
 /** A value bound to a statement, or spelled out in SQL where SQLite allows no parameters. */
 internal sealed interface SqlValue {
@@ -33,10 +32,10 @@ internal operator fun Fragment.plus(sql: String): Fragment = copy(sql = this.sql
 internal fun List<Fragment>.joinToFragment(separator: String, prefix: String = "", postfix: String = ""): Fragment =
     Fragment(joinToString(separator, prefix, postfix) { it.sql }, flatMap { it.params })
 
-internal fun <O> Fragment.statement(decode: SQLiteStatement.() -> O): Statement<Unit, O> =
+internal fun <O> Fragment.statement(decode: suspend LockedStatement.() -> O): Statement<Unit, O> =
     Statement(sql, encode = { bind(params) }, decode = decode)
 
-internal fun SQLiteStatement.bind(params: List<SqlValue>, startIndex: Int = 1) =
+internal suspend fun LockedStatement.bind(params: List<SqlValue>, startIndex: Int = 1) =
     params.forEachIndexed { offset, param ->
         val index = startIndex + offset
         when (param) {
