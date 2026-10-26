@@ -162,7 +162,7 @@ internal fun <T> Collection<T>.encode(value: T): String {
  * The document in the current row of a [Queries.selectSql] statement.
  * Custom serializers and init blocks fail with any exception, not only SerializationException.
  */
-internal suspend fun <T> Collection<T>.decode(row: LockedStatement): T = try {
+internal suspend fun <T> Collection<T>.decode(row: Statement): T = try {
     NoSqlite.Json.decodeFromString(serializer, row.getText(1))
 } catch (e: Exception) {
     throw NoSqliteException.DecodingFailed(name, row.getLong(0), e)

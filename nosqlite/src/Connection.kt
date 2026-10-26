@@ -17,9 +17,9 @@ internal class Connection(private val sqlite: SQLiteConnection) {
      * Runs [block] with a prepared statement for [sql], reused across calls. While [block] runs the statement is out
      * of the cache, so a nested call with the same SQL gets its own; one whose block throws is closed, not reused.
      */
-    suspend fun <R> statement(sql: String, block: suspend (LockedStatement) -> R): R {
+    suspend fun <R> statement(sql: String, block: suspend (Statement) -> R): R {
         currentCoroutineContext().ensureActive()
-        val statement = statements.take(sql) ?: lock.withLock { LockedStatement(sqlite.prepare(sql), lock) }
+        val statement = statements.take(sql) ?: lock.withLock { Statement(sqlite.prepare(sql), lock) }
         val result = try {
             block(statement)
         } catch (e: Throwable) {

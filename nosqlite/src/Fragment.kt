@@ -32,10 +32,10 @@ internal operator fun Fragment.plus(sql: String): Fragment = copy(sql = this.sql
 internal fun List<Fragment>.joinToFragment(separator: String, prefix: String = "", postfix: String = ""): Fragment =
     Fragment(joinToString(separator, prefix, postfix) { it.sql }, flatMap { it.params })
 
-internal fun <O> Fragment.statement(decode: suspend LockedStatement.() -> O): Statement<Unit, O> =
-    Statement(sql, encode = { bind(params) }, decode = decode)
+internal fun <O> Fragment.statement(decode: suspend Statement.() -> O): Sql<Unit, O> =
+    Sql(sql, encode = { bind(params) }, decode = decode)
 
-internal suspend fun LockedStatement.bind(params: List<SqlValue>, startIndex: Int = 1) =
+internal suspend fun Statement.bind(params: List<SqlValue>, startIndex: Int = 1) =
     params.forEachIndexed { offset, param ->
         val index = startIndex + offset
         when (param) {

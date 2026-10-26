@@ -8,17 +8,17 @@ import kotlinx.coroutines.sync.withLock
  * resets it and adds it back at the end, closing the oldest one beyond [capacity].
  */
 internal class StatementCache(private val capacity: Int = 64) {
-    private val statements = LinkedHashMap<String, LockedStatement>()
+    private val statements = LinkedHashMap<String, Statement>()
     private val lock = Mutex()
 
     init {
         require(capacity > 0) { "Capacity must be positive: $capacity" }
     }
 
-    suspend fun take(sql: String): LockedStatement? = lock.withLock { statements.remove(sql) }
+    suspend fun take(sql: String): Statement? = lock.withLock { statements.remove(sql) }
 
     /** Caches [statement] for [sql]; when one is already cached, [statement] is closed instead. */
-    suspend fun put(sql: String, statement: LockedStatement) {
+    suspend fun put(sql: String, statement: Statement) {
         statement.reset()
         statement.clearBindings()
         val dropped = lock.withLock {

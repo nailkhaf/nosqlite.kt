@@ -18,20 +18,20 @@ internal class StatementCacheTest {
 
     private val sqlite = BundledSQLiteDriver().open(":memory:")
     private val lock = Mutex()
-    private val closed = mutableSetOf<LockedStatement>()
+    private val closed = mutableSetOf<Statement>()
 
     @AfterTest
     fun close() = sqlite.close()
 
     /** A statement that [closed] remembers once it is closed. */
-    private fun statement(sql: String): LockedStatement {
-        lateinit var locked: LockedStatement
+    private fun statement(sql: String): Statement {
+        lateinit var locked: Statement
         val tracked = object : SQLiteStatement by sqlite.prepare(sql) {
             override fun close() {
                 closed += locked
             }
         }
-        return LockedStatement(tracked, lock).also { locked = it }
+        return Statement(tracked, lock).also { locked = it }
     }
 
     @Test

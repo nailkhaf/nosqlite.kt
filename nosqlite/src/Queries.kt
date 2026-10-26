@@ -16,7 +16,7 @@ internal object Queries {
     val TableColumns = listOf("rowid INTEGER PRIMARY KEY", "data BLOB")
 
     /** The input table's columns: name, type, and whether it is the primary key. */
-    val tableColumns: Statement<String, List<String>> = Statement(
+    val tableColumns: Sql<String, List<String>> = Sql(
         sql = "SELECT name || ' ' || upper(type) || iif(pk, ' PRIMARY KEY', '') FROM pragma_table_info(?) ORDER BY cid;",
         encode = { table -> bindText(1, table) },
         decode = rows { getText(0) },
@@ -25,7 +25,7 @@ internal object Queries {
     fun dropTable(name: String): Command<Unit> = command("DROP TABLE IF EXISTS ${identifier(name)};")
 
     /** The indexes nosqlite manages on the input table; others are left alone. */
-    val indexNames: Statement<String, List<String>> = Statement(
+    val indexNames: Sql<String, List<String>> = Sql(
         sql = "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = ? AND name GLOB '$INDEX_PREFIX*';",
         encode = { table -> bindText(1, table) },
         decode = rows { getText(0) },
@@ -39,7 +39,7 @@ internal object Queries {
     fun dropIndex(name: String): Command<Unit> = command("DROP INDEX ${identifier(name)};")
 
     // rowid comes last, so documents with equal keys keep insertion order and pages never overlap.
-    fun <T> select(collection: Collection<T>, query: Query): Statement<Unit, List<T>> =
+    fun <T> select(collection: Collection<T>, query: Query): Sql<Unit, List<T>> =
         selectSql(collection, query).statement(rows { collection.decode(this) })
 
     fun selectSql(collection: Collection<*>, query: Query): Fragment {
@@ -52,32 +52,32 @@ internal object Queries {
         return Fragment("SELECT rowid, json(data) FROM ${collection.table}") + where(query.condition) + page
     }
 
-    fun count(collection: Collection<*>, condition: Where?): Statement<Unit, Long> =
+    fun count(collection: Collection<*>, condition: Where?): Sql<Unit, Long> =
         (Fragment("SELECT count(*) FROM ${collection.table}") + where(condition) + ";").statement {
             check(step()) { "count(*) returned no row" }
             getLong(0)
         }
 
-    fun update(collection: Collection<*>, json: String, condition: Where): Statement<Unit, Int> =
+    fun update(collection: Collection<*>, json: String, condition: Where): Sql<Unit, Int> =
         (Fragment("UPDATE ${collection.table} SET data = jsonb(?) WHERE ", listOf(SqlValue.Text(json))) +
             condition.render() + RETURNING).statement(countRows)
 
-    fun patch(collection: Collection<*>, patch: String, condition: Where): Statement<Unit, Int> =
+    fun patch(collection: Collection<*>, patch: String, condition: Where): Sql<Unit, Int> =
         (Fragment("UPDATE ${collection.table} SET data = jsonb_patch(data, ?) WHERE ", listOf(SqlValue.Text(patch))) +
             condition.render() + RETURNING).statement(countRows)
 
-    fun delete(collection: Collection<*>, condition: Where): Statement<Unit, Int> =
+    fun delete(collection: Collection<*>, condition: Where): Sql<Unit, Int> =
         (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(countRows)
 
     /** Inserts the input JSON, or replaces the document it conflicts with in [index]. */
-    fun upsert(index: Index<*>): Statement<String, Unit> = Statement(
+    fun upsert(index: Index<*>): Sql<String, Unit> = Sql(
         sql = "INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?)) " +
             "ON CONFLICT ${index.definition} DO UPDATE SET data = excluded.data;",
         encode = { json -> bindText(1, json) },
         decode = { step() },
     )
 
-    fun insert(collection: Collection<*>): Statement<String, Unit> = Statement(
+    fun insert(collection: Collection<*>): Sql<String, Unit> = Sql(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?));",
         encode = { json -> bindText(1, json) },
         decode = { step() },
@@ -93,7 +93,7 @@ private fun where(condition: Where?): Fragment =
 // A row per document a write touched, counted as they come: androidx.sqlite has no changes().
 private const val RETURNING = " RETURNING 1;"
 
-private val countRows: suspend LockedStatement.() -> Int = {
+private val countRows: suspend Statement.() -> Int = {
     var count = 0
     while (step()) count++
     count

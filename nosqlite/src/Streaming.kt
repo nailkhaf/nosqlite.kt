@@ -19,7 +19,7 @@ public suspend fun <T> Collection<T>.forEach(query: QueryScope.() -> Unit = {}, 
 
 // Connection.statement keeps the statement out of the cache while the cursor is open, so the block can run queries.
 context(conn: Connection)
-private suspend fun Fragment.forEachRow(block: suspend LockedStatement.() -> Unit) {
+private suspend fun Fragment.forEachRow(block: suspend Statement.() -> Unit) {
     conn.statement(sql) { statement ->
         statement.bind(params)
         while (statement.step()) {
