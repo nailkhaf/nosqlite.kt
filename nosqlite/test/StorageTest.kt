@@ -53,18 +53,6 @@ internal class StorageTest {
     }
 
     @Test
-    fun `inserted documents get ids in order`() = runTest {
-        val db = NoSqlite { +Users }
-
-        db.write {
-            Users.insert(ada)
-            Users.insert(alan)
-        }
-
-        assertEquals(listOf(listOf("1"), listOf("2")), db.querySql("SELECT rowid FROM users"))
-    }
-
-    @Test
     fun `list returns the inserted documents in order`() = runTest {
         val db = NoSqlite { +Users }
         db.write {
@@ -163,18 +151,7 @@ internal class StorageTest {
     }
 
     @Test
-    fun `the id of a deleted document is never given out again`() = runTest {
-        val db = NoSqlite { +Users }
-        db.write { Users.insert(ada) }
-        db.pool().writeSql { execute("DELETE FROM users") }
-
-        db.write { Users.insert(alan) }
-
-        assertEquals(listOf(listOf("2")), db.querySql("SELECT rowid FROM users"))
-    }
-
-    @Test
-    fun `each collection is a strict table of rowid and jsonb data`() = runTest {
+    fun `each collection is a strict table of jsonb data`() = runTest {
         val db = NoSqlite { +Users }
 
         db.write { Users.insert(ada) }
@@ -184,7 +161,6 @@ internal class StorageTest {
                 listOf(
                     """
                     CREATE TABLE "users" (
-                        rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                         data BLOB NOT NULL
                     ) STRICT
                     """.trimIndent(),
@@ -192,11 +168,11 @@ internal class StorageTest {
             ),
             db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'users'"),
         )
-        assertEquals(listOf(listOf("1", "blob")), db.querySql("SELECT rowid, typeof(data) FROM users"))
+        assertEquals(listOf(listOf("blob")), db.querySql("SELECT typeof(data) FROM users"))
     }
 
     @Test
-    fun `the id is not written into the document`() = runTest {
+    fun `a document is stored as its JSON alone`() = runTest {
         val db = NoSqlite { +Users }
 
         db.write { Users.insert(ada) }
@@ -294,7 +270,7 @@ internal class StorageTest {
 
             assertEquals(listOf("id TEXT", "data BLOB"), error.columns)
             assertEquals(
-                "Table 'users' has columns (id TEXT, data BLOB), not a collection's (rowid INTEGER PRIMARY KEY, data BLOB)",
+                "Table 'users' has columns (id TEXT, data BLOB), not a collection's (data BLOB)",
                 error.message,
             )
             db.close()
@@ -364,7 +340,6 @@ internal class StorageTest {
             db.write { Notes.insert(alan) }
 
             assertEquals(listOf(alan), db.read { Notes.list<JsonObject>() })
-            assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM notes"))
             db.close()
         }
     }
@@ -444,7 +419,7 @@ internal class StorageTest {
         val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.list<User>() } }
 
         assertEquals("people", error.collection)
-        assertTrue(error.message!!.startsWith("Can't decode row 2 of 'people'"), error.message)
+        assertTrue(error.message!!.startsWith("Can't decode a document of 'people'"), error.message)
     }
 
     @Test
@@ -468,6 +443,6 @@ internal class StorageTest {
         val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { Adults.list<Adult>() } }
 
         assertEquals("adults", error.collection)
-        assertEquals("Can't decode row 1 of 'adults': Too young: 17", error.message)
+        assertEquals("Can't decode a document of 'adults': Too young: 17", error.message)
     }
 }

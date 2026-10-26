@@ -164,9 +164,9 @@ private val ExplicitNulls = Json(NoSqlite.Json) { explicitNulls = true }
  * Custom serializers and init blocks fail with any exception, not only SerializationException.
  */
 internal fun <T> Collection.decode(serializer: KSerializer<T>, row: SQLiteStatement): T = try {
-    NoSqlite.Json.decodeFromString(serializer, row.getText(1))
+    NoSqlite.Json.decodeFromString(serializer, row.getText(0))
 } catch (e: Exception) {
-    throw NoSqliteException.DecodingFailed(name, row.getLong(0), e)
+    throw NoSqliteException.DecodingFailed(name, e)
 }
 
 /** Runs [block] on the transaction's connection, with SQLite's errors about this collection made typed. */

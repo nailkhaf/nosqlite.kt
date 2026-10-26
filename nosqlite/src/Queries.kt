@@ -8,14 +8,13 @@ internal object Queries {
     fun createTable(collection: Collection): Command<Unit> = command(
         """
             CREATE TABLE IF NOT EXISTS ${collection.table} (
-                rowid INTEGER PRIMARY KEY AUTOINCREMENT,
                 data BLOB NOT NULL
             ) STRICT;
         """.trimIndent(),
     )
 
     /** The columns [createTable] makes, as [tableColumns] lists them. */
-    val TableColumns = listOf("rowid INTEGER PRIMARY KEY", "data BLOB")
+    val TableColumns = listOf("data BLOB")
 
     /** The input table's columns: name, type, and whether it is the primary key. */
     val tableColumns: Statement<String, List<String>> = Statement(
@@ -40,7 +39,7 @@ internal object Queries {
 
     fun dropIndex(name: String): Command<Unit> = command("DROP INDEX ${identifier(name)};")
 
-    // rowid comes last, so documents with equal keys keep insertion order and pages never overlap.
+    // SQLite's implicit rowid comes last, so documents with equal keys keep insertion order and pages never overlap.
     fun <T> select(collection: Collection, serializer: KSerializer<T>, query: Query): Statement<Unit, List<T>> =
         selectSql(collection, query).statement(rows { collection.decode(serializer, this) })
 
@@ -51,7 +50,7 @@ internal object Queries {
             "$order LIMIT ? OFFSET ?;",
             listOf(SqlValue.Integer(query.limit.toLong()), SqlValue.Integer(query.offset.toLong())),
         )
-        return Fragment("SELECT rowid, json(data) FROM ${collection.table}") + where(query.condition) + page
+        return Fragment("SELECT json(data) FROM ${collection.table}") + where(query.condition) + page
     }
 
     fun count(collection: Collection, condition: Where?): Statement<Unit, Long> =
