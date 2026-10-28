@@ -1,13 +1,24 @@
 product:
   type: kmp/lib
-  platforms: [ jvm, android, iosArm64, iosSimulatorArm64 ]
+  platforms: [ jvm, android, iosArm64, iosSimulatorArm64, wasmJs ]
+
+aliases:
+  - nonWeb: [ jvm, android, iosArm64, iosSimulatorArm64 ]
 
 dependencies:
-  - $libs.androidx.sqlite.bundled: exported
+  - $libs.androidx.sqlite: exported
+  - $libs.androidx.sqlite.async
   - $libs.kotlinx.coroutines.core: exported
   - $libs.kotlinx.atomicfu
   - $libs.kotlinx.collections.immutable
+
+dependencies@nonWeb:
+  - $libs.androidx.sqlite.bundled: exported
   - $libs.kotlinx.io.core
+
+dependencies@wasmJs:
+  - $libs.androidx.sqlite.web: exported
+  - $libs.kotlinx.browser
 
 test-dependencies:
   - $libs.kotlinx.coroutines.test

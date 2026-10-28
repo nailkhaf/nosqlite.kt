@@ -1,5 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
+import androidx.sqlite.async.step
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext

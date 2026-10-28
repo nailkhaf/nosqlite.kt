@@ -1,6 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteStatement
+import androidx.sqlite.async.step
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.KSerializer
