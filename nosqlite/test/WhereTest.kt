@@ -50,10 +50,20 @@ internal class WhereTest {
     fun `NaN and infinite numbers are rejected`() {
         val nan = assertFailsWith<IllegalArgumentException> { where { "score" eq Double.NaN } }
         assertFailsWith<IllegalArgumentException> { where { "score" gt Double.POSITIVE_INFINITY } }
-        assertFailsWith<IllegalArgumentException> { where { "score" lt Float.NEGATIVE_INFINITY } }
+        val infinite = assertFailsWith<IllegalArgumentException> { where { "score" lt Float.NEGATIVE_INFINITY } }
         assertFailsWith<IllegalArgumentException> { where { "score" isIn listOf(1.0, Float.NaN) } }
 
         assertEquals("Unsupported number: NaN, SQLite has no NaN or infinity", nan.message)
+        assertEquals("Unsupported number: -Infinity, SQLite has no NaN or infinity", infinite.message)
+    }
+
+    @Test
+    fun `a finite Float is rejected instead of widened to Double`() {
+        val error = assertFailsWith<IllegalArgumentException> { where { "score" eq 0.1f } }
+        assertFailsWith<IllegalArgumentException> { where { "score" isIn listOf(0.1f) } }
+        assertFailsWith<IllegalArgumentException> { where { "scores" contains 0.1f } }
+
+        assertEquals(FLOAT_IS_NOT_AN_SQL_REAL, error.message)
     }
 
     @Test

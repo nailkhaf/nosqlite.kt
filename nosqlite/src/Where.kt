@@ -25,7 +25,8 @@ public annotation class QueryDsl
 
 /**
  * Builds a [Where] on document fields, named by their JSON keys, compared with plain SQL values: text and
- * numbers, with [isTrue] and [isFalse] for booleans. Anything else is converted by the caller, as it is stored:
+ * numbers, with [isTrue] and [isFalse] for booleans. A [Float] is rejected, because converting it with
+ * `toDouble()` is not exact. Anything else is converted by the caller, as it is stored:
  * ```
  * ("age" gte 18) and ("name.last" eq "Lovelace") and ("role" eq "member") and ("tags" contains "kotlin")
  * ```
@@ -102,12 +103,20 @@ internal enum class Comparison(val sql: String) {
 
 internal fun where(block: WhereScope.() -> Where): Where = WhereScope().block()
 
+internal const val FLOAT_IS_NOT_AN_SQL_REAL =
+    "Unsupported number: Float, it is not exact as a SQL real; pass a Double (0.1f does not match 0.1)"
+
 internal val Number.sqlValue: SqlValue
     get() = when (this) {
         is Int, is Long, is Short, is Byte -> SqlValue.Integer(toLong())
-        is Double, is Float -> toDouble().let {
-            require(it.isFinite()) { "Unsupported number: $it, SQLite has no NaN or infinity" }
-            SqlValue.Real(it)
+        // 0.1f.toDouble() is 0.10000000149011612, so it never equals the REAL 0.1 stored from JSON.
+        is Float -> {
+            require(isFinite()) { "Unsupported number: $this, SQLite has no NaN or infinity" }
+            throw IllegalArgumentException(FLOAT_IS_NOT_AN_SQL_REAL)
+        }
+        is Double -> {
+            require(isFinite()) { "Unsupported number: $this, SQLite has no NaN or infinity" }
+            SqlValue.Real(this)
         }
         else -> throw IllegalArgumentException("Unsupported number: ${this::class.simpleName}")
     }

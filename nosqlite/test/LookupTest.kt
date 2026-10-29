@@ -221,10 +221,12 @@ internal class LookupTest {
         val none = assertFailsWith<IllegalArgumentException> { Users.byName() }
         val many = assertFailsWith<IllegalArgumentException> { Users.byName("Lovelace", "Ada", "King") }
         val type = assertFailsWith<IllegalArgumentException> { Users.byAge('a') }
+        val float = assertFailsWith<IllegalArgumentException> { Users.byAge(0.1f) }
 
         assertEquals("index users(name.last, name.first) takes 1 to 2 values, not 0", none.message)
         assertEquals("index users(name.last, name.first) takes 1 to 2 values, not 3", many.message)
         assertEquals("Unsupported value: Char", type.message)
+        assertEquals(FLOAT_IS_NOT_AN_SQL_REAL, float.message)
     }
 
     @Test
