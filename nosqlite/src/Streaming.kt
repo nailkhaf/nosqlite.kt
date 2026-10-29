@@ -8,7 +8,7 @@ import kotlinx.serialization.serializer
 
 /**
  * Runs [action] on every document [query] selects, reading one row at a time from an open cursor, so a large result
- * never sits in memory at once.
+ * never sits in memory at once. [action] runs in the current transaction, one document at a time.
  */
 context(_: ReadScope)
 public suspend inline fun <reified T> Collection.forEach(
