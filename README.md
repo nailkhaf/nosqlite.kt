@@ -166,8 +166,14 @@ Fields can also be named by property references, which the compiler checks: `Use
 `User::name / Name::last` for a nested field, `User::age.asc` in `orderBy`, and `unique(User::email)` or
 `index(User::name / Name::last)` in a collection. A property reference names the field by its property name, so a
 property renamed with `@SerialName` is named by its string instead.
-Values must be of the property's type: `User::age gte 18` compiles, `User::age gte "18"` doesn't. Each typed call
-builds the same condition, sort key or index as its string form, so the two mix freely.
+A comparison accepts a value of the property's type when that type is an SQL scalar: `String`, `Int`, `Long`,
+`Double` or `Boolean` (a boolean compares as 1 and 0). `User::age gte 18` compiles. `User::age gte "18"` does not.
+Null is `isNull()` or `isNotNull()`, including on a nullable property; the other operators take a non-null value.
+An enum, `Float`, `Char`, unsigned type, value class or other type has no overload. Compare it by its string key
+with the SQL value it is stored as: an enum by its serial name (`"role" eq "member"`), a fraction as a `Double`
+(`"ratio" eq 0.1`). The string form rejects `Float` as well, because `toDouble()` is not exact and `0.1f` would not
+match the stored real `0.1`. Sorting and declaring an index take any property. Each typed call builds the same
+condition, sort key or index as its string form, so the two mix freely.
 
 ### Observing
 

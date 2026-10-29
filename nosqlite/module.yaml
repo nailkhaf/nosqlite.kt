@@ -12,6 +12,9 @@ dependencies:
 test-dependencies:
   - $libs.kotlinx.coroutines.test
 
+test-dependencies@jvm:
+  - $libs.kctfork.core
+
 settings:
   kotlin:
     freeCompilerArgs:
