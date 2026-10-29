@@ -115,6 +115,15 @@ naming the index; caught inside the write, the transaction goes on. When another
 file locked for over 5 seconds, the operation throws `NoSqliteException.Busy` and can be retried; one `NoSqlite` per
 file never hits it.
 
+### Transactions
+
+A `read` or `write` block runs on one connection and must stay sequential. Don't use the database from coroutines
+launched inside it (`launch`, `async`, parallel flow operators, etc.) concurrently: that is unsupported and can
+crash. Sequential suspension inside the block is fine.
+
+Do parallel work outside the transaction, so each coroutine opens its own `read` or `write`, or gather results in
+parallel first and write them in one sequential block.
+
 ### Types and forward compatibility
 
 A collection holds JSON, not a type: every read, lookup and `observe` names the type it decodes to, `list<User>()`,
@@ -158,7 +167,7 @@ Conditions compare text and numbers: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `isI
 name. Documents with equal sort keys keep insertion order.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
-run other queries.
+run other queries in that same transaction, one at a time.
 
 ### Property references
 

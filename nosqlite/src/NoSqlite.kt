@@ -101,12 +101,22 @@ public class SchemaBuilder internal constructor() {
     }
 }
 
-/** Runs [block] in a read transaction: every read in it sees one snapshot. Inside [write] it runs in that write. */
+/**
+ * Runs [block] in a read transaction: every read in it sees one snapshot. Inside [write] it runs in that write.
+ * The block runs on one connection and must stay sequential. Using the database from coroutines launched inside it
+ * (`launch`, `async`, parallel flow operators) concurrently is unsupported and can crash; sequential suspension
+ * inside the block is fine. Do parallel work outside the transaction, each coroutine in its own [read] or [write],
+ * or gather results first and write them in one sequential block.
+ */
 public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R): R = pool().read(block)
 
 /**
  * Runs [block] in a write transaction that commits when it returns and rolls back when it throws.
- * Inside another write it is a savepoint that rolls back alone.
+ * Inside another write it is a savepoint that rolls back alone. The block runs on one connection and must stay
+ * sequential. Using the database from coroutines launched inside it (`launch`, `async`, parallel flow operators)
+ * concurrently is unsupported and can crash; sequential suspension inside the block is fine. Do parallel work
+ * outside the transaction, each coroutine in its own [read] or [write], or gather results first and write them in
+ * one sequential block.
  */
 public suspend fun <R> NoSqlite.write(block: suspend context(WriteScope) () -> R): R =
     pool().write(onCommit = ::committed, block)
