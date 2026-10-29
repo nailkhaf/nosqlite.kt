@@ -47,7 +47,8 @@ internal class ConnectionPool(
 
 /**
  * Up to [size] connections handed to one coroutine at a time. An idle one is reused before another is opened, so
- * connections are opened only as far as coroutines need them at the same time.
+ * connections are opened only as far as coroutines need them at the same time. One returned while a transaction is
+ * still open is rolled back, and closed if that fails, so it is never handed out mid-transaction.
  */
 private class Slots(private val size: Int, private val open: () -> Connection) {
     private val permits = Semaphore(size)
@@ -63,8 +64,17 @@ private class Slots(private val size: Int, private val open: () -> Connection) {
         try {
             block(connection)
         } finally {
+            // NonCancellable so a cancelled caller still gets a real ROLLBACK: statement() refuses one.
+            // A transaction that survives it is closed with the connection instead of returned to the pool.
             withContext(NonCancellable) {
-                lock.withLock { if (closed) connection.close() else idle.addLast(connection) }
+                val reusable = connection.rollbackIfOpen()
+                lock.withLock {
+                    when {
+                        !reusable -> connection.closeQuietly()
+                        closed -> connection.close()
+                        else -> idle.addLast(connection)
+                    }
+                }
             }
         }
     }
@@ -74,5 +84,14 @@ private class Slots(private val size: Int, private val open: () -> Connection) {
         closed = true
         idle.forEach { it.close() }
         idle.clear()
+    }
+}
+
+/** Closes a connection that can't be reused. A close error must not replace the caller's exception. */
+private suspend fun Connection.closeQuietly() {
+    try {
+        close()
+    } catch (_: Exception) {
+        // Already unusable, and not going back to the pool.
     }
 }

@@ -32,24 +32,32 @@ internal class CountingDriver : SQLiteDriver {
     override fun open(fileName: String): SQLiteConnection = bundled.open(fileName).also { opened++ }
 }
 
-/** The bundled driver, whose connections fail to run [failingSql] and remember whether they were closed. */
-internal class FailingDriver(private val failingSql: String) : SQLiteDriver {
+/**
+ * The bundled driver, whose connections fail to run [failingSql] the first [times] times
+ * and remember whether they were closed.
+ */
+internal class FailingDriver(private val failingSql: String, private val times: Int = Int.MAX_VALUE) : SQLiteDriver {
     private val bundled = BundledSQLiteDriver()
     val connections = mutableListOf<FailingConnection>()
 
     override fun open(fileName: String): SQLiteConnection =
-        FailingConnection(bundled.open(fileName), failingSql).also { connections += it }
+        FailingConnection(bundled.open(fileName), failingSql, times).also { connections += it }
 }
 
 internal class FailingConnection(
     private val sqlite: SQLiteConnection,
     private val failingSql: String,
+    private val times: Int,
 ) : SQLiteConnection by sqlite {
     var closed: Boolean = false
         private set
+    private var failed = 0
 
     override fun prepare(sql: String): SQLiteStatement {
-        if (sql == failingSql) throw SQLiteException("$sql failed")
+        if (sql == failingSql && failed < times) {
+            failed += 1
+            throw SQLiteException("$sql failed")
+        }
         return sqlite.prepare(sql)
     }
 

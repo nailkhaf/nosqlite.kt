@@ -30,6 +30,29 @@ internal class Connection(private val sqlite: SQLiteConnection) {
 
     fun inTransaction(): Boolean = sqlite.inTransaction()
 
+    /**
+     * Rolls back a transaction left open on this connection so it can be handed out again.
+     * Returns whether it is outside a transaction afterwards. A `ROLLBACK` here is the whole
+     * transaction, not a savepoint's `ROLLBACK TO`, because the checkout is over and keeping the
+     * changes would commit them. [statement] checks the coroutine is active, so this has to run
+     * where cancellation is ignored.
+     */
+    suspend fun rollbackIfOpen(): Boolean =
+        try {
+            if (inTransaction()) {
+                try {
+                    statement("ROLLBACK;") { it.step() }
+                } catch (_: Exception) {
+                    // The checkout is over. A failure here must not replace the caller's exception;
+                    // a transaction that is still open is closed with the connection.
+                }
+            }
+            !inTransaction()
+        } catch (_: Exception) {
+            // inTransaction() itself failed; the connection is not safe to hand out.
+            false
+        }
+
     suspend fun close() {
         statements.close()
         sqlite.close()

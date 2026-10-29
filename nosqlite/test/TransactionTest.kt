@@ -9,6 +9,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 /** Covers read and write transactions: commit, rollback, savepoints and snapshots. */
 internal class TransactionTest {
@@ -178,12 +180,116 @@ internal class TransactionTest {
     }
 
     @Test
-    fun `connection left in a transaction is rejected`() = runTest {
-        val pool = ConnectionPool()
-        pool.withWriter { it.execute("BEGIN;") }
+    fun `connection left in a transaction is rolled back before it is reused`() = runTest {
+        val pool = poolWithTable()
+        pool.writeSql { insert("kept") }
 
-        val error = assertFailsWith<IllegalStateException> { pool.writeSql { } }
+        // Returned while BEGIN is still open. Release rolls it back; lending it out would reject the next write.
+        pool.withWriter {
+            it.execute("BEGIN;")
+            it.insert("uncommitted")
+        }
 
-        assertEquals("Connection is already in a transaction, BEGIN would fail", error.message)
+        pool.writeSql { insert("after") }
+
+        assertEquals(listOf("kept", "after"), pool.readSql { values() })
+    }
+
+    @Test
+    fun `a rollback that fails once is retried and the connection reused`() = runTest {
+        val driver = FailingDriver("ROLLBACK;", times = 1)
+        val pool = ConnectionPool(driver = driver)
+        pool.writeSql {
+            createTable()
+            insert("before")
+        }
+
+        val error = assertFailsWith<IllegalStateException> {
+            pool.writeSql {
+                insert("doomed")
+                error("rollback")
+            }
+        }
+
+        pool.writeSql { insert("after") }
+
+        assertEquals("rollback", error.message)
+        // Same in-memory connection: closing it would have dropped "before".
+        assertEquals(listOf("before", "after"), pool.readSql { values() })
+        assertEquals(1, driver.connections.size)
+        assertFalse(driver.connections.single().closed)
+    }
+
+    @Test
+    fun `a rollback that keeps failing is replaced so the next write succeeds`() = runTest {
+        withTempFile { location ->
+            val driver = FailingDriver("ROLLBACK;")
+            val pool = ConnectionPool(location, driver)
+            pool.writeSql {
+                createTable()
+                insert("before")
+            }
+
+            val error = assertFailsWith<IllegalStateException> {
+                pool.writeSql {
+                    insert("doomed")
+                    error("rollback")
+                }
+            }
+
+            pool.writeSql { insert("after") }
+
+            assertEquals("rollback", error.message)
+            assertEquals(listOf("before", "after"), pool.readSql { values() })
+            assertTrue(driver.connections.first().closed)
+            pool.close()
+        }
+    }
+
+    @Test
+    fun `a cancelled write whose rollback fails still frees the writer`() = runTest {
+        withTempFile { location ->
+            val driver = FailingDriver("ROLLBACK;")
+            val pool = ConnectionPool(location, driver)
+            pool.writeSql {
+                createTable()
+                insert("before")
+            }
+            val inserted = CompletableDeferred<Unit>()
+            val job = launch {
+                pool.writeSql {
+                    insert("doomed")
+                    inserted.complete(Unit)
+                    awaitCancellation()
+                }
+            }
+            inserted.await()
+
+            job.cancelAndJoin()
+            pool.writeSql { insert("after") }
+
+            assertEquals(listOf("before", "after"), pool.readSql { values() })
+            assertTrue(driver.connections.first().closed)
+            pool.close()
+        }
+    }
+
+    @Test
+    fun `a failed read rollback is replaced so the next read succeeds`() = runTest {
+        withTempFile { location ->
+            val driver = FailingDriver("ROLLBACK;")
+            val pool = ConnectionPool(location, driver)
+            pool.writeSql {
+                createTable()
+                insert("kept")
+            }
+
+            val error = assertFailsWith<IllegalStateException> { pool.readSql { error("rollback") } }
+
+            assertEquals("rollback", error.message)
+            assertEquals(listOf("kept"), pool.readSql { values() })
+            assertEquals(1, driver.connections.count { it.closed })
+            pool.close()
+        }
     }
 }
