@@ -1,10 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteDriver
-import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
@@ -19,8 +16,8 @@ import kotlinx.coroutines.withContext
  */
 internal class ConnectionPool(
     location: Location = Location.InMemory,
-    driver: SQLiteDriver = BundledSQLiteDriver(),
-    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    driver: SQLiteDriver = defaultDriver(),
+    private val dispatcher: CoroutineDispatcher = DefaultDispatcher,
 ) {
     init {
         require(!driver.hasConnectionPool) { "SQLiteDriver with its own connection pool is not supported" }
@@ -28,7 +25,7 @@ internal class ConnectionPool(
 
     private val writer = Slots(1) { Connection.open(driver, location) }
 
-    private val readers = (location as? Location.File)?.takeIf { it.maxReaders > 0 }?.let {
+    private val readers = (location as? Location.File)?.takeIf { it.maxReaders > 0 && SupportsReaders }?.let {
         Slots(it.maxReaders) { Connection.open(driver, location, queryOnly = true) }
     }
 
@@ -49,7 +46,7 @@ internal class ConnectionPool(
  * Up to [size] connections handed to one coroutine at a time. An idle one is reused before another is opened, so
  * connections are opened only as far as coroutines need them at the same time.
  */
-private class Slots(private val size: Int, private val open: () -> Connection) {
+private class Slots(private val size: Int, private val open: suspend () -> Connection) {
     private val permits = Semaphore(size)
     private val lock = Mutex()
     private val idle = ArrayDeque<Connection>()

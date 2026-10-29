@@ -3,7 +3,9 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.SQLiteStatement
-import androidx.sqlite.execSQL
+import androidx.sqlite.async.executeSQL
+import androidx.sqlite.async.open
+import androidx.sqlite.async.prepare
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -37,7 +39,7 @@ internal class Connection(private val sqlite: SQLiteConnection) {
 
     companion object {
         /** Opens [location]; a [queryOnly] connection refuses to write. Opening a file blocks the thread. */
-        fun open(driver: SQLiteDriver, location: Location, queryOnly: Boolean = false): Connection {
+        suspend fun open(driver: SQLiteDriver, location: Location, queryOnly: Boolean = false): Connection {
             val sqlite = driver.open(
                 when (location) {
                     Location.InMemory -> ":memory:"
@@ -46,8 +48,8 @@ internal class Connection(private val sqlite: SQLiteConnection) {
             )
             try {
                 requireSupported(sqlite.version())
-                for (pragma in Pragmas) sqlite.execSQL(pragma)
-                if (queryOnly) sqlite.execSQL("PRAGMA query_only = ON;")
+                for (pragma in Pragmas) sqlite.executeSQL(pragma)
+                if (queryOnly) sqlite.executeSQL("PRAGMA query_only = ON;")
             } catch (e: Throwable) {
                 sqlite.close()
                 throw e

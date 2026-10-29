@@ -1,5 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
+import androidx.sqlite.async.step
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals

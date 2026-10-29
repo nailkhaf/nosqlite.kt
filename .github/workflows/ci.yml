@@ -60,6 +60,48 @@ jobs:
           path: build
           key: kotlin-build-${{ github.job }}-${{ github.sha }}
 
+  wasm:
+    name: Wasm tests
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set file mtimes to their last commit
+        shell: bash
+        run: |
+          git log --format='%ct' --name-only --no-renames \
+            | awk 'NF == 1 && /^[0-9]+$/ { t = $1; next } NF && !($0 in seen) { seen[$0] = 1; print t "\t" $0 }' \
+            | while IFS=$'\t' read -r t f; do [ -f "$f" ] && touch -d "@$t" "$f"; done
+
+      - name: Cache Kotlin toolchain and dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/JetBrains/Kotlin
+          key: kotlin-${{ runner.os }}-${{ hashFiles('kotlin', 'project.yaml', '**/module.yaml', 'libs.versions.toml') }}
+          restore-keys: kotlin-${{ runner.os }}-
+
+      - name: Restore build output
+        uses: actions/cache/restore@v4
+        with:
+          path: build
+          key: kotlin-build-${{ github.job }}-${{ github.sha }}
+          restore-keys: kotlin-build-${{ github.job }}-
+
+      # The toolchain runs them in a headless Chrome it downloads itself.
+      - name: Run Wasm browser tests
+        run: ./kotlin test -p wasmJs
+
+      - name: Save build output
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: build
+          key: kotlin-build-${{ github.job }}-${{ github.sha }}
+
   android:
     name: Android build
     if: ${{ !github.event.pull_request.draft }}

@@ -33,7 +33,7 @@ internal operator fun Fragment.plus(sql: String): Fragment = copy(sql = this.sql
 internal fun List<Fragment>.joinToFragment(separator: String, prefix: String = "", postfix: String = ""): Fragment =
     Fragment(joinToString(separator, prefix, postfix) { it.sql }, flatMap { it.params })
 
-internal fun <O> Fragment.statement(decode: SQLiteStatement.() -> O): Statement<Unit, O> =
+internal fun <O> Fragment.statement(decode: suspend SQLiteStatement.() -> O): Statement<Unit, O> =
     Statement(sql, encode = { bind(params) }, decode = decode)
 
 internal fun SQLiteStatement.bind(params: List<SqlValue>, startIndex: Int = 1) =

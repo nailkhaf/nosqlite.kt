@@ -1,10 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteDriver
-import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
@@ -23,8 +20,8 @@ import kotlinx.serialization.json.Json
  */
 public class NoSqlite(
     private val location: Location = Location.InMemory,
-    driver: SQLiteDriver = BundledSQLiteDriver(),
-    dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    driver: SQLiteDriver = defaultDriver(),
+    dispatcher: CoroutineDispatcher = DefaultDispatcher,
     schema: SchemaBuilder.() -> Unit,
 ) {
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)

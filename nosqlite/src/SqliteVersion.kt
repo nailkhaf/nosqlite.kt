@@ -1,11 +1,13 @@
 package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.async.prepare
+import androidx.sqlite.async.step
 
 /** The oldest SQLite with `jsonb()` and `jsonb_patch()`. */
 internal const val MinSqliteVersion: String = "3.45.0"
 
-internal fun SQLiteConnection.version(): String =
+internal suspend fun SQLiteConnection.version(): String =
     prepare("SELECT sqlite_version()").use { statement ->
         statement.step()
         statement.getText(0)

@@ -8,7 +8,7 @@ ones a newer backend sent, survive it. Fields are named by property references
 (`User::age`, `User::name / Name::last`) or by their JSON keys (`"age"`, `"name.last"`), and documents are addressed
 by their unique indexes.
 
-- JVM, Android and iOS (arm64, simulator arm64)
+- JVM, Android, iOS (arm64, simulator arm64) and the browser (wasmJs)
 - One writer and several `query_only` readers in WAL mode; read and write transactions with nested savepoints
 - Unique, composite and partial indexes on JSON fields, synced when the database opens
 - Queries with filters, array `contains`, ordering, `limit` and `offset`; lookups and upserts by index
@@ -77,10 +77,21 @@ To remove a collection, list its name with a minus, `NoSqlite("app.db") { +Users
 documents are dropped on open if they exist.
 
 `NoSqlite()` without a path is in memory. `NoSqlite(location, driver, dispatcher) { }` takes a `Location.File` with
-its number of readers, an `SQLiteDriver` and the dispatcher connections run on, `Dispatchers.IO` by default.
+its number of readers, an `SQLiteDriver` and the dispatcher connections run on, `Dispatchers.IO` by default
+(`Dispatchers.Default` on the web).
 The driver's SQLite must be 3.45 or newer for JSONB; the default `BundledSQLiteDriver` ships 3.50, and an older one
 fails to open with `NoSqliteException.UnsupportedSqlite`.
 `db.close()` closes its connections; `db.delete()` closes them and deletes the file with its WAL sidecars.
+
+### Web
+
+On wasmJs the default driver is androidx's `WebWorkerSQLiteDriver`, talking to one shared Web Worker that runs
+[SQLite WASM](https://sqlite.org/wasm/doc/trunk/index.md) and keeps files in the browser's origin private file
+system. Serve [`nosqlite-worker.js`](nosqlite/testResources@wasmJs/nosqlite-worker.js) next to the app's `.mjs`,
+with `sqlite3.mjs` and `sqlite3.wasm` from `@sqlite.org/sqlite-wasm` 3.50.1 or newer beside it; it uses the
+`opfs-sahpool` VFS, which needs no COOP/COEP headers. Pass a `WebWorkerSQLiteDriver(worker)` to use another worker.
+The web build of SQLite has no WAL, so a file gets one connection and no readers, and `delete()` of a file throws
+`UnsupportedOperationException`: the worker owns the files.
 
 ### Fields
 
@@ -205,22 +216,26 @@ is nothing to install.
 ```sh
 ./kotlin test -p jvm
 ./kotlin test -p iosSimulatorArm64
+./kotlin test -p wasmJs   # headless Chrome, downloaded by the toolchain
 ```
 
 ## Platforms and CI
 
-nosqlite targets the JVM, Android and iOS (arm64 and simulator arm64). Every pull request and push to `main` runs
-three jobs:
+nosqlite targets the JVM, Android, iOS (arm64 and simulator arm64) and wasmJs. Every pull request and push to `main`
+runs four jobs:
 
 | Job | Runner | What it checks |
 | --- | --- | --- |
 | JVM tests | Linux | `./kotlin test -p jvm`: the common tests on the JVM |
+| Wasm tests | Linux | `./kotlin test -p wasmJs`: the common tests in headless Chrome |
 | Android build | Linux | `./kotlin build -p android`: main and test sources compile for Android |
 | iOS tests | macOS | `./kotlin test -p iosSimulatorArm64`: the common tests on the iOS simulator |
 
 Android is build-only for now. Kotlin toolchain 0.13.0 runs Android tests on the host JVM, and the Android artifact
 of `androidx.sqlite:sqlite-bundled` ships `libsqliteJni` only for Android ABIs, so it can't load there; the
-toolchain has no device or instrumented test runner yet. The same common tests run on the JVM and the iOS simulator.
+toolchain has no device or instrumented test runner yet. The same common tests run on the JVM, the iOS simulator
+and in Chrome; tests that need files on disk, WAL readers or a driver stubbed in Kotlin are in `test@nonWeb`. Plain
+`js` has no test runner in the toolchain yet, so it isn't a target.
 
 The jobs cache the toolchain and its dependencies, and restore the build output of the latest `main` run so pull
 requests compile incrementally; only `main` saves it.

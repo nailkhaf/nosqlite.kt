@@ -1,6 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -9,7 +10,7 @@ import kotlin.test.assertFailsWith
 internal class SqliteVersionTest {
 
     @Test
-    fun `the bundled SQLite is supported`() {
+    fun `the bundled SQLite is supported`() = runTest {
         val sqlite = BundledSQLiteDriver().open(":memory:")
 
         requireSupported(sqlite.version())

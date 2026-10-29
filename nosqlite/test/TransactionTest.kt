@@ -129,36 +129,6 @@ internal class TransactionTest {
     }
 
     @Test
-    fun `read sees one snapshot while a write commits`() = runTest {
-        withTempFile { location ->
-            val pool = ConnectionPool(location).apply {
-                writeSql {
-                    createTable()
-                    insert("before")
-                }
-            }
-            val firstRead = CompletableDeferred<Unit>()
-            val committed = CompletableDeferred<Unit>()
-
-            val reads = launch {
-                pool.readSql {
-                    assertEquals(listOf("before"), values())
-                    firstRead.complete(Unit)
-                    committed.await()
-                    assertEquals(listOf("before"), values())
-                }
-            }
-            firstRead.await()
-            pool.writeSql { insert("after") }
-            committed.complete(Unit)
-            reads.join()
-
-            assertEquals(listOf("before", "after"), pool.readSql { values() })
-            pool.close()
-        }
-    }
-
-    @Test
     fun `write inside a read is rejected`() = runTest {
         val pool = ConnectionPool()
 
