@@ -43,13 +43,14 @@ internal class StreamingTest {
     )
 
     @Test
-    fun `forEach visits every document in insertion order`() = runTest {
+    fun `forEach visits every document`() = runTest {
         val db = database()
         val visited = mutableListOf<User>()
 
         db.read { Users.forEach<User> { visited += it } }
 
-        assertEquals(users, visited)
+        assertEquals(users.size, visited.size)
+        assertEquals(users.toSet(), visited.toSet())
     }
 
     @Test

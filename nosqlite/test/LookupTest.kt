@@ -111,9 +111,12 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(grace, ada), Users.byAge(36).list<User> { orderBy { "name.last".asc }; limit(2) })
+            assertEquals(
+                listOf(grace, ada),
+                Users.byAge(36).list<User> { orderBy { "name.last".asc; "id".asc }; limit(2) },
+            )
             assertEquals(listOf(byron), Users.byAge(36).list<User> { where { "name.first" eq "Byron" } })
-            assertEquals(listOf(grace, byron), Users.byAge(36).list<User> { offset(1) })
+            assertEquals(listOf(byron, grace), Users.byAge(36).list<User> { orderBy { "id".asc }; offset(1) })
         }
     }
 

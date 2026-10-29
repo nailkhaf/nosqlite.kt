@@ -53,15 +53,15 @@ internal class StorageTest {
     }
 
     @Test
-    fun `list returns the inserted documents in order`() = runTest {
+    fun `list returns the inserted documents`() = runTest {
         val db = NoSqlite { +Users }
         db.write {
             Users.insert(ada)
             Users.insert(alan)
         }
 
-        assertEquals(listOf(ada, alan), db.read { Users.list<JsonObject>() })
-        assertEquals(listOf(ada), db.read { Users.list<JsonObject> { limit(1) } })
+        assertEquals(setOf(ada, alan), db.read { Users.list<JsonObject>() }.toSet())
+        assertEquals(listOf(ada), db.read { Users.list<JsonObject> { orderBy { "age".asc }; limit(1) } })
     }
 
     @Test
@@ -73,8 +73,8 @@ internal class StorageTest {
         }
 
         db.read {
-            assertEquals(listOf(ada, alan), Users.list<JsonObject>())
-            assertEquals(listOf(alan), Users.list<JsonObject> { offset(1) })
+            assertEquals(setOf(ada, alan), Users.list<JsonObject>().toSet())
+            assertEquals(listOf(alan), Users.list<JsonObject> { orderBy { "age".asc }; offset(1) })
             assertEquals(listOf(alan), Users.list<JsonObject> { where { "age" gt 40 } })
         }
     }
@@ -98,11 +98,14 @@ internal class StorageTest {
         db.write { people.forEach { Users.insert(it) } }
 
         db.read {
-            assertEquals(people.subList(0, 2), Users.list<JsonObject> { limit(2) })
-            assertEquals(people.subList(2, 4), Users.list<JsonObject> { limit(2); offset(2) })
-            assertEquals(people.subList(4, 5), Users.list<JsonObject> { limit(2); offset(4) })
+            assertEquals(people.subList(0, 2), Users.list<JsonObject> { orderBy { "age".asc }; limit(2) })
+            assertEquals(people.subList(2, 4), Users.list<JsonObject> { orderBy { "age".asc }; limit(2); offset(2) })
+            assertEquals(people.subList(4, 5), Users.list<JsonObject> { orderBy { "age".asc }; limit(2); offset(4) })
             assertEquals(emptyList(), Users.list<JsonObject> { limit(2); offset(5) })
-            assertEquals(people.subList(3, 5), Users.list<JsonObject> { where { "age" gt 2 }; offset(1) })
+            assertEquals(
+                people.subList(3, 5),
+                Users.list<JsonObject> { where { "age" gt 2 }; orderBy { "age".asc }; offset(1) },
+            )
         }
     }
 

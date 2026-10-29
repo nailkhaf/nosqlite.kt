@@ -16,7 +16,7 @@ import kotlin.uuid.Uuid
 class TaskRepository(location: Location) {
     private val db = NoSqlite(location) { +Tasks }
 
-    /** Open tasks first, each group in the order it was added. */
+    /** Open tasks first. Tasks with the same done value have an unspecified order. */
     val tasks: Flow<List<Task>> = with(db) { Tasks.observe<Task> { orderBy { Task::done.asc } } }
 
     suspend fun add(title: String) {

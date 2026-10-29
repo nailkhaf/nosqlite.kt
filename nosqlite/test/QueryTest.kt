@@ -36,7 +36,8 @@ internal class QueryTest {
 
         val users = db.read { Users.list<User> { orderBy { "age".asc } } }
 
-        assertEquals(listOf(linus, ada, grace, alan), users)
+        assertEquals(listOf(null, 36, 36, 41), users.map { it.age })
+        assertEquals(setOf(linus, ada, grace, alan), users.toSet())
     }
 
     @Test
@@ -45,14 +46,15 @@ internal class QueryTest {
 
         val users = db.read { Users.list<User> { orderBy { "age".desc } } }
 
-        assertEquals(listOf(alan, ada, grace, linus), users)
+        assertEquals(listOf(41, 36, 36, null), users.map { it.age })
+        assertEquals(setOf(alan, ada, grace, linus), users.toSet())
     }
 
     @Test
-    fun `equal keys keep insertion order`() = runTest {
+    fun `a unique last key orders equal sort keys`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list<User> { where { "age" eq 36 }; orderBy { "age".asc } } }
+        val users = db.read { Users.list<User> { where { "age" eq 36 }; orderBy { "age".asc; "id".asc } } }
 
         assertEquals(listOf(ada, grace), users)
     }
@@ -81,13 +83,16 @@ internal class QueryTest {
     fun `pages follow the order`() = runTest {
         val db = database()
         db.read {
-            assertEquals(listOf(alan, ada), Users.list<User> { orderBy { "age".desc }; limit(2) })
-            assertEquals(listOf(grace, linus), Users.list<User> { orderBy { "age".desc }; limit(2); offset(2) })
+            assertEquals(listOf(alan, ada), Users.list<User> { orderBy { "age".desc; "id".asc }; limit(2) })
+            assertEquals(
+                listOf(grace, linus),
+                Users.list<User> { orderBy { "age".desc; "id".asc }; limit(2); offset(2) },
+            )
             assertEquals(
                 listOf(ada),
                 Users.list<User> {
                     where { "age".isNotNull() }
-                    orderBy { "age".desc }
+                    orderBy { "age".desc; "id".asc }
                     limit(1)
                     offset(1)
                 },
@@ -99,6 +104,17 @@ internal class QueryTest {
     fun `sorting by an indexed field reads the index in order`() = runTest {
         val db = database()
         val sql = Queries.selectSql(Users, query { orderBy { "age".asc } }).sql
+
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
+
+        assertTrue(Users.byAge.name in plan, plan)
+        assertFalse("TEMP B-TREE" in plan, plan)
+    }
+
+    @Test
+    fun `a descending sort on an indexed field uses the index without a temp b-tree`() = runTest {
+        val db = database()
+        val sql = Queries.selectSql(Users, query { orderBy { "age".desc } }).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
 
@@ -136,13 +152,14 @@ internal class QueryTest {
     }
 
     @Test
-    fun `a query without parts selects everything in insertion order`() {
+    fun `a query without parts selects everything`() {
         val query = query { }
 
         assertEquals(null, query.condition)
         assertEquals(emptyList(), query.orderBy)
         assertEquals(Int.MAX_VALUE, query.limit)
         assertEquals(0, query.offset)
+        assertFalse("ORDER BY" in Queries.selectSql(Users, query).sql)
     }
 
     @Test

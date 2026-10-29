@@ -155,7 +155,8 @@ Users.list<User> {
 Conditions compare text and numbers: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `isIn`, `contains` for an array element,
 `like` for a pattern (`"title" like "%milk%"`, case-insensitive for ASCII), `isTrue()`, `isFalse()`, `isNull()`,
 `isNotNull()`, combined with `and`, `or` and `not`. Other values compare as they are stored, so an enum as its serial
-name. Documents with equal sort keys keep insertion order.
+name. The order of documents with equal sort keys is unspecified, so add a unique field as the last sort key when a
+stable order or offset pagination matters.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
 run other queries.

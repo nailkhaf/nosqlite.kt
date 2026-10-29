@@ -39,13 +39,15 @@ internal object Queries {
 
     fun dropIndex(name: String): Command<Unit> = command("DROP INDEX ${identifier(name)};")
 
-    // SQLite's implicit rowid comes last, so documents with equal keys keep insertion order and pages never overlap.
     fun <T> select(collection: Collection, serializer: KSerializer<T>, query: Query): Statement<Unit, List<T>> =
         selectSql(collection, query).statement(rows { collection.decode(serializer, this) })
 
     fun selectSql(collection: Collection, query: Query): Fragment {
-        val order = (query.orderBy.map { "${it.path.sql} ${if (it.descending) "DESC" else "ASC"}" } + "rowid")
-            .joinToString(", ", prefix = " ORDER BY ")
+        // No implicit rowid: a descending key must be able to walk its index backwards.
+        val order = query.orderBy
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(", ", prefix = " ORDER BY ") { "${it.path.sql} ${if (it.descending) "DESC" else "ASC"}" }
+            .orEmpty()
         val page = Fragment(
             "$order LIMIT ? OFFSET ?;",
             listOf(SqlValue.Integer(query.limit.toLong()), SqlValue.Integer(query.offset.toLong())),

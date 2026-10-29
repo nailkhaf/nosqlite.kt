@@ -9,7 +9,7 @@ internal class Query(val condition: Where?, val orderBy: List<Order>, val limit:
 
 /**
  * Builds a query: which documents, in what order, and which page of them. Each part is set at most once; without
- * one, every document matches, in the order they were inserted, all of them:
+ * one, every document matches, in an unspecified order, all of them:
  * ```
  * Users.list {
  *     where { "age" gte 18 }
@@ -21,7 +21,8 @@ internal class Query(val condition: Where?, val orderBy: List<Order>, val limit:
  *     offset(40)
  * }
  * ```
- * Documents with equal sort keys keep insertion order.
+ * The order of documents with equal sort keys is unspecified, so add a unique field as the last sort key when a
+ * stable order or offset pagination matters.
  */
 @QueryDsl
 public class QueryScope internal constructor() {
