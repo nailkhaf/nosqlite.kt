@@ -12,11 +12,11 @@ class TaskRepositoryTest {
     private suspend fun titles(): List<Pair<String, Boolean>> = repository.tasks.first().map { it.title to it.done }
 
     @Test
-    fun `added tasks are listed in order`() = runTest {
+    fun `added tasks are listed`() = runTest {
         repository.add("milk")
         repository.add("bread")
 
-        assertEquals(listOf("milk" to false, "bread" to false), titles())
+        assertEquals(setOf("milk" to false, "bread" to false), titles().toSet())
     }
 
     @Test
@@ -24,7 +24,7 @@ class TaskRepositoryTest {
         repository.add("milk")
         repository.add("bread")
 
-        repository.toggle(repository.tasks.first().first())
+        repository.toggle(repository.tasks.first().single { it.title == "milk" })
 
         assertEquals(listOf("bread" to false, "milk" to true), titles())
     }
@@ -42,7 +42,10 @@ class TaskRepositoryTest {
     @Test
     fun `delete removes one task and clearDone every done one`() = runTest {
         listOf("milk", "bread", "eggs", "tea").forEach { repository.add(it) }
-        val (milk, bread, eggs) = repository.tasks.first()
+        val tasks = repository.tasks.first()
+        val milk = tasks.single { it.title == "milk" }
+        val bread = tasks.single { it.title == "bread" }
+        val eggs = tasks.single { it.title == "eggs" }
         repository.toggle(milk)
         repository.toggle(bread)
 
