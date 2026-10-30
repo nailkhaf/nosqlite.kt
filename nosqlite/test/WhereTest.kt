@@ -33,37 +33,44 @@ internal class WhereTest {
     }
 
     @Test
-    fun `unsupported numbers are rejected`() {
-        val big = object : Number() {
-            override fun toByte() = 0.toByte()
-            override fun toDouble() = 0.0
-            override fun toFloat() = 0f
-            override fun toInt() = 0
-            override fun toLong() = 0L
-            override fun toShort() = 0.toShort()
-        }
+    fun `int long and double overloads bind as integers and reals`() {
+        fun bound(block: WhereScope.() -> Where): SqlValue = where(block).render().params.single()
 
-        assertFailsWith<IllegalArgumentException> { where { "age" eq big } }
+        assertEquals(SqlValue.Integer(18), bound { "age" eq 18 })
+        assertEquals(SqlValue.Integer(-2), bound { "age" neq -2 })
+        assertEquals(SqlValue.Integer(Int.MIN_VALUE.toLong()), bound { "age" gt Int.MIN_VALUE })
+        assertEquals(SqlValue.Integer(Int.MAX_VALUE.toLong()), bound { "age" gte Int.MAX_VALUE })
+        assertEquals(SqlValue.Integer(0), bound { "age" lt 0 })
+        assertEquals(SqlValue.Integer(7), bound { "age" lte 7 })
+        assertEquals(SqlValue.Integer(4), bound { "counts" contains 4 })
+
+        assertEquals(SqlValue.Integer(18L), bound { "id" eq 18L })
+        assertEquals(SqlValue.Integer(-2L), bound { "id" neq -2L })
+        assertEquals(SqlValue.Integer(Long.MIN_VALUE), bound { "id" gt Long.MIN_VALUE })
+        assertEquals(SqlValue.Integer(Long.MAX_VALUE), bound { "id" gte Long.MAX_VALUE })
+        assertEquals(SqlValue.Integer(0L), bound { "id" lt 0L })
+        assertEquals(SqlValue.Integer(7L), bound { "id" lte 7L })
+        assertEquals(SqlValue.Integer(4L), bound { "ids" contains 4L })
+
+        assertEquals(SqlValue.Real(1.5), bound { "score" eq 1.5 })
+        assertEquals(SqlValue.Real(-0.5), bound { "score" neq -0.5 })
+        assertEquals(SqlValue.Real(0.1), bound { "score" gt 0.1 })
+        assertEquals(SqlValue.Real(0.0), bound { "score" gte 0.0 })
+        assertEquals(SqlValue.Real(-1.0), bound { "score" lt -1.0 })
+        assertEquals(SqlValue.Real(2.5), bound { "score" lte 2.5 })
+        assertEquals(SqlValue.Real(0.1), bound { "scores" contains 0.1 })
     }
 
     @Test
     fun `NaN and infinite numbers are rejected`() {
         val nan = assertFailsWith<IllegalArgumentException> { where { "score" eq Double.NaN } }
         assertFailsWith<IllegalArgumentException> { where { "score" gt Double.POSITIVE_INFINITY } }
-        val infinite = assertFailsWith<IllegalArgumentException> { where { "score" lt Float.NEGATIVE_INFINITY } }
-        assertFailsWith<IllegalArgumentException> { where { "score" isIn listOf(1.0, Float.NaN) } }
+        val infinite = assertFailsWith<IllegalArgumentException> { where { "score" lt Double.NEGATIVE_INFINITY } }
+        assertFailsWith<IllegalArgumentException> { where { "score" isIn listOf(1.0, Double.NaN) } }
+        assertFailsWith<IllegalArgumentException> { where { "scores" contains Double.POSITIVE_INFINITY } }
 
         assertEquals("Unsupported number: NaN, SQLite has no NaN or infinity", nan.message)
         assertEquals("Unsupported number: -Infinity, SQLite has no NaN or infinity", infinite.message)
-    }
-
-    @Test
-    fun `a finite Float is rejected instead of widened to Double`() {
-        val error = assertFailsWith<IllegalArgumentException> { where { "score" eq 0.1f } }
-        assertFailsWith<IllegalArgumentException> { where { "score" isIn listOf(0.1f) } }
-        assertFailsWith<IllegalArgumentException> { where { "scores" contains 0.1f } }
-
-        assertEquals(FLOAT_IS_NOT_AN_SQL_REAL, error.message)
     }
 
     @Test
@@ -82,10 +89,17 @@ internal class WhereTest {
 
     @Test
     fun `isIn binds its values as one JSON array`() {
-        val fragment = where { "age" isIn listOf(30, 40.5) }.render()
+        val ints = where { "age" isIn listOf<Int>(30, 40) }.render()
+        val longs = where { "id" isIn listOf(Long.MIN_VALUE, Long.MAX_VALUE) }.render()
+        val doubles = where { "score" isIn listOf(30.0, 40.5) }.render()
 
-        assertEquals("data ->> '$.age' IN (SELECT value FROM json_each(?))", fragment.sql)
-        assertEquals(listOf(SqlValue.Text("[30,40.5]")), fragment.params)
+        assertEquals("data ->> '$.age' IN (SELECT value FROM json_each(?))", ints.sql)
+        assertEquals("data ->> '$.id' IN (SELECT value FROM json_each(?))", longs.sql)
+        assertEquals("data ->> '$.score' IN (SELECT value FROM json_each(?))", doubles.sql)
+        assertEquals(listOf(SqlValue.Text("[30,40]")), ints.params)
+        assertEquals(listOf(SqlValue.Text("[${Long.MIN_VALUE},${Long.MAX_VALUE}]")), longs.params)
+        assertEquals(listOf(SqlValue.Text("[30.0,40.5]")), doubles.params)
+        assertEquals("data ->> '$.age' IN (30, 40)", where { "age" isIn listOf<Int>(30, 40) }.toString())
     }
 
     @Test
@@ -96,6 +110,9 @@ internal class WhereTest {
     @Test
     fun `isIn of nothing matches nothing`() {
         assertEquals("0 = 1", where { "age" isIn emptyList<String>() }.render().sql)
+        assertEquals("0 = 1", where { "age" isIn emptyList<Int>() }.render().sql)
+        assertEquals("0 = 1", where { "id" isIn emptyList<Long>() }.render().sql)
+        assertEquals("0 = 1", where { "score" isIn emptyList<Double>() }.render().sql)
     }
 
     @Test
@@ -146,8 +163,8 @@ internal class WhereTest {
             matching("bob") { "id" like "b_b" },
             matching { "id" like "b_" },
             matching { "age" isIn emptyList<String>() },
-            matching("ann", "cid") { "age" isIn listOf(17, 45) },
-            matching("bob") { "score" isIn listOf(2.5, 3) },
+            matching("ann", "cid") { "age" isIn listOf<Int>(17, 45) },
+            matching("bob") { "score" isIn listOf(2.5, 3.0) },
         )
 
         for ((condition, ids) in expected) {

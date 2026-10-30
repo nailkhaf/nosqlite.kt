@@ -161,11 +161,13 @@ Users.list<User> {
 }
 ```
 
-Conditions compare text and numbers: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `isIn`, `contains` for an array element,
-`like` for a pattern (`"title" like "%milk%"`, case-insensitive for ASCII), `isTrue()`, `isFalse()`, `isNull()`,
-`isNotNull()`, combined with `and`, `or` and `not`. Other values compare as they are stored, so an enum as its serial
-name. The order of documents with equal sort keys is unspecified, so add a unique field as the last sort key when a
-stable order or offset pagination matters.
+Conditions compare text, `Int`, `Long` and `Double`: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `isIn`, `contains` for an array
+element, `like` for a pattern (`"title" like "%milk%"`, case-insensitive for ASCII), `isTrue()`, `isFalse()`,
+`isNull()`, `isNotNull()`, combined with `and`, `or` and `not`. `isIn` takes one element type. Integer literals fit
+both `Int` and `Long`, so a list of them is `listOf<Int>(18, 36)` or `listOf(1L, 2L)`, and an empty list names its
+type (`emptyList<Int>()`). Other values compare as they are stored, so an enum as its serial name. The order of
+documents with equal sort keys is unspecified, so add a unique field as the last sort key when a stable order or
+offset pagination matters.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
 run other queries in that same transaction, one at a time.
@@ -179,11 +181,13 @@ property renamed with `@SerialName` is named by its string instead.
 A comparison accepts a value of the property's type when that type is an SQL scalar: `String`, `Int`, `Long`,
 `Double` or `Boolean` (a boolean compares as 1 and 0). `User::age gte 18` compiles. `User::age gte "18"` does not.
 Null is `isNull()` or `isNotNull()`, including on a nullable property; the other operators take a non-null value.
-An enum, `Float`, `Char`, unsigned type, value class or other type has no overload. Compare it by its string key
-with the SQL value it is stored as: an enum by its serial name (`"role" eq "member"`), a fraction as a `Double`
-(`"ratio" eq 0.1`). The string form rejects `Float` as well, because `toDouble()` is not exact and `0.1f` would not
-match the stored real `0.1`. Sorting and declaring an index take any property. Each typed call builds the same
-condition, sort key or index as its string form, so the two mix freely.
+An enum, `Float`, `Char`, unsigned type, value class or other type has no overload. Compare an enum by its string
+key and serial name (`"role" eq "member"`), and a fraction as a `Double` (`"ratio" eq 0.1`). String-key
+comparisons take `String`, `Int`, `Long` and `Double` only. `Float` has no overload there either, because
+`toDouble()` is not exact and `0.1f` would not match the stored real `0.1`; `Short`, `Byte` and other number
+types are the same. A `Double` that is `NaN` or infinite is rejected when the condition is built. Sorting and
+declaring an index take any property. Each typed call builds the same condition, sort key or index as its string
+form, so the two mix freely.
 
 ### Observing
 

@@ -11,8 +11,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * The typed operators are overloads, so a property of any other type fails to compile. kotlin.test cannot assert
- * that, so these snippets compile against the library on the JVM.
+ * The typed operators are overloads, so a property of any other type fails to compile. The string-key operators
+ * are overloads of [String], [Int], [Long] and [Double], so [Float], [Short] and [Byte] fail to compile there too.
+ * kotlin.test cannot assert that, so these snippets compile against the library on the JVM.
  */
 internal class TypedWhereCompileTest {
 
@@ -21,6 +22,20 @@ internal class TypedWhereCompileTest {
         val result = compile(SourceFile.kotlin("Accepted.kt", accepted))
 
         assertEquals(KotlinCompilation.ExitCode.OK, result.exitCode, result.messages)
+    }
+
+    @Test
+    fun `string keys reject float short and byte`() {
+        val files = stringRejected.map { (name, expression) ->
+            name to SourceFile.kotlin(name, stringProbe(expression))
+        }
+        val result = compile(*files.map { it.second }.toTypedArray())
+
+        assertEquals(KotlinCompilation.ExitCode.COMPILATION_ERROR, result.exitCode, result.messages)
+        assertTrue("Unresolved reference" !in result.messages, result.messages)
+        for ((name, _) in files) {
+            assertTrue(name in result.messages, "Expected $name to fail\n${result.messages}")
+        }
     }
 
     @Test
@@ -50,6 +65,14 @@ internal class TypedWhereCompileTest {
         fun probe(): Where = $expression
     """.trimIndent()
 
+    // String-key operators are members of WhereScope, so they are in scope on an extension receiver, which is how
+    // `where { }` exposes them. A context parameter does not bring those members into scope.
+    private fun stringProbe(expression: String): String = """
+        import io.github.nailkhaf.nosqlite.*
+
+        fun WhereScope.probe(): Where = $expression
+    """.trimIndent()
+
     private val rejected = listOf(
         "RejectEnum.kt" to "Person::role eq Role.Member",
         "RejectEnumIn.kt" to "Person::role isIn listOf(Role.Member)",
@@ -64,6 +87,16 @@ internal class TypedWhereCompileTest {
         "RejectComparable.kt" to "Person::stamp eq Stamp(1)",
         "RejectWrongValue.kt" to "Person::age gte \"18\"",
         "RejectNoWidening.kt" to "Person::serial eq 1",
+    )
+
+    private val stringRejected = listOf(
+        "RejectStringFloat.kt" to """"score" eq 0.1f""",
+        "RejectStringFloatIn.kt" to """"score" isIn listOf(0.1f)""",
+        "RejectStringFloatContains.kt" to """"scores" contains 0.1f""",
+        "RejectStringShort.kt" to """"age" eq 1.toShort()""",
+        "RejectStringShortIn.kt" to """"age" isIn listOf(1.toShort())""",
+        "RejectStringByte.kt" to """"age" eq 1.toByte()""",
+        "RejectStringByteContains.kt" to """"counts" contains 1.toByte()""",
     )
 }
 
@@ -163,6 +196,37 @@ private val accepted = """
         Person::role.isNull(),
         Person::ratio.isNotNull(),
         Person::email.isNull(),
+    )
+
+    @Suppress("unused")
+    fun WhereScope.stringKeys(): List<Where> = listOf(
+        "age" eq 18,
+        "age" neq 18,
+        "age" gt 18,
+        "age" gte 18,
+        "age" lt 18,
+        "age" lte 18,
+        "age" isIn listOf<Int>(18, 36),
+        "age" isIn emptyList<Int>(),
+        "serial" eq 1L,
+        "serial" neq 1L,
+        "serial" gt 0L,
+        "serial" gte 0L,
+        "serial" lt 2L,
+        "serial" lte 2L,
+        "serial" isIn listOf(1L),
+        "serial" isIn emptyList<Long>(),
+        "score" eq 0.1,
+        "score" neq 0.1,
+        "score" gt 0.0,
+        "score" gte 0.0,
+        "score" lt 1.0,
+        "score" lte 1.0,
+        "score" isIn listOf(0.1),
+        "score" isIn emptyList<Double>(),
+        "counts" contains 1,
+        "serials" contains 1L,
+        "scores" contains 0.1,
     )
 
     context(_: OrderScope)

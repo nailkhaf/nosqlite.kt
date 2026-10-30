@@ -5,8 +5,9 @@ import kotlin.reflect.KProperty1
 
 // Comparisons bind an SQL scalar, the kind of value `data ->> '$.path'` yields: text, integer, real, or a boolean
 // as 1 or 0. The overloads are the restriction. An enum, Float, Char, unsigned type, value class or other Kotlin
-// type has none of these operators; the string-key form takes the SQL value it is stored as. A nullable property
-// uses isNull and isNotNull, and passes a non-null value to the operators below.
+// type has none of these operators. The string-key form takes String, Int, Long and Double: an enum by its serial
+// name, a fraction as a Double. A nullable property uses isNull and isNotNull, and passes a non-null value to the
+// operators below.
 
 context(_: WhereScope)
 public infix fun Field<*, String?>.eq(value: String): Where = compare(Comparison.Eq, value)
