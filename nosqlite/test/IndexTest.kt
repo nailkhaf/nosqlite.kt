@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 internal class IndexTest {
 
     object Users : Collection("users") {
-        val byId = unique("id")
+        override val byId = unique("id")
         val byEmail = unique("email")
         val byAge = index("age")
         val byName = index("name.last", "name.first")
@@ -275,7 +275,7 @@ internal class IndexTest {
             withDuplicates.write { repeat(2) { plain.insert(ada) } }
             withDuplicates.close()
             val unique = object : Collection("users") {
-                val byId = unique("id")
+                override val byId = unique("id")
             }
 
             val error = assertFailsWith<NoSqliteException.UniqueViolation> { NoSqlite(location) { +unique }.read { } }

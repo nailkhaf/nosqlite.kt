@@ -27,7 +27,7 @@ internal class ProjectionTest {
     data class Summary(val id: String)
 
     object Profiles : Collection("profiles") {
-        val byId = unique(Profile::id)
+        override val byId = unique(Profile::id)
     }
 
     // What a newer backend sends: fields this app's Profile doesn't know yet, at the top and nested.

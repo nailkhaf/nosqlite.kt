@@ -14,11 +14,11 @@ import kotlinx.serialization.serializer
  * read that finds what the previous one found emits nothing.
  */
 context(db: NoSqlite)
-public inline fun <reified T> Collection.observe(noinline query: QueryScope.() -> Unit = {}): Flow<List<T>> =
+public inline fun <reified T> BaseCollection.observe(noinline query: QueryScope.() -> Unit = {}): Flow<List<T>> =
     observe(serializer(), query)
 
 context(db: NoSqlite)
-public fun <T> Collection.observe(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): Flow<List<T>> {
+public fun <T> BaseCollection.observe(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): Flow<List<T>> {
     val query = query(query)
     return db.observe(this) { list(serializer, query) }
 }
@@ -40,7 +40,7 @@ context(db: NoSqlite)
 public fun <T> Lookup.Unique.observe(serializer: KSerializer<T>): Flow<T?> =
     db.observe(index.collection) { get(serializer) }
 
-private fun <R> NoSqlite.observe(collection: Collection, read: suspend context(ReadScope) () -> R): Flow<R> = flow {
+private fun <R> NoSqlite.observe(collection: BaseCollection, read: suspend context(ReadScope) () -> R): Flow<R> = flow {
     emitAll(
         versions.map { it[collection.name] }
             .distinctUntilChanged()

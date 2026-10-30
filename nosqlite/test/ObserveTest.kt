@@ -26,7 +26,7 @@ internal class ObserveTest {
     data class User(val id: String, val age: Int)
 
     object Users : Collection("users") {
-        val byId = unique("id")
+        override val byId = unique("id")
         val byAge = index("age")
     }
 

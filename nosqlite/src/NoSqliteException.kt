@@ -14,6 +14,16 @@ public sealed class NoSqliteException(message: String, cause: Throwable? = null)
         cause: Throwable,
     ) : NoSqliteException("Unique constraint violated in '$collection': ${index ?: cause.message}", cause)
 
+    /** An update of [collection] would change or omit primary key [field]. The write rolls back. */
+    public class PrimaryKeyChanged internal constructor(
+        public val collection: String,
+        public val field: String,
+        missing: Boolean,
+    ) : NoSqliteException(
+        if (missing) "Primary key '$field' of '$collection' is missing"
+        else "Primary key '$field' of '$collection' can't change",
+    )
+
     /** A document of [collection] can't be decoded into the requested type. */
     public class DecodingFailed internal constructor(public val collection: String, cause: Throwable) :
         NoSqliteException("Can't decode a document of '$collection': ${cause.message}", cause)

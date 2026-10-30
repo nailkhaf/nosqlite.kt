@@ -5,7 +5,8 @@ package io.github.nailkhaf.nosqlite
  * each one's name hashes its definition, so a changed index is dropped and created again and a removed one dropped.
  */
 public open class Index internal constructor(
-    internal val collection: Collection,
+    /** The collection whose documents this index covers. */
+    public val collection: BaseCollection,
     internal val paths: List<Path>,
     internal val isUnique: Boolean,
     internal val where: Where?,
@@ -13,6 +14,9 @@ public open class Index internal constructor(
     init {
         require(paths.isNotEmpty()) { "Index without fields" }
     }
+
+    /** The fields this index is on, in order, as dotted paths: `"name.last"`. */
+    public val fields: List<String> get() = paths.map { it.field }
 
     /** What the index is made of, as SQL: the part of `CREATE INDEX` after its table. */
     internal val definition: String =
@@ -28,8 +32,12 @@ public open class Index internal constructor(
 }
 
 /** An index whose documents can't share their values for its fields; with a `where`, only the ones it indexes. */
-public class UniqueIndex internal constructor(collection: Collection, paths: List<Path>, where: Where?) :
+public open class UniqueIndex internal constructor(collection: BaseCollection, paths: List<Path>, where: Where?) :
     Index(collection, paths, isUnique = true, where)
+
+/** A [UniqueIndex] on one field whose value an update cannot change. */
+public class PrimaryKey internal constructor(collection: BaseCollection, path: Path) :
+    UniqueIndex(collection, listOf(path), where = null)
 
 internal const val INDEX_PREFIX = "nsq_"
 

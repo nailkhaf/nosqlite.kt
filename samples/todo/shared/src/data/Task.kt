@@ -8,6 +8,6 @@ import kotlin.uuid.Uuid
 data class Task(val id: Uuid, val title: String, val done: Boolean = false)
 
 internal object Tasks : Collection("tasks") {
-    val byId = unique("id")
-    val byDone = index("done")
+    override val id = primaryKey(Task::id)
+    val byDone = index(Task::done)
 }
