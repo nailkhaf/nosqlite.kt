@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# Publishes nosqlite to Maven Central. The job runs in the `release` environment, which holds
+# the secrets and requires a reviewer's approval before it starts. It uploads a signed bundle without releasing it:
+# check the deployment in the Central Portal, then publish it there (publishingMode is manual by default).
+# No caches are restored, so nothing a pull request run saved can reach the signing key or the published artifacts.
+# macOS builds every target: iOS klibs need a Mac.
+jobs:
+  publish:
+    name: Publish to Maven Central
+    runs-on: macos-latest
+    timeout-minutes: 60
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check the tag matches the version
+        shell: bash
+        run: |
+          version=$(awk '$1 == "version:" { print $2; exit }' publishing.module-template.yaml)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match version $version in publishing.module-template.yaml"
+            exit 1
+          fi
+
+      - name: Run JVM tests
+        run: ./kotlin test -p jvm
+
+      - name: Run iOS simulator tests
+        run: ./kotlin test -p iosSimulatorArm64
+
+      - name: Publish to Maven Central
+        run: ./kotlin publish -m nosqlite mavenCentral
+        env:
+          KOTLIN_TOOLCHAIN_MAVEN_CENTRAL_USERNAME: ${{ secrets.KOTLIN_TOOLCHAIN_MAVEN_CENTRAL_USERNAME }}
+          KOTLIN_TOOLCHAIN_MAVEN_CENTRAL_PASSWORD: ${{ secrets.KOTLIN_TOOLCHAIN_MAVEN_CENTRAL_PASSWORD }}
+          KOTLIN_TOOLCHAIN_SIGNING_KEY: ${{ secrets.KOTLIN_TOOLCHAIN_SIGNING_KEY }}
+          KOTLIN_TOOLCHAIN_SIGNING_KEY_PASSPHRASE: ${{ secrets.KOTLIN_TOOLCHAIN_SIGNING_KEY_PASSPHRASE }}

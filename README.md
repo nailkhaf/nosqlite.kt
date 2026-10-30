@@ -15,6 +15,31 @@ by their unique indexes.
 - Streaming with an open cursor (`forEach`)
 - `observe` flows that read again after each committed write to the collection
 
+## Installation
+
+nosqlite is published to Maven Central as a Kotlin Multiplatform library. With the Kotlin toolchain, in `module.yaml`:
+
+```yaml
+dependencies:
+  - io.github.nailkhaf:nosqlite:0.1.0
+```
+
+With Gradle:
+
+```kotlin
+// build.gradle.kts
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation("io.github.nailkhaf:nosqlite:0.1.0")
+        }
+    }
+}
+```
+
+Documents are encoded with kotlinx.serialization, so enable its compiler plugin (`settings.kotlin.serialization: json`
+with the Kotlin toolchain, `plugin.serialization` with Gradle).
+
 ## Example
 
 ```kotlin
@@ -231,6 +256,15 @@ toolchain has no device or instrumented test runner yet. The same common tests r
 
 The jobs cache the toolchain and its dependencies, and restore the build output of the latest `main` run so pull
 requests compile incrementally; only `main` saves it.
+
+## Releasing
+
+Pushing a tag `v*` runs [`release.yml`](.github/workflows/release.yml), which tests the library on the JVM and the
+iOS simulator and then runs `./kotlin publish -m nosqlite mavenCentral`. The job runs in
+the `release` environment, whose secrets hold the Central Portal token and the signing key, and it uploads the signed
+bundle without releasing it: check it in the [Central Portal](https://central.sonatype.com/publishing/deployments),
+then publish it there. The version is `settings.publishing.version` in
+[`publishing.module-template.yaml`](publishing.module-template.yaml); the tag must match it.
 
 ## License
 

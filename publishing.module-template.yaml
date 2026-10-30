@@ -1,0 +1,17 @@
+# Maven Central publication shared by the library modules, applied in their module.yaml. See Releasing in README.md.
+settings:
+  publishing:
+    enabled: true
+    group: io.github.nailkhaf
+    version: 0.1.0
+    mavenCentral: enabled
+    signArtifacts: true
+    publishSources: true
+    pom:
+      url: https://github.com/nailkhaf/nosqlite.kt
+      scm: https://github.com/nailkhaf/nosqlite.kt.git
+      developers:
+        - name: Nail Khafizov
+      licenses:
+        - name: Apache-2.0
+          url: https://www.apache.org/licenses/LICENSE-2.0.txt

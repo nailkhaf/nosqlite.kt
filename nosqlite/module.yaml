@@ -2,9 +2,13 @@ product:
   type: kmp/lib
   platforms: [ jvm, android, iosArm64, iosSimulatorArm64 ]
 
+apply:
+  - //publishing.module-template.yaml
+
 dependencies:
   - $libs.androidx.sqlite.bundled: exported
   - $libs.kotlinx.coroutines.core: exported
+  - $libs.kotlinx.serialization.json: exported # KSerializer and JsonObject are in the API
   - $libs.kotlinx.atomicfu
   - $libs.kotlinx.collections.immutable
   - $libs.kotlinx.io.core
@@ -16,6 +20,10 @@ test-dependencies@jvm:
   - $libs.kctfork.core
 
 settings:
+  publishing:
+    pom:
+      name: nosqlite
+      description: "A Kotlin Multiplatform document store on SQLite JSONB with kotlinx.serialization."
   kotlin:
     freeCompilerArgs:
       - -Xexplicit-api=strict
