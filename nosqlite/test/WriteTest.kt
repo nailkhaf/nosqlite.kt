@@ -16,7 +16,7 @@ import kotlin.test.assertSame
 internal class WriteTest {
 
     object Users : Collection("users") {
-        val byId = unique("id")
+        override val byId = unique("id")
         val byEmail = unique("email")
     }
 

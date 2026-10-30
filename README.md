@@ -118,6 +118,11 @@ renamed with `@SerialName`. Keys are identifiers.
 partial: `unique("nickname", where = { "active".isTrue() })`. Each index is named by a hash of its definition, so a
 changed index is dropped and created again when the database opens, and a removed one dropped.
 
+`primaryKey(Contact::id)` declares the one field that identifies a document. It is a unique index on a single JSON
+primitive (`String`, `Long`, `Uuid`, or a nested path such as `meta.id`), looked up with `byId` and upserted like any
+unique index. An update that changes it or an insert that omits it fails with `NoSqliteException.PrimaryKeyChanged`
+and rolls back. A collection without one works as before.
+
 Calling an index looks documents up by its values. A unique index takes all its fields, none `null`, and finds at most
 one document: `get<T>()`, `update(value)`, `replace(value)` and `delete()` return the document or whether there was
 one. A plain index takes its leading fields, `null` matching a null or missing field, and finds any number:
@@ -129,12 +134,14 @@ one. A plain index takes its leading fields, `null` matching a null or missing f
 Inside `db.write { }`:
 
 - `insert(value)` adds a document.
-- `update(value) { condition }` applies the value to every match as a JSON merge patch: its fields replace theirs,
-  a `null` removes one, and fields it doesn't have are kept.
-- `replace(value) { condition }` stores the value as the whole document of every match.
-- `delete { condition }` deletes every match.
+- `byId(id).update(value)`, `byEmail(email).delete()` and `byEmail.upsert(value)` change the one document of a
+  primary key or unique index. These are on every collection.
+- `update(value) { condition }`, `replace(value) { condition }` and `delete { condition }` change every match. These
+  are on `Collection` only, so a tracked collection does not have them. A plain index lookup (`byAge(36).delete()`)
+  is bulk in the same way and is rejected on a tracked collection.
 
-Each returns how many documents it touched. A write commits when its block returns and rolls back when it throws;
+`update` and `replace` return how many documents they touched, and `delete` does too. A write commits when its block
+returns and rolls back when it throws;
 a nested `write` is a savepoint that rolls back alone. A duplicate key throws `NoSqliteException.UniqueViolation`
 naming the index; caught inside the write, the transaction goes on. When another `NoSqlite` or process keeps the same
 file locked for over 5 seconds, the operation throws `NoSqliteException.Busy` and can be retried; one `NoSqlite` per
@@ -215,6 +222,40 @@ condition, sort key or index as its string form, so the two mix freely.
 `observe` runs in a `NoSqlite` context and returns a `Flow` that reads now and again after every committed write
 that changed the collection. Writes that land while it reads are folded into one more read, and a result equal to
 the last one isn't emitted. Changes are tracked per collection.
+
+### Change tracking
+
+`nosqlite-tracking` records every key write to a `TrackedCollection` as a `PendingChange` in the same transaction, for
+syncing the collection elsewhere. An insert records the whole document, an update the RFC 7396 merge patch of the
+fields that changed plus the primary key, and a delete just the primary key. A nested primary key such as `meta.id`
+is a nested object. Where-based writes are not on a tracked collection. `PendingChanges` is created when the database
+opens. Writes inside `applyRemote` are stored and not recorded.
+
+```kotlin
+import io.github.nailkhaf.nosqlite.*
+import io.github.nailkhaf.nosqlite.tracking.*
+
+object Contacts : TrackedCollection("contacts") {
+    override val id = primaryKey(Contact::id)
+    val byAddress = unique(Contact::address)
+}
+
+val db = NoSqlite("app.db") { +Contacts }
+val tracker = ChangeTracker(db)
+
+db.write { Contacts.insert(Contact("ada", "ada@example.com", "Ada")) }
+db.write { Contacts.byId("ada").update(Contact("ada", "ada@example.com", "Augusta")) } // {"id":"ada","name":"Augusta"}
+db.write { Contacts.byAddress("ada@example.com").delete() }                           // {"id":"ada"}
+
+tracker.observePending(Contacts).collect { changes ->
+    push(changes)
+    db.write { tracker.acknowledge(changes) }
+}
+
+tracker.applyRemote { Contacts.insert(Contact("alan", "alan@example.com", "Alan")) }
+```
+
+Reads go through the collection as usual (`Contacts.byId("ada").get<Contact>()`).
 
 ## Sample
 

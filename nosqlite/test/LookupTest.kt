@@ -27,7 +27,7 @@ internal class LookupTest {
     )
 
     object Users : Collection("users") {
-        val byId = unique("id")
+        override val byId = unique("id")
         val byEmail = unique("email")
         val byNickname = unique("nickname", where = { "active".isTrue() })
         val byFullName = unique("name.last", "name.first")

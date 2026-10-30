@@ -2,6 +2,7 @@ package io.github.nailkhaf.nosqlite
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.serializer
+import kotlin.uuid.Uuid
 
 /**
  * Documents of an index with the given values for its fields, made by calling the index. A [Unique] one is the
@@ -47,6 +48,7 @@ internal fun sqlValue(value: Any?): SqlValue = when (value) {
     is String -> SqlValue.Text(value)
     is Number -> value.sqlValue
     is Boolean -> SqlValue.Integer(if (value) 1 else 0)
+    is Uuid -> SqlValue.Text(value.toString())
     else -> throw IllegalArgumentException("Unsupported value: ${value::class.simpleName}")
 }
 
@@ -72,7 +74,7 @@ public suspend inline fun <reified T> Lookup.Many.update(value: T): Int = update
 
 context(_: WriteScope)
 public suspend fun <T> Lookup.Many.update(serializer: KSerializer<T>, value: T): Int =
-    index.collection.update(serializer, value) { condition }
+    index.collection.asBulk().update(serializer, value) { condition }
 
 /** Replaces the documents found with [value]; the result is how many were replaced. */
 context(_: WriteScope)
@@ -80,11 +82,11 @@ public suspend inline fun <reified T> Lookup.Many.replace(value: T): Int = repla
 
 context(_: WriteScope)
 public suspend fun <T> Lookup.Many.replace(serializer: KSerializer<T>, value: T): Int =
-    index.collection.replace(serializer, value) { condition }
+    index.collection.asBulk().replace(serializer, value) { condition }
 
 /** Deletes the documents found; the result is how many were deleted. */
 context(_: WriteScope)
-public suspend fun Lookup.Many.delete(): Int = index.collection.delete { condition }
+public suspend fun Lookup.Many.delete(): Int = index.collection.asBulk().delete { condition }
 
 /** The document found as [T], `null` when there is none. */
 context(_: ReadScope)
@@ -100,7 +102,7 @@ public suspend inline fun <reified T> Lookup.Unique.update(value: T): Boolean = 
 
 context(_: WriteScope)
 public suspend fun <T> Lookup.Unique.update(serializer: KSerializer<T>, value: T): Boolean =
-    index.collection.update(serializer, value) { condition } > 0
+    index.collection.updateWhere(index.collection.encode(serializer, value), condition) > 0
 
 /** Replaces the document found with [value]; the result is whether there was one. */
 context(_: WriteScope)
@@ -108,11 +110,11 @@ public suspend inline fun <reified T> Lookup.Unique.replace(value: T): Boolean =
 
 context(_: WriteScope)
 public suspend fun <T> Lookup.Unique.replace(serializer: KSerializer<T>, value: T): Boolean =
-    index.collection.replace(serializer, value) { condition } > 0
+    index.collection.replaceWhere(index.collection.encode(serializer, value), condition) > 0
 
 /** Deletes the document found; the result is whether there was one. */
 context(_: WriteScope)
-public suspend fun Lookup.Unique.delete(): Boolean = index.collection.delete { condition } > 0
+public suspend fun Lookup.Unique.delete(): Boolean = index.collection.deleteWhere(condition) > 0
 
 /**
  * Inserts [value], or applies it as a JSON merge patch to the document that has its values in this index, as `update`
@@ -124,6 +126,17 @@ public suspend inline fun <reified T> UniqueIndex.upsert(value: T): Unit = upser
 context(_: WriteScope)
 public suspend fun <T> UniqueIndex.upsert(serializer: KSerializer<T>, value: T) {
     val json = collection.encode(serializer, value)
-    collection.withConnection { Queries.upsert(this@upsert).execute(json) }
+    val parsed = parseDocument(json)
+    val before = matches(parsed)?.let { match ->
+        collection.withConnection { Queries.selectRows(collection, match).execute() }.singleOrNull()
+    }
+    val stored = collection.withConnection { Queries.upsert(this@upsert).execute(json) }
+    val after = parseDocument(stored.json)
+    val previous = before?.takeIf { it.rowId == stored.rowId }?.let { parseDocument(it.json) }
+    collection.enforcePrimaryKey(previous, after)
     collection.changed()
+    val hook = collection.interceptor
+    if (hook != null) {
+        if (previous == null) hook.insert(after) else hook.update(previous, after)
+    }
 }

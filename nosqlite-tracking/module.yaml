@@ -1,0 +1,25 @@
+product:
+  type: kmp/lib
+  platforms: [ jvm, android, iosArm64, iosSimulatorArm64 ]
+
+dependencies:
+  - //nosqlite: exported
+
+test-dependencies:
+  - $libs.kotlinx.coroutines.test
+
+test-dependencies@jvm:
+  - $libs.kctfork.core
+
+settings:
+  kotlin:
+    freeCompilerArgs:
+      - -Xexplicit-api=strict
+    powerAssert:
+      enabled: true
+    version: 2.4.21
+    optIns:
+      - kotlin.time.ExperimentalTime
+      - kotlin.uuid.ExperimentalUuidApi
+      - io.github.nailkhaf.nosqlite.ExperimentalWriteHook
+    serialization: json

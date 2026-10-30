@@ -8,6 +8,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
+import kotlin.time.Clock
 
 /**
  * A document database. Every collection it serves is declared up front:
@@ -31,10 +32,16 @@ public class NoSqlite(
 
     private val connections = ConnectionPool(location, driver, dispatcher)
 
-    private val tables = SchemaBuilder().apply(schema)
+    private val tables = SchemaBuilder().apply(schema).also { builder ->
+        val extras = builder.collections.flatMap { it.companions }.distinctBy { it.name }
+        for (extra in extras) {
+            if (builder.collections.none { it.name == extra.name }) builder.collections += extra
+        }
+    }
 
     private val ready = suspendLazy {
         connections.write {
+            tables.collections.forEach { it.host = this }
             context(connection()) {
                 tables.removed.forEach { Queries.dropTable(it).execute() }
                 tables.collections.forEach { createSchema(it) }
@@ -45,6 +52,10 @@ public class NoSqlite(
 
     /** How many committed writes changed each collection; one no write changed yet is missing. */
     internal val versions = MutableStateFlow(emptyMap<String, Long>())
+
+    /** Clock used by a write hook that stamps changes. [Clock.System] until a tracker replaces it. */
+    @ExperimentalWriteHook
+    public var trackingClock: Clock = Clock.System
 
     internal suspend fun pool(): ConnectionPool = ready.get()
 
@@ -82,11 +93,11 @@ public annotation class SchemaDsl
 
 @SchemaDsl
 public class SchemaBuilder internal constructor() {
-    internal val collections = mutableListOf<Collection>()
+    internal val collections = mutableListOf<BaseCollection>()
     internal val removed = mutableListOf<String>()
 
     /** Declares this collection; each name can be declared once. */
-    public operator fun Collection.unaryPlus() {
+    public operator fun BaseCollection.unaryPlus() {
         require(collections.none { it.name == name }) { "Collection '$name' is declared more than once" }
         require(name !in removed) { "Collection '$name' is both declared and removed" }
         collections += this
@@ -123,7 +134,8 @@ public suspend fun <R> NoSqlite.write(block: suspend context(WriteScope) () -> R
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
 context(_: Connection)
-internal suspend fun createSchema(collection: Collection) {
+internal suspend fun createSchema(collection: BaseCollection) {
+    collection.openChecks.forEach { it() }
     Queries.createTable(collection).execute()
     val columns = Queries.tableColumns.execute(collection.name)
     if (columns != Queries.TableColumns) throw NoSqliteException.IncompatibleTable(collection.name, columns)

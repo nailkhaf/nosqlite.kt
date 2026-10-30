@@ -11,13 +11,13 @@ import kotlinx.serialization.serializer
  * never sits in memory at once. [action] runs in the current transaction, one document at a time.
  */
 context(_: ReadScope)
-public suspend inline fun <reified T> Collection.forEach(
+public suspend inline fun <reified T> BaseCollection.forEach(
     noinline query: QueryScope.() -> Unit = {},
     noinline action: suspend (T) -> Unit,
 ): Unit = forEach(serializer(), query, action)
 
 context(_: ReadScope)
-public suspend fun <T> Collection.forEach(
+public suspend fun <T> BaseCollection.forEach(
     serializer: KSerializer<T>,
     query: QueryScope.() -> Unit = {},
     action: suspend (T) -> Unit,
