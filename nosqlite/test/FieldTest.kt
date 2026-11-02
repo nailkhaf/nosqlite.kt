@@ -32,7 +32,7 @@ internal class FieldTest {
         assertEquals(sql { "active" neq 0 }, sql { User::active neq false })
         assertEquals(sql { "active" gt 0 }, sql { User::active gt false })
         assertEquals(sql { "age" isIn listOf(30, 40) }, sql { User::age isIn listOf(30, 40) })
-        assertEquals(sql { "age" isIn emptyList<Int>() }, sql { User::age isIn emptyList() })
+        assertEquals(sql { "age" isIn emptyList<Long>() }, sql { User::age isIn emptyList() })
         assertEquals(sql { "id" isIn emptyList<String>() }, sql { User::id isIn emptyList() })
         assertEquals(sql { "tags" contains "kotlin" }, sql { User::tags contains "kotlin" })
         assertEquals(sql { "nickname" eq "bobby" }, sql { User::nickname eq "bobby" })
@@ -51,7 +51,7 @@ internal class FieldTest {
         assertEquals(sql { "score" isIn listOf(0.1, 2.5) }, sql { Measure::score isIn listOf(0.1, 2.5) })
         assertEquals(sql { "score" isIn emptyList<Double>() }, sql { Measure::score isIn emptyList() })
         assertEquals(sql { "on" isIn listOf(1, 0) }, sql { Measure::on isIn listOf(true, false) })
-        assertEquals(sql { "on" isIn emptyList<Int>() }, sql { Measure::on isIn emptyList() })
+        assertEquals(sql { "on" isIn emptyList<Long>() }, sql { Measure::on isIn emptyList() })
         assertEquals(sql { "counts" contains 2 }, sql { Measure::counts contains 2 })
         assertEquals(
             sql { "serials" contains Long.MAX_VALUE },
