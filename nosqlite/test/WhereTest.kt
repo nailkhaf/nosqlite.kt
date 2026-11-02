@@ -33,17 +33,30 @@ internal class WhereTest {
     }
 
     @Test
-    fun `int long and double overloads bind as integers and reals`() {
+    fun `integer literals adapt to long`() {
         fun bound(block: WhereScope.() -> Where): SqlValue = where(block).render().params.single()
+        val age = 18
 
         assertEquals(SqlValue.Integer(18), bound { "age" eq 18 })
         assertEquals(SqlValue.Integer(-2), bound { "age" neq -2 })
-        assertEquals(SqlValue.Integer(Int.MIN_VALUE.toLong()), bound { "age" gt Int.MIN_VALUE })
-        assertEquals(SqlValue.Integer(Int.MAX_VALUE.toLong()), bound { "age" gte Int.MAX_VALUE })
+        assertEquals(SqlValue.Integer(1), bound { "age" gt 1 })
+        assertEquals(SqlValue.Integer(2), bound { "age" gte 2 })
         assertEquals(SqlValue.Integer(0), bound { "age" lt 0 })
         assertEquals(SqlValue.Integer(7), bound { "age" lte 7 })
         assertEquals(SqlValue.Integer(4), bound { "counts" contains 4 })
+        assertEquals(SqlValue.Integer(18), bound { "age" eq age.toLong() })
+        assertEquals(
+            listOf(SqlValue.Text("[1,2]")),
+            where { "age" isIn listOf(1, 2) }.render().params,
+        )
+    }
 
+    @Test
+    fun `long and double overloads bind as integers and reals`() {
+        fun bound(block: WhereScope.() -> Where): SqlValue = where(block).render().params.single()
+
+        assertEquals(SqlValue.Integer(Int.MIN_VALUE.toLong()), bound { "age" gt Int.MIN_VALUE.toLong() })
+        assertEquals(SqlValue.Integer(Int.MAX_VALUE.toLong()), bound { "age" gte Int.MAX_VALUE.toLong() })
         assertEquals(SqlValue.Integer(18L), bound { "id" eq 18L })
         assertEquals(SqlValue.Integer(-2L), bound { "id" neq -2L })
         assertEquals(SqlValue.Integer(Long.MIN_VALUE), bound { "id" gt Long.MIN_VALUE })
@@ -89,17 +102,17 @@ internal class WhereTest {
 
     @Test
     fun `isIn binds its values as one JSON array`() {
-        val ints = where { "age" isIn listOf<Int>(30, 40) }.render()
+        val literals = where { "age" isIn listOf(1, 2) }.render()
         val longs = where { "id" isIn listOf(Long.MIN_VALUE, Long.MAX_VALUE) }.render()
         val doubles = where { "score" isIn listOf(30.0, 40.5) }.render()
 
-        assertEquals("data ->> '$.age' IN (SELECT value FROM json_each(?))", ints.sql)
+        assertEquals("data ->> '$.age' IN (SELECT value FROM json_each(?))", literals.sql)
         assertEquals("data ->> '$.id' IN (SELECT value FROM json_each(?))", longs.sql)
         assertEquals("data ->> '$.score' IN (SELECT value FROM json_each(?))", doubles.sql)
-        assertEquals(listOf(SqlValue.Text("[30,40]")), ints.params)
+        assertEquals(listOf(SqlValue.Text("[1,2]")), literals.params)
         assertEquals(listOf(SqlValue.Text("[${Long.MIN_VALUE},${Long.MAX_VALUE}]")), longs.params)
         assertEquals(listOf(SqlValue.Text("[30.0,40.5]")), doubles.params)
-        assertEquals("data ->> '$.age' IN (30, 40)", where { "age" isIn listOf<Int>(30, 40) }.toString())
+        assertEquals("data ->> '$.age' IN (1, 2)", where { "age" isIn listOf(1, 2) }.toString())
     }
 
     @Test
@@ -110,7 +123,6 @@ internal class WhereTest {
     @Test
     fun `isIn of nothing matches nothing`() {
         assertEquals("0 = 1", where { "age" isIn emptyList<String>() }.render().sql)
-        assertEquals("0 = 1", where { "age" isIn emptyList<Int>() }.render().sql)
         assertEquals("0 = 1", where { "id" isIn emptyList<Long>() }.render().sql)
         assertEquals("0 = 1", where { "score" isIn emptyList<Double>() }.render().sql)
     }
@@ -163,7 +175,7 @@ internal class WhereTest {
             matching("bob") { "id" like "b_b" },
             matching { "id" like "b_" },
             matching { "age" isIn emptyList<String>() },
-            matching("ann", "cid") { "age" isIn listOf<Int>(17, 45) },
+            matching("ann", "cid") { "age" isIn listOf(17, 45) },
             matching("bob") { "score" isIn listOf(2.5, 3.0) },
         )
 
@@ -180,7 +192,7 @@ internal class WhereTest {
             Users.insert(user("bob", 40_000))
         }
 
-        val ids = db.idsWhere(where { "age" isIn (17..50_000).filter { it != 40_000 } })
+        val ids = db.idsWhere(where { "age" isIn (17L..50_000L).filter { it != 40_000L } })
 
         assertEquals(listOf("ann"), ids)
     }

@@ -12,8 +12,8 @@ import kotlin.test.assertTrue
 
 /**
  * The typed operators are overloads, so a property of any other type fails to compile. The string-key operators
- * are overloads of [String], [Int], [Long] and [Double], so [Float], [Short] and [Byte] fail to compile there too.
- * kotlin.test cannot assert that, so these snippets compile against the library on the JVM.
+ * take [String], [Long] and [Double]. An integer literal adapts to [Long]; an [Int] variable, [Float], [Short] and
+ * [Byte] fail to compile. kotlin.test cannot assert that, so these snippets compile against the library on the JVM.
  */
 internal class TypedWhereCompileTest {
 
@@ -25,7 +25,7 @@ internal class TypedWhereCompileTest {
     }
 
     @Test
-    fun `string keys reject float short and byte`() {
+    fun `string keys reject int variables float short and byte`() {
         val files = stringRejected.map { (name, expression) ->
             name to SourceFile.kotlin(name, stringProbe(expression))
         }
@@ -97,6 +97,9 @@ internal class TypedWhereCompileTest {
         "RejectStringShortIn.kt" to """"age" isIn listOf(1.toShort())""",
         "RejectStringByte.kt" to """"age" eq 1.toByte()""",
         "RejectStringByteContains.kt" to """"counts" contains 1.toByte()""",
+        "RejectStringInt.kt" to """this.run { val age: Int = 18; "age" eq age }""",
+        "RejectStringIntIn.kt" to """this.run { val ages: List<Int> = listOf(1, 2); "age" isIn ages }""",
+        "RejectStringIntContains.kt" to """this.run { val count: Int = 1; "counts" contains count }""",
     )
 }
 
@@ -206,8 +209,13 @@ private val accepted = """
         "age" gte 18,
         "age" lt 18,
         "age" lte 18,
-        "age" isIn listOf<Int>(18, 36),
-        "age" isIn emptyList<Int>(),
+        "age" isIn listOf(1, 2),
+        "age" isIn listOf(18, 36),
+        "age" isIn emptyList<Long>(),
+        this.run {
+            val age = 18
+            "age" eq age.toLong()
+        },
         "serial" eq 1L,
         "serial" neq 1L,
         "serial" gt 0L,
