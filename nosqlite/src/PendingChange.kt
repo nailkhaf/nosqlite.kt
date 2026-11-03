@@ -42,5 +42,14 @@ public suspend fun removePendingChanges(changes: List<PendingChange>) {
 }
 
 context(_: ReadScope)
-private suspend fun readPendingChanges(): List<PendingChange> =
-    context(connection()) { Queries.pendingChanges.execute() }
+private suspend fun readPendingChanges(): List<PendingChange> {
+    val connection = connection()
+    val present = connection.statement(
+        "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?;",
+    ) {
+        it.bindText(1, PENDING_CHANGES)
+        it.step()
+    }
+    if (!present) return emptyList()
+    return context(connection) { Queries.pendingChanges.execute() }
+}

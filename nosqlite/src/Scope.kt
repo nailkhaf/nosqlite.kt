@@ -15,11 +15,8 @@ public open class ReadScope internal constructor(internal val connection: Connec
  * Inside `write { }`: documents can also be inserted, updated, replaced and deleted.
  * A nested write is a savepoint that rolls back alone.
  */
-public class WriteScope internal constructor(
-    connection: Connection,
-    pool: ConnectionPool,
-    internal val recording: Boolean = true,
-) : ReadScope(connection, pool) {
+public class WriteScope internal constructor(connection: Connection, pool: ConnectionPool) :
+    ReadScope(connection, pool) {
     // The collections this transaction changed: a savepoint hands its own to the enclosing write when it releases.
     internal val changed: MutableSet<String> = mutableSetOf()
 }
@@ -28,7 +25,6 @@ public class WriteScope internal constructor(
 context(scope: WriteScope)
 internal fun Collection.changed() {
     scope.changed += name
-    if (tracked && scope.recording) scope.changed += PENDING_CHANGES
 }
 
 context(scope: ReadScope)
@@ -43,48 +39,39 @@ internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) (
     }
 }
 
-/** One write's tracking state: which collections record, whether this write opts out, and the clock's timestamp. */
-internal class Tracking(val collections: List<Collection>, val untracked: Boolean, val now: Long)
-
 /**
  * Runs [block] in a write; [onCommit] gets the collections it changed once the outermost write commits, even when the
- * caller is cancelled right after the commit. [tracking] is set only when the database has a tracked collection.
+ * caller is cancelled right after the commit. [tracked] is empty when the database records nothing, and then the
+ * write runs no tracking SQL. [untracked] sets the temp flag for this transaction only and cannot nest.
  */
 internal suspend fun <R> ConnectionPool.write(
     onCommit: (Set<String>) -> Unit = {},
-    tracking: Tracking? = null,
+    tracked: List<Collection> = emptyList(),
+    untracked: Boolean = false,
     block: suspend context(WriteScope) () -> R,
 ): R {
     activeScope(this)?.let { active ->
         check(active is WriteScope) { "Write inside a read transaction, start write { } outside of read { }" }
-        val scope = WriteScope(active.connection, this, recording = active.recording && tracking?.untracked != true)
-        return active.connection.transaction(Boundary.Savepoint) {
-            // A nested untracked write bumps the counter and restores it on the way out. A throw skips that
-            // decrement: ROLLBACK TO restores the temp row, so the flag cannot stay set.
-            active.connection.stamp(tracking)
-            withScope(scope, block).also { active.connection.unstamp(tracking) }
-        }.also { active.changed += scope.changed }
+        check(!untracked) { "Untracked write cannot nest inside another write" }
+        val scope = WriteScope(active.connection, this)
+        return active.connection.transaction(Boundary.Savepoint) { withScope(scope, block) }
+            .also { active.changed += scope.changed }
     }
     return withWriter { connection ->
-        if (tracking != null) connection.installTracking(tracking.collections)
-        val scope = WriteScope(connection, this, recording = tracking?.untracked != true)
+        if (tracked.isNotEmpty()) connection.installTracking(tracked)
+        val scope = WriteScope(connection, this)
         connection.transaction(Boundary.Write) {
-            connection.stamp(tracking)
-            withScope(scope, block).also { connection.unstamp(tracking) }
+            // Set only for an untracked write. A throw skips the reset: rolling back restores the temp row to 0.
+            if (untracked && tracked.isNotEmpty()) connection.setUntracked(true)
+            withScope(scope, block).also {
+                if (untracked && tracked.isNotEmpty()) connection.setUntracked(false)
+            }
         }.also { onCommit(scope.changed.toSet()) }
     }
 }
 
-// The flag is a counter so an inner untracked write restores the outer one instead of clearing it.
-// Triggers treat any non-zero value as "record nothing".
-private suspend fun Connection.stamp(tracking: Tracking?) {
-    tracking ?: return
-    context(this) { Queries.stamp(tracking.untracked).execute(tracking.now) }
-}
-
-private suspend fun Connection.unstamp(tracking: Tracking?) {
-    if (tracking?.untracked != true) return
-    context(this) { Queries.unstamp.execute() }
+private suspend fun Connection.setUntracked(untracked: Boolean) {
+    context(this) { Queries.setUntracked.execute(untracked) }
 }
 
 /** The SQL that opens, commits and rolls back one kind of transaction. */

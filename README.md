@@ -195,9 +195,8 @@ the last one isn't emitted. Changes are tracked per collection.
 ### Change tracking
 
 `Collection("contacts", tracked = true)` records every insert, update and delete in `__pending_changes`.
-The collection declares its identity with one `primaryKey`: a unique index on a single field. While the collection
-is tracked, a write that changes that field is rejected. A collection can declare a primary key without tracking;
-it is that unique index.
+The collection declares its identity with one `primaryKey`, a unique index on a single field. Only a tracked
+collection declares one, and it must. A write that changes that field is rejected, an untracked write included.
 
 ```kotlin
 object Contacts : Collection("contacts", tracked = true) {
@@ -214,8 +213,9 @@ db.write(untracked = true) { import(contacts) }
 ```
 
 `pendingChanges()` emits the queue, ordered by id, again after every committed write that appended or removed rows.
-`removePendingChanges` deletes exactly the given rows, so a change written after they were read stays.
-`NoSqlite` takes a `Clock` and timestamps each recorded change with it. `write(untracked = true)` records nothing.
+With no tracked collection it is empty. `removePendingChanges` deletes exactly the given rows, so a change written
+after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
+`write(untracked = true)` records nothing and does not nest inside another write.
 The queue is append-only. A collection that is not tracked has no triggers, and a database with none of them writes
 as before.
 

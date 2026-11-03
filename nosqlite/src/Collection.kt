@@ -38,22 +38,20 @@ public open class Collection(public val name: String, public val tracked: Boolea
     internal var primaryKeyIndex: UniqueIndex? = null
         private set
 
-    /**
-     * The unique index on one field, this collection's identity. A tracked collection declares exactly one;
-     * with [where] only matching documents are indexed.
-     */
-    protected fun primaryKey(vararg fields: String, where: (WhereScope.() -> Where)? = null): UniqueIndex {
+    /** The unique index on one field, this collection's identity. A tracked collection declares exactly one. */
+    protected fun primaryKey(vararg fields: String): UniqueIndex {
+        require(tracked) { "Collection '$name' declares a primary key but is not tracked" }
         require(fields.size == 1) { "Collection '$name' primary key must be one field, not ${fields.size}" }
         require(primaryKeyIndex == null) { "Collection '$name' declares more than one primary key" }
-        return unique(*fields, where = where).also { primaryKeyIndex = it }
+        return unique(*fields).also { primaryKeyIndex = it }
     }
 
     /** The unique index on one property field, this collection's identity. */
-    protected fun primaryKey(vararg fields: Field<*, *>, where: (WhereScope.() -> Where)? = null): UniqueIndex =
-        primaryKey(*fields.map { it.path }.toTypedArray(), where = where)
+    protected fun primaryKey(vararg fields: Field<*, *>): UniqueIndex =
+        primaryKey(*fields.map { it.path }.toTypedArray())
 
-    protected fun primaryKey(vararg properties: KProperty1<*, *>, where: (WhereScope.() -> Where)? = null): UniqueIndex =
-        primaryKey(*properties.map { it.field }.toTypedArray(), where = where)
+    protected fun primaryKey(vararg properties: KProperty1<*, *>): UniqueIndex =
+        primaryKey(*properties.map { it.field }.toTypedArray())
 
     /** A unique index on [fields]: documents can't share their values; with [where] only matching ones count. */
     protected fun unique(vararg fields: String, where: (WhereScope.() -> Where)? = null): UniqueIndex =

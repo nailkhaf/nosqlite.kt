@@ -130,33 +130,27 @@ internal object Queries {
     val createTrackingState: Command<Unit> = command(
         """
         CREATE TEMP TABLE IF NOT EXISTS $TRACKING_STATE (
-            untracked INTEGER NOT NULL,
-            now INTEGER
+            untracked INTEGER NOT NULL
         );
         """.trimIndent(),
     )
 
     val seedTrackingState: Command<Unit> = command(
         """
-        INSERT INTO $TRACKING_STATE (untracked, now)
-        SELECT 0, NULL WHERE NOT EXISTS (SELECT 1 FROM $TRACKING_STATE);
+        INSERT INTO $TRACKING_STATE (untracked)
+        SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM $TRACKING_STATE);
         """.trimIndent(),
     )
 
-    fun stamp(untracked: Boolean): Statement<Long, Unit> = Statement(
-        sql = if (untracked) {
-            "UPDATE $TRACKING_STATE SET now = ?1, untracked = untracked + 1;"
-        } else {
-            "UPDATE $TRACKING_STATE SET now = ?1;"
-        },
-        encode = { now -> bindLong(1, now) },
+    val setUntracked: Statement<Boolean, Unit> = Statement(
+        sql = "UPDATE $TRACKING_STATE SET untracked = ?;",
+        encode = { untracked -> bindLong(1, if (untracked) 1 else 0) },
         decode = { step() },
     )
 
-    val unstamp: Command<Unit> = command("UPDATE $TRACKING_STATE SET untracked = untracked - 1;")
-
     /**
-     * Temp triggers, three per tracked table. A trigger stored in main cannot read a temp table, and
+     * Temp triggers per tracked table: one that rejects a changed primary key, and three that append the change
+     * unless the untracked flag is set. A trigger stored in main cannot read a temp table, and
      * INSERT/UPDATE/DELETE inside a trigger reject database-qualified names, so the body stays unqualified.
      */
     fun trackingTriggers(collection: Collection): List<String> {
@@ -164,15 +158,23 @@ internal object Queries {
         val name = SqlValue.Text(collection.name).literal
         val key = SqlValue.Text(collection.primaryKeyIndex!!.paths.single().jsonPath).literal
         val guard = "WHEN NOT (SELECT untracked FROM $TRACKING_STATE)"
-        val record = "INSERT INTO $PENDING_CHANGES (collection, before, after, timestamp)"
+        val record = "INSERT INTO $PENDING_CHANGES (collection, before, after, timestamp) VALUES"
+        val now = "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
         return listOf(
+            """
+            CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_key
+            BEFORE UPDATE ON $table
+            BEGIN
+                SELECT RAISE(ABORT, 'primary key is immutable')
+                WHERE json_extract(OLD.data, $key) IS NOT json_extract(NEW.data, $key);
+            END;
+            """.trimIndent(),
             """
             CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_insert
             AFTER INSERT ON $table
             $guard
             BEGIN
-                $record
-                SELECT $name, NULL, NEW.data, now FROM $TRACKING_STATE;
+                $record ($name, NULL, NEW.data, $now);
             END;
             """.trimIndent(),
             """
@@ -180,10 +182,7 @@ internal object Queries {
             AFTER UPDATE ON $table
             $guard
             BEGIN
-                SELECT RAISE(ABORT, 'primary key is immutable')
-                WHERE json_extract(OLD.data, $key) IS NOT json_extract(NEW.data, $key);
-                $record
-                SELECT $name, OLD.data, NEW.data, now FROM $TRACKING_STATE;
+                $record ($name, OLD.data, NEW.data, $now);
             END;
             """.trimIndent(),
             """
@@ -191,8 +190,7 @@ internal object Queries {
             AFTER DELETE ON $table
             $guard
             BEGIN
-                $record
-                SELECT $name, OLD.data, NULL, now FROM $TRACKING_STATE;
+                $record ($name, OLD.data, NULL, $now);
             END;
             """.trimIndent(),
         )

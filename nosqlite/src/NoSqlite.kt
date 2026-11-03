@@ -8,7 +8,6 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
-import kotlin.time.Clock
 
 /**
  * A document database. Every collection it serves is declared up front:
@@ -20,14 +19,13 @@ import kotlin.time.Clock
  * ```
  * Nothing touches the file until the first [read] or [write], which drops the tables of removed collections and
  * creates the declared ones in one write transaction before anything else runs.
- * A tracked collection records each of its changes and stamps it with the given clock.
+ * A tracked collection records each of its changes.
  * [close] closes every connection that was opened.
  */
 public class NoSqlite(
     private val location: Location = Location.InMemory,
     driver: SQLiteDriver = BundledSQLiteDriver(),
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val clock: Clock = Clock.System,
     schema: SchemaBuilder.() -> Unit,
 ) {
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
@@ -67,8 +65,22 @@ public class NoSqlite(
         versions.update { current -> current + changed.associateWith { (current[it] ?: 0) + 1 } }
     }
 
-    internal fun tracking(untracked: Boolean): Tracking? =
-        if (tracked.isEmpty()) null else Tracking(tracked, untracked, clock.now().toEpochMilliseconds())
+    /**
+     * Adds the pending-change queue to [changed] when this commit recorded any. Triggers cannot bump the version map
+     * observers watch, and the untracked flag lives only in the write connection's temp row.
+     */
+    internal fun publish(changed: Set<String>, untracked: Boolean): Set<String> =
+        if (untracked || tracked.none { it.name in changed }) changed else changed + PENDING_CHANGES
+
+    internal suspend fun <R> writeChanges(
+        untracked: Boolean,
+        block: suspend context(WriteScope) () -> R,
+    ): R = pool().write(
+        onCommit = { committed(publish(it, untracked)) },
+        tracked = tracked,
+        untracked = untracked,
+        block = block,
+    )
 
     /** Closes every connection that was opened; the database can't be used afterwards. */
     public suspend fun close(): Unit = connections.close()
@@ -138,7 +150,7 @@ public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R):
 public suspend fun <R> NoSqlite.write(
     untracked: Boolean = false,
     block: suspend context(WriteScope) () -> R,
-): R = pool().write(onCommit = ::committed, tracking = tracking(untracked), block = block)
+): R = writeChanges(untracked, block)
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
 context(_: Connection)

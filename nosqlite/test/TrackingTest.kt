@@ -1,6 +1,10 @@
 package io.github.nailkhaf.nosqlite
 
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.SQLiteException
+import androidx.sqlite.SQLiteStatement
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -15,7 +19,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -35,9 +38,6 @@ internal class TrackingTest {
     object Notes : Collection("notes")
 
     @Serializable
-    data class Person(val id: String)
-
-    @Serializable
     data class Named(val name: Name, val age: Int)
 
     private val ada = contact("ada", 36)
@@ -48,15 +48,9 @@ internal class TrackingTest {
     private fun contact(id: String, age: Int, name: String = id.replaceFirstChar { it.uppercase() }) =
         Contact(id, "$id@x.com", name, age)
 
-    private fun database(clock: Clock = Clock.System) = NoSqlite(clock = clock) {
+    private fun database() = NoSqlite {
         +Contacts
         +Notes
-    }
-
-    private fun clock(millis: Long) = ManualClock(millis)
-
-    private class ManualClock(var millis: Long) : Clock {
-        override fun now(): Instant = Instant.fromEpochMilliseconds(millis)
     }
 
     private fun Contact.json(): JsonObject =
@@ -65,20 +59,16 @@ internal class TrackingTest {
     private fun Named.json(): JsonObject =
         NoSqlite.Json.parseToJsonElement(NoSqlite.Json.encodeToString(this)) as JsonObject
 
-    private fun recorded(
-        id: Long,
-        before: JsonObject?,
-        after: JsonObject?,
-        at: Long,
-        collection: String = Contacts.name,
-    ) = PendingChange(id, collection, before, after, Instant.fromEpochMilliseconds(at))
+    private fun recorded(id: Long, before: JsonObject?, after: JsonObject?, collection: String = Contacts.name, ) = PendingChange(id, collection, before, after, Instant.fromEpochMilliseconds(0))
 
-    private suspend fun changes(db: NoSqlite): List<PendingChange> = db.read { pendingChanges() }
+    private suspend fun changes(db: NoSqlite): List<PendingChange> = db.read { pendingChanges() }.withoutTime()
 
-    /** Each change's before and after, when every row has this timestamp and the ids are 1..n with no duplicates. */
-    private fun List<PendingChange>.pairs(at: Long): Set<Pair<JsonObject?, JsonObject?>> {
+    private fun List<PendingChange>.withoutTime() = map { it.copy(timestamp = Instant.fromEpochMilliseconds(0)) }
+
+    /** Before and after of each change, with ids 1..n in order and no duplicate pair. */
+    private fun List<PendingChange>.pairs(): Set<Pair<JsonObject?, JsonObject?>> {
         assertEquals((1L..size).toList(), map { it.id })
-        assertTrue(all { it.timestamp == Instant.fromEpochMilliseconds(at) && it.collection == Contacts.name })
+        assertTrue(all { it.collection == Contacts.name })
         return map { it.before to it.after }.toSet().also { assertEquals(size, it.size) }
     }
 
@@ -104,16 +94,16 @@ internal class TrackingTest {
 
     @Test
     fun `insert records the new document`() = runTest {
-        val db = database(clock(1))
+        val db = database()
 
         db.write { Contacts.insert(ada) }
 
-        assertEquals(listOf(recorded(1, null, ada.json(), 1)), changes(db))
+        assertEquals(listOf(recorded(1, null, ada.json())), changes(db))
     }
 
     @Test
     fun `upsert records an insert and a merge`() = runTest {
-        val db = database(clock(1))
+        val db = database()
         val older = ada.copy(age = 37)
         val renamed = older.copy(name = "Ada Lovelace")
 
@@ -123,9 +113,9 @@ internal class TrackingTest {
 
         assertEquals(
             listOf(
-                recorded(1, null, ada.json(), 1),
-                recorded(2, ada.json(), older.json(), 1),
-                recorded(3, older.json(), renamed.json(), 1),
+                recorded(1, null, ada.json()),
+                recorded(2, ada.json(), older.json()),
+                recorded(3, older.json(), renamed.json()),
             ),
             changes(db),
         )
@@ -133,7 +123,7 @@ internal class TrackingTest {
 
     @Test
     fun `a unique lookup update, replace and delete record before and after`() = runTest {
-        val db = database(clock(1))
+        val db = database()
         val updated = ada.copy(name = "Ada Lovelace")
         val replaced = updated.copy(age = 37)
 
@@ -144,10 +134,10 @@ internal class TrackingTest {
 
         assertEquals(
             listOf(
-                recorded(1, null, ada.json(), 1),
-                recorded(2, ada.json(), updated.json(), 1),
-                recorded(3, updated.json(), replaced.json(), 1),
-                recorded(4, replaced.json(), null, 1),
+                recorded(1, null, ada.json()),
+                recorded(2, ada.json(), updated.json()),
+                recorded(3, updated.json(), replaced.json()),
+                recorded(4, replaced.json(), null),
             ),
             changes(db),
         )
@@ -156,7 +146,7 @@ internal class TrackingTest {
 
     @Test
     fun `a where update, replace and delete record every match`() = runTest {
-        val db = database(clock(1))
+        val db = database()
         val ada99 = ada.copy(age = 99)
         val grace99 = grace.copy(age = 99)
         val replaced = ada99.copy(name = "Augusta")
@@ -179,13 +169,13 @@ internal class TrackingTest {
                 replaced.json() to null,
                 grace99.json() to null,
             ),
-            changes(db).pairs(at = 1),
+            changes(db).pairs(),
         )
     }
 
     @Test
     fun `a many lookup update, replace and delete record every match`() = runTest {
-        val db = database(clock(1))
+        val db = database()
         val ada99 = ada.copy(age = 99)
         val grace99 = grace.copy(age = 99)
         val renamed = alan.copy(name = "Alan Turing")
@@ -210,13 +200,13 @@ internal class TrackingTest {
                 ada99.json() to null,
                 grace99.json() to null,
             ),
-            changes(db).pairs(at = 1),
+            changes(db).pairs(),
         )
     }
 
     @Test
     fun `a write that matches nothing records nothing`() = runTest {
-        val db = database(clock(1))
+        val db = database()
         db.write { Contacts.insert(ada) }
 
         db.write {
@@ -227,12 +217,12 @@ internal class TrackingTest {
             assertEquals(0, Contacts.byAge(1).delete())
         }
 
-        assertEquals(listOf(recorded(1, null, ada.json(), 1)), changes(db))
+        assertEquals(listOf(recorded(1, null, ada.json())), changes(db))
     }
 
     @Test
     fun `changing the primary key is rejected and that statement rolls back`() = runTest {
-        val db = database(clock(1))
+        val db = database()
 
         db.write {
             Contacts.insert(ada)
@@ -247,7 +237,7 @@ internal class TrackingTest {
 
         assertEquals(listOf(ada, alan), db.contacts())
         assertEquals(
-            listOf(recorded(1, null, ada.json(), 1), recorded(2, null, alan.json(), 1)),
+            listOf(recorded(1, null, ada.json()), recorded(2, null, alan.json())),
             changes(db),
         )
     }
@@ -257,7 +247,7 @@ internal class TrackingTest {
         val people = object : Collection("people", tracked = true) {
             val byLast = primaryKey(Named::name / Name::last)
         }
-        val db = NoSqlite(clock = clock(1)) { +people }
+        val db = NoSqlite() { +people }
         val lovelace = Named(Name("Ada", "Lovelace"), 36)
 
         val error = db.write {
@@ -271,33 +261,57 @@ internal class TrackingTest {
 
         assertTrue("primary key is immutable" in error.message.orEmpty())
         assertEquals(listOf(lovelace), db.read { people.list<Named>() })
-        assertEquals(listOf(recorded(1, null, lovelace.json(), 1, people.name)), changes(db))
+        assertEquals(listOf(recorded(1, null, lovelace.json(), people.name)), changes(db))
     }
 
     @Test
     fun `untracked writes record nothing`() = runTest {
-        val db = database(clock(1))
+        val db = database()
         val older = ada.copy(age = 37)
 
-        db.write {
-            Contacts.insert(ada)
-            db.write(untracked = true) {
-                Contacts.insert(alan)
-                db.write { Contacts.insert(grace) }
-            }
-            Contacts.byId("ada").update(older)
-        }
+        db.write { Contacts.insert(ada) }
+        db.write(untracked = true) { Contacts.insert(alan) }
+        db.write { Contacts.byId("ada").update(older) }
 
         assertEquals(
-            listOf(recorded(1, null, ada.json(), 1), recorded(2, ada.json(), older.json(), 1)),
+            listOf(recorded(1, null, ada.json()), recorded(2, ada.json(), older.json())),
             changes(db),
         )
-        assertEquals(listOf(older, alan, grace), db.contacts())
+        assertEquals(listOf(older, alan), db.contacts())
+    }
+
+    @Test
+    fun `an untracked write cannot nest`() = runTest {
+        val db = database()
+
+        val error = db.write {
+            Contacts.insert(ada)
+            assertFailsWith<IllegalStateException> { db.write(untracked = true) { Contacts.insert(alan) } }
+        }
+
+        assertEquals("Untracked write cannot nest inside another write", error.message)
+        assertEquals(listOf(recorded(1, null, ada.json())), changes(db))
+        assertEquals(listOf(ada), db.contacts())
+    }
+
+    @Test
+    fun `an untracked write cannot change the primary key`() = runTest {
+        val db = database()
+        db.write { Contacts.insert(ada) }
+
+        db.write(untracked = true) {
+            val error = assertFailsWith<SQLiteException> { Contacts.byId("ada").update(ada.copy(id = "ada2")) }
+            assertTrue("primary key is immutable" in error.message.orEmpty())
+        }
+
+        assertEquals(listOf(ada), db.contacts())
+        assertEquals(listOf(recorded(1, null, ada.json())), changes(db))
+        assertEquals(listOf(listOf("0")), db.querySql("SELECT untracked FROM __tracking_state"))
     }
 
     @Test
     fun `a thrown untracked write leaves the flag unset`() = runTest {
-        val db = database(clock(1))
+        val db = database()
         db.write { Contacts.insert(ada) }
 
         assertFails {
@@ -310,71 +324,36 @@ internal class TrackingTest {
         assertEquals(listOf(listOf("0")), db.querySql("SELECT untracked FROM __tracking_state"))
         db.write { Contacts.insert(grace) }
         assertEquals(
-            listOf(recorded(1, null, ada.json(), 1), recorded(2, null, grace.json(), 1)),
+            listOf(recorded(1, null, ada.json()), recorded(2, null, grace.json())),
             changes(db),
         )
         assertEquals(listOf(ada, grace), db.contacts())
     }
 
     @Test
-    fun `a thrown nested untracked write does not stick the flag`() = runTest {
-        val db = database(clock(1))
+    fun `timestamps fall in the write window and rows stay ordered by id`() = runTest {
+        val db = database()
+        val before = Clock.System.now()
 
-        db.write {
-            Contacts.insert(ada)
-            assertFails {
-                db.write(untracked = true) {
-                    Contacts.insert(alan)
-                    error("rollback")
-                }
-            }
-            Contacts.insert(grace)
-        }
-
-        assertEquals(listOf(listOf("0")), db.querySql("SELECT untracked FROM __tracking_state"))
-        assertEquals(
-            listOf(recorded(1, null, ada.json(), 1), recorded(2, null, grace.json(), 1)),
-            changes(db),
-        )
-        assertEquals(listOf(ada, grace), db.contacts())
-    }
-
-    @Test
-    fun `the clock timestamps each write`() = runTest {
-        val clock = clock(10)
-        val db = database(clock)
-
-        db.write {
-            Contacts.insert(ada)
-            clock.millis = 99
-            Contacts.insert(alan)
-        }
-        clock.millis = 11
+        db.write { Contacts.insert(ada) }
+        db.write { Contacts.insert(alan) }
         db.write { Contacts.byId("ada").delete() }
-        clock.millis = 12
-        db.write {
-            clock.millis = 13
-            db.write { Contacts.insert(grace) }
-        }
 
+        val after = Clock.System.now()
+        val rows = db.read { pendingChanges() }
+        assertEquals(listOf(1L, 2L, 3L), rows.map { it.id })
         assertEquals(
-            listOf(
-                recorded(1, null, ada.json(), 10),
-                recorded(2, null, alan.json(), 10),
-                recorded(3, ada.json(), null, 11),
-                recorded(4, null, grace.json(), 13),
-            ),
-            changes(db),
+            listOf(recorded(1, null, ada.json()), recorded(2, null, alan.json()), recorded(3, ada.json(), null)),
+            rows.withoutTime(),
         )
+        assertTrue(rows.all { it.timestamp in before..after })
     }
 
     @Test
     fun `removing pending changes leaves one written later`() = runTest {
-        val clock = clock(1)
-        val db = database(clock)
+        val db = database()
         db.write { Contacts.insert(ada) }
         val early = changes(db)
-        clock.millis = 2
         db.write { Contacts.insert(alan) }
 
         db.write {
@@ -382,14 +361,13 @@ internal class TrackingTest {
             removePendingChanges(early)
         }
 
-        assertEquals(listOf(recorded(2, null, alan.json(), 2)), changes(db))
+        assertEquals(listOf(recorded(2, null, alan.json())), changes(db))
         assertEquals(listOf(ada, alan), db.contacts())
     }
 
     @Test
     fun `pending changes are read again only after the queue changes`() = runTest {
-        val clock = clock(1)
-        val db = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler), clock = clock) {
+        val db = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
             +Contacts
             +Notes
         }
@@ -401,18 +379,17 @@ internal class TrackingTest {
         db.write(untracked = true) { Contacts.insert(alan) }
         assertEquals(1L, db.versions.value[PENDING_CHANGES])
         assertEquals(2L, db.versions.value[Contacts.name])
-        clock.millis = 2
         db.write { Contacts.insert(grace) }
         db.write { removePendingChanges(changes(db)) }
 
         assertEquals(
             listOf(
                 emptyList(),
-                listOf(recorded(1, null, ada.json(), 1)),
-                listOf(recorded(1, null, ada.json(), 1), recorded(2, null, grace.json(), 2)),
+                listOf(recorded(1, null, ada.json())),
+                listOf(recorded(1, null, ada.json()), recorded(2, null, grace.json())),
                 emptyList(),
             ),
-            seen,
+            seen.map { it.withoutTime() },
         )
     }
 
@@ -422,6 +399,7 @@ internal class TrackingTest {
 
         db.write { Notes.insert(note) }
 
+        assertEquals(emptyList(), db.read { pendingChanges() })
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger'"))
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_temp_schema WHERE type = 'trigger'"))
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = '__pending_changes'"))
@@ -429,14 +407,17 @@ internal class TrackingTest {
 
     @Test
     fun `only tracked collections get triggers`() = runTest {
-        val db = database(clock(1))
+        val db = database()
 
         db.write {
             Notes.insert(note)
             Contacts.insert(ada)
         }
 
-        assertEquals(listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_update"), db.tempTriggers())
+        assertEquals(
+            listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_key", "nsq_contacts_update"),
+            db.tempTriggers(),
+        )
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger'"))
         val sql = db.tempTriggerSql().joinToString("\n")
         assertTrue("primary key is immutable" in sql)
@@ -444,47 +425,58 @@ internal class TrackingTest {
         assertTrue("OLD.data" in sql && "NEW.data" in sql)
         val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = '__pending_changes'").single().single()
         assertTrue("AUTOINCREMENT" in table!!)
-        assertEquals(listOf(recorded(1, null, ada.json(), 1)), changes(db))
+        assertEquals(listOf(recorded(1, null, ada.json())), changes(db))
     }
 
     @Test
-    fun `a collection may declare a primary key without tracking`() = runTest {
-        val people = object : Collection("people") { val byId = primaryKey("id") }
-        val db = NoSqlite { +people }
-
-        db.write {
-            people.insert(Person("ada"))
-            people.byId("ada").update(Person("ada2"))
+    fun `a plain collection cannot declare a primary key`() {
+        val error = assertFailsWith<IllegalArgumentException> {
+            object : Collection("people") { val byId = primaryKey("id") }
         }
 
-        assertEquals(listOf(Person("ada2")), db.read { people.list<Person>() })
-        val duplicate = assertFailsWith<NoSqliteException.UniqueViolation> { db.write { people.insert(Person("ada2")) } }
-        assertSame(people.byId, duplicate.index)
-        assertEquals(emptyList(), db.tempTriggers())
-        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = '__pending_changes'"))
+        assertEquals("Collection 'people' declares a primary key but is not tracked", error.message)
+    }
+
+    @Test
+    fun `a plain write in a tracked database adds no statements`() = runTest {
+        val log = mutableListOf<String>()
+        val db = NoSqlite(driver = SqlLog(log)) {
+            +Contacts
+            +Notes
+        }
+        db.write { Contacts.insert(ada) }
+        log.clear()
+
+        db.write { Notes.insert(note) }
+
+        assertEquals(1, log.size, log.joinToString("\n"))
+        assertTrue("notes" in log.single())
+        assertTrue(log.none { "__tracking_state" in it || "__pending_changes" in it })
+
+        log.clear()
+        db.write(untracked = true) { Notes.insert(note) }
+        assertEquals(listOf("UPDATE __tracking_state SET untracked = ?;"), log)
     }
 
     @Test
     fun `reopening recreates the temp triggers and keeps recorded changes`() = runTest {
         withTempFile { location ->
-            val clock = clock(5)
-            val first = NoSqlite(location, clock = clock) { +Contacts }
+            val first = NoSqlite(location) { +Contacts }
             first.write { Contacts.insert(ada) }
             first.close()
 
-            clock.millis = 6
-            val second = NoSqlite(location, clock = clock) { +Contacts }
+            val second = NoSqlite(location) { +Contacts }
             second.write { Contacts.byId("ada").update(ada.copy(age = 37)) }
 
             assertEquals(
                 listOf(
-                    recorded(1, null, ada.json(), 5),
-                    recorded(2, ada.json(), ada.copy(age = 37).json(), 6),
+                    recorded(1, null, ada.json()),
+                    recorded(2, ada.json(), ada.copy(age = 37).json()),
                 ),
                 changes(second),
             )
             assertEquals(
-                listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_update"),
+                listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_key", "nsq_contacts_update"),
                 second.tempTriggers(),
             )
             second.close()
@@ -519,5 +511,19 @@ internal class TrackingTest {
         assertEquals("Collection 'contacts' primary key must be one field, not 0", none.message)
         assertEquals("Collection 'contacts' primary key must be one field, not 2", two.message)
         assertEquals("Collection 'contacts' declares more than one primary key", again.message)
+    }
+}
+
+private class SqlLog(private val log: MutableList<String>) : SQLiteDriver {
+    private val bundled = BundledSQLiteDriver()
+
+    override fun open(fileName: String): SQLiteConnection {
+        val sqlite = bundled.open(fileName)
+        return object : SQLiteConnection by sqlite {
+            override fun prepare(sql: String): SQLiteStatement {
+                log += sql
+                return sqlite.prepare(sql)
+            }
+        }
     }
 }
