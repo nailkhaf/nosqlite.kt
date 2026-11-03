@@ -8,6 +8,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
+import kotlin.time.Clock
 
 /**
  * A document database. Every collection it serves is declared up front:
@@ -19,31 +20,44 @@ import kotlinx.serialization.json.Json
  * ```
  * Nothing touches the file until the first [read] or [write], which drops the tables of removed collections and
  * creates the declared ones in one write transaction before anything else runs.
+ * A tracked collection records each of its changes and stamps it with the given clock.
  * [close] closes every connection that was opened.
  */
 public class NoSqlite(
     private val location: Location = Location.InMemory,
     driver: SQLiteDriver = BundledSQLiteDriver(),
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val clock: Clock = Clock.System,
     schema: SchemaBuilder.() -> Unit,
 ) {
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
 
-    private val connections = ConnectionPool(location, driver, dispatcher)
-
     private val tables = SchemaBuilder().apply(schema)
 
+    private val tracked = tables.collections.filter { it.tracked }
+
+    private val connections = ConnectionPool(location, driver, dispatcher)
+
     private val ready = suspendLazy {
+        tracked.forEach { collection ->
+            requireNotNull(collection.primaryKeyIndex) {
+                "Tracked collection '${collection.name}' must declare a primary key"
+            }
+        }
         connections.write {
             context(connection()) {
                 tables.removed.forEach { Queries.dropTable(it).execute() }
                 tables.collections.forEach { createSchema(it) }
+                if (tracked.isNotEmpty()) Queries.createPendingChanges.execute()
             }
         }
         connections
     }
 
-    /** How many committed writes changed each collection; one no write changed yet is missing. */
+    /**
+     * How many committed writes changed each collection, and [PENDING_CHANGES] when a tracked write recorded or
+     * removed pending changes. A key no write changed yet is missing.
+     */
     internal val versions = MutableStateFlow(emptyMap<String, Long>())
 
     internal suspend fun pool(): ConnectionPool = ready.get()
@@ -52,6 +66,9 @@ public class NoSqlite(
         if (changed.isEmpty()) return
         versions.update { current -> current + changed.associateWith { (current[it] ?: 0) + 1 } }
     }
+
+    internal fun tracking(untracked: Boolean): Tracking? =
+        if (tracked.isEmpty()) null else Tracking(tracked, untracked, clock.now().toEpochMilliseconds())
 
     /** Closes every connection that was opened; the database can't be used afterwards. */
     public suspend fun close(): Unit = connections.close()
@@ -116,10 +133,12 @@ public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R):
  * sequential. Using the database from coroutines launched inside it (`launch`, `async`, parallel flow operators)
  * concurrently is unsupported and can crash; sequential suspension inside the block is fine. Do parallel work
  * outside the transaction, each coroutine in its own [read] or [write], or gather results first and write them in
- * one sequential block.
+ * one sequential block. Pass [untracked] to record none of the writes tracked collections do in the block.
  */
-public suspend fun <R> NoSqlite.write(block: suspend context(WriteScope) () -> R): R =
-    pool().write(onCommit = ::committed, block)
+public suspend fun <R> NoSqlite.write(
+    untracked: Boolean = false,
+    block: suspend context(WriteScope) () -> R,
+): R = pool().write(onCommit = ::committed, tracking = tracking(untracked), block = block)
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
 context(_: Connection)

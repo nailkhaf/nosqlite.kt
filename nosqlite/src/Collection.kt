@@ -9,7 +9,8 @@ import kotlin.reflect.KProperty1
 /**
  * A named set of JSON object documents, stored in its own table. The documents are the JSON itself: each read decodes
  * them into the type it asks for, and a typed write changes only the fields its type declares, so fields the app
- * doesn't know yet survive. Create one directly, or extend it to declare indexes, and list it in `NoSqlite { }`:
+ * doesn't know yet survive. Create one directly, or extend it to declare indexes, and list it in `NoSqlite { }`.
+ * Pass `tracked = true` and declare one `primaryKey` to record every insert, update and delete.
  * ```
  * val Notes = Collection("notes")
  *
@@ -25,13 +26,34 @@ import kotlin.reflect.KProperty1
  * }
  * ```
  */
-public open class Collection(public val name: String) {
+public open class Collection(public val name: String, public val tracked: Boolean = false) {
     init {
         requireCollectionName(name)
     }
 
     internal val indexes: List<Index>
         field = mutableListOf()
+
+    /** The one-field unique index declared with [primaryKey], when this collection has one. */
+    internal var primaryKeyIndex: UniqueIndex? = null
+        private set
+
+    /**
+     * The unique index on one field, this collection's identity. A tracked collection declares exactly one;
+     * with [where] only matching documents are indexed.
+     */
+    protected fun primaryKey(vararg fields: String, where: (WhereScope.() -> Where)? = null): UniqueIndex {
+        require(fields.size == 1) { "Collection '$name' primary key must be one field, not ${fields.size}" }
+        require(primaryKeyIndex == null) { "Collection '$name' declares more than one primary key" }
+        return unique(*fields, where = where).also { primaryKeyIndex = it }
+    }
+
+    /** The unique index on one property field, this collection's identity. */
+    protected fun primaryKey(vararg fields: Field<*, *>, where: (WhereScope.() -> Where)? = null): UniqueIndex =
+        primaryKey(*fields.map { it.path }.toTypedArray(), where = where)
+
+    protected fun primaryKey(vararg properties: KProperty1<*, *>, where: (WhereScope.() -> Where)? = null): UniqueIndex =
+        primaryKey(*properties.map { it.field }.toTypedArray(), where = where)
 
     /** A unique index on [fields]: documents can't share their values; with [where] only matching ones count. */
     protected fun unique(vararg fields: String, where: (WhereScope.() -> Where)? = null): UniqueIndex =
@@ -69,6 +91,7 @@ private val CollectionName = Regex("[A-Za-z_][A-Za-z0-9_]*")
 internal fun requireCollectionName(name: String) {
     require(name.matches(CollectionName)) { "Invalid collection name: '$name'" }
     require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
+    require(name != PENDING_CHANGES && name != TRACKING_STATE) { "Collection name is reserved: '$name'" }
 }
 
 /** Inserts [value] as a new document; it must encode to a JSON object. */

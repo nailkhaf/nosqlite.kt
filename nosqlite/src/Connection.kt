@@ -11,6 +11,24 @@ import kotlinx.coroutines.ensureActive
 internal class Connection(private val sqlite: SQLiteConnection) {
     private val statements = StatementCache()
 
+    private var trackingInstalled = false
+
+    /**
+     * The temp flag row and one temp trigger set per tracked collection. Installed once on this write connection,
+     * outside a transaction, so a rolled-back write cannot drop them. A new connection installs them again.
+     */
+    internal suspend fun installTracking(collections: List<Collection>) {
+        if (trackingInstalled || collections.isEmpty()) return
+        context(this) {
+            Queries.createTrackingState.execute()
+            Queries.seedTrackingState.execute()
+            for (collection in collections) {
+                for (sql in Queries.trackingTriggers(collection)) command(sql).execute()
+            }
+        }
+        trackingInstalled = true
+    }
+
     /**
      * Runs [block] with a prepared statement for [sql], reused across calls. While [block] runs the statement is out
      * of the cache, so a nested call with the same SQL gets its own; one whose block throws is closed, not reused.
