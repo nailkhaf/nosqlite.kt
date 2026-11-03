@@ -14,6 +14,7 @@ by their unique indexes.
 - Queries with filters, array `contains`, ordering, `limit` and `offset`; lookups and upserts by index
 - Streaming with an open cursor (`forEach`)
 - `observe` flows that read again after each committed write to the collection
+- Optional change tracking: a tracked collection appends each insert, update and delete to a queue
 
 ## Example
 
@@ -190,6 +191,33 @@ condition, sort key or index as its string form, so the two mix freely.
 `observe` runs in a `NoSqlite` context and returns a `Flow` that reads now and again after every committed write
 that changed the collection. Writes that land while it reads are folded into one more read, and a result equal to
 the last one isn't emitted. Changes are tracked per collection.
+
+### Change tracking
+
+`Collection("contacts", tracked = true)` records every insert, update and delete in `__pending_changes`.
+The collection declares its identity with one `primaryKey`, a unique index on a single field. Only a tracked
+collection declares one, and it must. A write that changes that field is rejected, an untracked write included.
+
+```kotlin
+object Contacts : Collection("contacts", tracked = true) {
+    val byId = primaryKey(Contact::id)
+}
+
+val db = NoSqlite("app.db") { +Contacts }
+
+db.pendingChanges().collect { changes ->
+    sync(changes)
+    db.write { removePendingChanges(changes) }
+}
+db.write(untracked = true) { import(contacts) }
+```
+
+`pendingChanges()` emits the queue, ordered by id, again after every committed write that appended or removed rows.
+With no tracked collection it is empty. `removePendingChanges` deletes exactly the given rows, so a change written
+after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
+`write(untracked = true)` records nothing and does not nest inside another write.
+The queue is append-only. A collection that is not tracked has no triggers, and a database with none of them writes
+as before.
 
 ## Sample
 

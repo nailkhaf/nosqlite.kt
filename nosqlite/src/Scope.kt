@@ -41,23 +41,37 @@ internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) (
 
 /**
  * Runs [block] in a write; [onCommit] gets the collections it changed once the outermost write commits, even when the
- * caller is cancelled right after the commit.
+ * caller is cancelled right after the commit. [tracked] is empty when the database records nothing, and then the
+ * write runs no tracking SQL. [untracked] sets the temp flag for this transaction only and cannot nest.
  */
 internal suspend fun <R> ConnectionPool.write(
     onCommit: (Set<String>) -> Unit = {},
+    tracked: List<Collection> = emptyList(),
+    untracked: Boolean = false,
     block: suspend context(WriteScope) () -> R,
 ): R {
     activeScope(this)?.let { active ->
         check(active is WriteScope) { "Write inside a read transaction, start write { } outside of read { }" }
+        check(!untracked) { "Untracked write cannot nest inside another write" }
         val scope = WriteScope(active.connection, this)
         return active.connection.transaction(Boundary.Savepoint) { withScope(scope, block) }
             .also { active.changed += scope.changed }
     }
     return withWriter { connection ->
+        if (tracked.isNotEmpty()) connection.installTracking(tracked)
         val scope = WriteScope(connection, this)
-        connection.transaction(Boundary.Write) { withScope(scope, block) }
-            .also { onCommit(scope.changed.toSet()) }
+        connection.transaction(Boundary.Write) {
+            // Set only for an untracked write. A throw skips the reset: rolling back restores the temp row to 0.
+            if (untracked && tracked.isNotEmpty()) connection.setUntracked(true)
+            withScope(scope, block).also {
+                if (untracked && tracked.isNotEmpty()) connection.setUntracked(false)
+            }
+        }.also { onCommit(scope.changed.toSet()) }
     }
+}
+
+private suspend fun Connection.setUntracked(untracked: Boolean) {
+    context(this) { Queries.setUntracked.execute(untracked) }
 }
 
 /** The SQL that opens, commits and rolls back one kind of transaction. */
