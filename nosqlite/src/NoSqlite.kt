@@ -5,7 +5,11 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 
@@ -34,7 +38,7 @@ public class NoSqlite(
 
     private val tracked = tables.collections.filter { it.tracked }
 
-    private val connections = ConnectionPool(location, driver, dispatcher)
+    private val connections = ConnectionPool(location, driver, dispatcher, tracks = tracked.isNotEmpty())
 
     private val ready = suspendLazy {
         tracked.forEach { collection ->
@@ -81,6 +85,17 @@ public class NoSqlite(
         untracked = untracked,
         block = block,
     )
+
+    /**
+     * The pending changes recorded so far, ordered by id, now and again after every committed write that recorded or
+     * removed any. Empty, and no query, when nothing is tracked.
+     */
+    public fun pendingChanges(): Flow<List<PendingChange>> =
+        if (!connections.tracks) flowOf(emptyList())
+        else versions.map { it[PENDING_CHANGES] }
+            .distinctUntilChanged()
+            .map { read { readPendingChanges() } }
+            .distinctUntilChanged()
 
     /** Closes every connection that was opened; the database can't be used afterwards. */
     public suspend fun close(): Unit = connections.close()

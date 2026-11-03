@@ -38,20 +38,17 @@ public open class Collection(public val name: String, public val tracked: Boolea
     internal var primaryKeyIndex: UniqueIndex? = null
         private set
 
-    /** The unique index on one field, this collection's identity. A tracked collection declares exactly one. */
-    protected fun primaryKey(vararg fields: String): UniqueIndex {
+    /** The unique index on [field], this collection's identity. A tracked collection declares exactly one. */
+    protected fun primaryKey(field: String): UniqueIndex {
         require(tracked) { "Collection '$name' declares a primary key but is not tracked" }
-        require(fields.size == 1) { "Collection '$name' primary key must be one field, not ${fields.size}" }
         require(primaryKeyIndex == null) { "Collection '$name' declares more than one primary key" }
-        return unique(*fields).also { primaryKeyIndex = it }
+        return unique(field).also { primaryKeyIndex = it }
     }
 
-    /** The unique index on one property field, this collection's identity. */
-    protected fun primaryKey(vararg fields: Field<*, *>): UniqueIndex =
-        primaryKey(*fields.map { it.path }.toTypedArray())
+    /** The unique index on property [field], this collection's identity. */
+    protected fun primaryKey(field: Field<*, *>): UniqueIndex = primaryKey(field.path)
 
-    protected fun primaryKey(vararg properties: KProperty1<*, *>): UniqueIndex =
-        primaryKey(*properties.map { it.field }.toTypedArray())
+    protected fun primaryKey(property: KProperty1<*, *>): UniqueIndex = primaryKey(property.field)
 
     /** A unique index on [fields]: documents can't share their values; with [where] only matching ones count. */
     protected fun unique(vararg fields: String, where: (WhereScope.() -> Where)? = null): UniqueIndex =

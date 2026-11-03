@@ -493,24 +493,31 @@ internal class TrackingTest {
     }
 
     @Test
-    fun `a primary key is one field and a collection declares it once`() {
-        val fields = emptyArray<String>()
-        val none = assertFailsWith<IllegalArgumentException> {
-            object : Collection("contacts", tracked = true) { val key = primaryKey(*fields) }
-        }
-        val two = assertFailsWith<IllegalArgumentException> {
-            object : Collection("contacts", tracked = true) { val key = primaryKey("id", "email") }
-        }
-        val again = assertFailsWith<IllegalArgumentException> {
+    fun `a collection declares its primary key once`() {
+        val error = assertFailsWith<IllegalArgumentException> {
             object : Collection("contacts", tracked = true) {
                 val byId = primaryKey("id")
                 val byEmail = primaryKey("email")
             }
         }
 
-        assertEquals("Collection 'contacts' primary key must be one field, not 0", none.message)
-        assertEquals("Collection 'contacts' primary key must be one field, not 2", two.message)
-        assertEquals("Collection 'contacts' declares more than one primary key", again.message)
+        assertEquals("Collection 'contacts' declares more than one primary key", error.message)
+    }
+
+    @Test
+    fun `removing more ids than SQLite can bind deletes only those ids`() = runTest {
+        val db = database()
+        db.write { Contacts.insert(ada) }
+        val first = db.read { pendingChanges() }.single()
+        db.write { Contacts.insert(alan) }
+        val extra = (3L..32_768L).map { id ->
+            PendingChange(id, Contacts.name, null, null, Instant.fromEpochMilliseconds(0))
+        }
+
+        db.write { removePendingChanges(listOf(first) + extra) }
+
+        assertEquals(listOf(recorded(2, null, alan.json())), changes(db))
+        assertEquals(listOf(ada, alan), db.contacts())
     }
 }
 
