@@ -191,6 +191,54 @@ condition, sort key or index as its string form, so the two mix freely.
 that changed the collection. Writes that land while it reads are folded into one more read, and a result equal to
 the last one isn't emitted. Changes are tracked per collection.
 
+## Change tracking
+
+`nosqlite-tracking` records writes to a collection you want to sync. `TrackedCollection` is not a `Collection`:
+it holds one privately, declares exactly one primary key, and forwards reads. The only writes are `upsert(value)`
+and `delete(key)`.
+
+`upsert` is that primary key's merge patch. The value's fields replace stored ones, a `null` removes one, and
+fields the value does not mention are kept, so a document can gain fields from a newer writer and survive an older
+upsert. The primary key is a field of the value itself. `delete` takes that key as a string, number or boolean and
+removes the one document. Other `unique` and `index` declarations are read-only. `insert`, `update`, `replace` and
+where-writes are not on this type.
+
+Each write inserts one `PendingChange` in the same transaction. It has a UUIDv7 `id`, the collection name, `Upsert`
+or `Delete`, the `changeSet` and the time from `ChangeTracker`'s clock. An upsert's change set is the encoded value,
+which always includes the primary key. A delete's is only that field, nested the same way the key was declared
+(`meta.id` is `{"meta":{"id":"..."}}`). If the transaction rolls back, the document and the change roll back together.
+
+`PendingChanges` is an ordinary collection. Declare it yourself, next to the tracked ones. `ChangeTracker` lists the
+log, drops changes you have already synced, and applies a remote write without recording it.
+
+```kotlin
+@Serializable
+data class Contact(val id: String, val name: String, val city: String)
+
+object Contacts : TrackedCollection("contacts") {
+    val byId = primaryKey(Contact::id) // or primaryKey("id"), or primaryKey(Contact::meta / Meta::id)
+    val byCity = index(Contact::city)
+}
+
+val db = NoSqlite("app.db") {
+    +Contacts
+    +PendingChanges
+}
+val tracker = ChangeTracker(db)
+
+db.write { Contacts.upsert(Contact("ada", "Ada", "London")) }
+db.write { Contacts.delete("ada") }
+
+val pending = db.read { tracker.pending(Contacts) }
+db.write { tracker.acknowledge(pending) }
+
+tracker.applyRemote { Contacts.upsert(Contact("ada", "Ada", "Paris")) }
+db.read { Contacts.byCity("Paris").list<Contact>() }
+```
+
+A collection with no primary key, or a second one, fails before it is used. `ChangeTracker` stamps each change with
+its clock, `Clock.System` by default.
+
 ## Sample
 
 [`samples/todo`](samples/todo) is a Compose Multiplatform todo app for Android, iOS and the desktop JVM. The
