@@ -1,7 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -20,9 +19,9 @@ internal class WriteTest {
         val byEmail = unique("email")
     }
 
-    object Elements : Collection("elements")
-
-    object Raw : Collection("raw")
+    object Raw : Collection("raw") {
+        val byId = unique("id")
+    }
 
     private val ann = user("ann", 17, tags = listOf("kotlin"))
     private val bob = user("bob", 30, nickname = "bobby")
@@ -41,25 +40,10 @@ internal class WriteTest {
         val db = seeded()
         val replacement = ann.copy(age = 18, tags = emptyList())
 
-        val updated = db.write { Users.update(replacement) { "id" eq "ann" } }
+        val updated = db.write { Users.byId("ann").update(replacement) }
 
-        assertEquals(1, updated)
+        assertEquals(true, updated)
         assertEquals(listOf(replacement, bob, cid), db.users())
-    }
-
-    @Test
-    fun `update writes the value into every match`() = runTest {
-        val db = NoSqlite { +Raw }
-        val done = buildJsonObject { put("done", true) }
-        db.write {
-            Raw.insert(buildJsonObject { put("done", false) })
-            Raw.insert(buildJsonObject { put("done", false) })
-        }
-
-        val updated = db.write { Raw.update(done) { "done".isFalse() } }
-
-        assertEquals(2, updated)
-        assertEquals(listOf(done, done), db.read { Raw.list<JsonObject>() })
     }
 
     @Test
@@ -68,19 +52,21 @@ internal class WriteTest {
         db.write { Raw.insert(buildJsonObject { put("id", "a"); put("age", 30); put("nickname", "x") }) }
         val replacement = buildJsonObject { put("id", "a"); put("age", 31) }
 
-        val replaced = db.write { Raw.replace(replacement) { "id" eq "a" } }
+        val replaced = db.write { Raw.byId("a").replace(replacement) }
 
-        assertEquals(1, replaced)
+        assertEquals(true, replaced)
         assertEquals(listOf(replacement), db.read { Raw.list<JsonObject>() })
     }
 
     @Test
-    fun `delete removes every match and counts it`() = runTest {
+    fun `delete removes the one document`() = runTest {
         val db = seeded()
 
-        val deleted = db.write { Users.delete { ("age" lt 18) or ("nickname" eq "bobby") } }
+        val deleted = db.write {
+            Users.byId("ann").delete() && Users.byEmail(bob.email.value).delete()
+        }
 
-        assertEquals(2, deleted)
+        assertEquals(true, deleted)
         assertEquals(listOf(cid), db.users())
     }
 
@@ -89,9 +75,9 @@ internal class WriteTest {
         val db = seeded()
 
         db.write {
-            assertEquals(0, Users.update(ann) { "id" eq "nobody" })
-            assertEquals(0, Users.replace(ann) { "id" eq "nobody" })
-            assertEquals(0, Users.delete { "id" eq "nobody" })
+            assertEquals(false, Users.byId("nobody").update(ann))
+            assertEquals(false, Users.byId("nobody").replace(ann))
+            assertEquals(false, Users.byId("nobody").delete())
         }
 
         assertEquals(listOf(ann, bob, cid), db.users())
@@ -109,23 +95,23 @@ internal class WriteTest {
             put("nickname", JsonNull)
         }
 
-        val patched = db.write { Raw.update(patch) { "id" eq "a" } }
+        val patched = db.write { Raw.byId("a").update(patch) }
 
         val expected = buildJsonObject { put("id", "a"); put("age", 31) }
-        assertEquals(1, patched)
+        assertEquals(true, patched)
         val untouched = buildJsonObject { put("id", "b"); put("age", 40) }
         assertEquals(listOf(expected, untouched), db.read { Raw.list<JsonObject>() })
     }
 
     @Test
     fun `update of a value that is not an object is rejected`() = runTest {
-        val db = NoSqlite { +Elements }
+        val db = NoSqlite { +Users }
 
         val error = assertFailsWith<IllegalArgumentException> {
-            db.write { Elements.update(JsonPrimitive(42)) { "id" eq 1 } }
+            db.write { Users.byId("ann").update(JsonPrimitive(42)) }
         }
 
-        assertEquals("A document of 'elements' must be a JSON object, not 42", error.message)
+        assertEquals("A document of 'users' must be a JSON object, not 42", error.message)
     }
 
     @Test
@@ -133,7 +119,7 @@ internal class WriteTest {
         val db = seeded()
 
         val error = assertFailsWith<NoSqliteException.UniqueViolation> {
-            db.write { Users.update(ann.copy(email = bob.email)) { "id" eq "ann" } }
+            db.write { Users.byId("ann").update(ann.copy(email = bob.email)) }
         }
 
         assertSame(Users.byEmail, error.index)
@@ -144,7 +130,7 @@ internal class WriteTest {
     fun `writes to an undeclared collection are rejected`() = runTest {
         val db = NoSqlite { +Raw }
 
-        assertFailsWith<NoSqliteException.CollectionNotDeclared> { db.write { Users.delete { "id" eq "ann" } } }
-        assertFailsWith<NoSqliteException.CollectionNotDeclared> { db.write { Users.update(ann) { "id" eq "ann" } } }
+        assertFailsWith<NoSqliteException.CollectionNotDeclared> { db.write { Users.byId("ann").delete() } }
+        assertFailsWith<NoSqliteException.CollectionNotDeclared> { db.write { Users.byId("ann").update(ann) } }
     }
 }

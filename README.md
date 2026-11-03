@@ -40,7 +40,7 @@ db.write {
     Users.insert(User("ada", "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
     Users.byId.upsert(User("alan", "alan@example.com", Name("Alan", "Turing"), 41))
     Users.byEmail("alan@example.com").update(User("alan", "alan@example.com", Name("Alan", "Turing"), 42))
-    Users.delete { User::age lt 18 }
+    Users.byId("ada").delete()
 }
 
 db.read {
@@ -104,12 +104,12 @@ one. A plain index takes its leading fields, `null` matching a null or missing f
 Inside `db.write { }`:
 
 - `insert(value)` adds a document.
-- `update(value) { condition }` applies the value to every match as a JSON merge patch: its fields replace theirs,
-  a `null` removes one, and fields it doesn't have are kept.
-- `replace(value) { condition }` stores the value as the whole document of every match.
-- `delete { condition }` deletes every match.
+- `byEmail(value).update(value)` applies the value to that one document as a JSON merge patch: its fields replace
+  theirs, a `null` removes one, and fields it doesn't have are kept. `replace(value)` stores the value as the whole
+  document. `delete()` removes it. Each of those returns whether a document was there.
+- `byEmail.upsert(value)` inserts the document, or updates the one with its indexed values the way `update` does.
 
-Each returns how many documents it touched. A write commits when its block returns and rolls back when it throws;
+A write touches one document. It commits when its block returns and rolls back when it throws;
 a nested `write` is a savepoint that rolls back alone. A duplicate key throws `NoSqliteException.UniqueViolation`
 naming the index; caught inside the write, the transaction goes on. When another `NoSqlite` or process keeps the same
 file locked for over 5 seconds, the operation throws `NoSqliteException.Busy` and can be retried; one `NoSqlite` per
@@ -190,6 +190,46 @@ condition, sort key or index as its string form, so the two mix freely.
 `observe` runs in a `NoSqlite` context and returns a `Flow` that reads now and again after every committed write
 that changed the collection. Writes that land while it reads are folded into one more read, and a result equal to
 the last one isn't emitted. Changes are tracked per collection.
+
+## Change tracking
+
+`nosqlite-tracking` records every write to a collection you want to sync. `TrackedCollection` is a `Collection`
+with one primary key, `id`, declared like any other unique index and never changed. Reads and writes are the
+ordinary ones: `id.upsert(value)`, `byEmail(email).update(value)`, `byEmail(email).delete()`.
+
+Each write inserts one `PendingChange` in the same transaction. It has a UUIDv7 `id`, the collection name, the
+action (`Insert`, `Update`, `Replace`, `Upsert` or `Delete`), the `changeSet` and the time from the collection's
+clock. An insert, update, replace or upsert records the encoded value or merge patch, including the primary key.
+A delete records only that key, nested when it was declared as a dotted path (`"meta.id"` is
+`{"meta":{"id":"..."}}`). If the transaction rolls back, the document and the change roll back together.
+
+`PendingChanges` is an ordinary collection. Declare it yourself. `ChangeTracker` lists the log, oldest first, and
+drops changes you have already synced. `untracked { }` writes without recording. Pass a `Clock` to the collection
+when timestamps should not follow the system clock: `TrackedCollection("contacts", clock)`.
+
+```kotlin
+@Serializable
+data class Contact(val id: String, val email: String, val name: String)
+
+object Contacts : TrackedCollection("contacts") {
+    override val id = unique(Contact::id)
+    val byEmail = unique(Contact::email)
+}
+
+val db = NoSqlite("app.db") {
+    +Contacts
+    +PendingChanges
+}
+val tracker = ChangeTracker(db)
+
+db.write { Contacts.id.upsert(Contact("ada", "ada@example.com", "Ada")) }
+db.write { Contacts.byEmail("ada@example.com").delete() }
+
+val pending = db.read { tracker.pending(Contacts) }
+db.write { tracker.acknowledge(pending) }
+
+tracker.untracked { Contacts.id.upsert(Contact("ada", "ada@example.com", "Ada Lovelace")) }
+```
 
 ## Sample
 

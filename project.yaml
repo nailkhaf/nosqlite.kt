@@ -1,5 +1,6 @@
 modules:
   - nosqlite
+  - nosqlite-tracking
   - samples/todo/androidApp
   - samples/todo/iosApp
   - samples/todo/jvmApp

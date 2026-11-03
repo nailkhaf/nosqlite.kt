@@ -6,6 +6,7 @@ import io.github.nailkhaf.nosqlite.asc
 import io.github.nailkhaf.nosqlite.delete
 import io.github.nailkhaf.nosqlite.insert
 import io.github.nailkhaf.nosqlite.invoke
+import io.github.nailkhaf.nosqlite.list
 import io.github.nailkhaf.nosqlite.observe
 import io.github.nailkhaf.nosqlite.update
 import io.github.nailkhaf.nosqlite.write
@@ -32,6 +33,8 @@ class TaskRepository(location: Location) {
     }
 
     suspend fun clearDone() {
-        db.write { Tasks.byDone(true).delete() }
+        db.write {
+            Tasks.byDone(true).list<Task>().forEach { task -> Tasks.byId(task.id.toString()).delete() }
+        }
     }
 }

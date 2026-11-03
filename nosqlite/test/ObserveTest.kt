@@ -30,7 +30,9 @@ internal class ObserveTest {
         val byAge = index("age")
     }
 
-    object Notes : Collection("notes")
+    object Notes : Collection("notes") {
+        val byId = unique("id")
+    }
 
     private val ada = User("ada", 36)
     private val alan = User("alan", 41)
@@ -63,7 +65,7 @@ internal class ObserveTest {
 
         db.write { Users.insert(ada) }
         db.write { Users.byId.upsert(alan) }
-        db.write { Users.update(alan.copy(age = 42)) { "id" eq "alan" } }
+        db.write { Users.byId("alan").update(alan.copy(age = 42)) }
         db.write { Users.byId("ada").delete() }
 
         assertEquals(
@@ -148,11 +150,12 @@ internal class ObserveTest {
     fun `every kind of write bumps a version`() = runTest {
         val db = database()
 
-        db.write { Notes.insert(note) }
-        db.write { Notes.update(buildJsonObject { put("text", "bye") }) { "text" eq "hi" } }
-        db.write { Notes.replace(note) { "text" eq "bye" } }
+        val hi = buildJsonObject { put("id", "n"); put("text", "hi") }
+        db.write { Notes.insert(hi) }
+        db.write { Notes.byId("n").update(buildJsonObject { put("text", "bye") }) }
+        db.write { Notes.byId("n").replace(hi) }
         db.write { Users.byId.upsert(ada) }
-        db.write { Notes.delete { "text" eq "hi" } }
+        db.write { Notes.byId("n").delete() }
 
         assertEquals(mapOf("notes" to 4L, "users" to 1L), db.versions.value)
     }
@@ -198,8 +201,7 @@ internal class ObserveTest {
                 error("rollback")
             }
         }
-        db.write { Users.delete { "age" gt 100 } }
-        db.write { Users.update(User("x", 1)) { "id" eq "nobody" } }
+        db.write { Users.byId("nobody").update(User("x", 1)) }
         db.write { Users.byId("nobody").delete() }
 
         assertEquals(mapOf("users" to 1L), db.versions.value)

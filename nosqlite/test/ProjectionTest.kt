@@ -81,7 +81,7 @@ internal class ProjectionTest {
     fun `a typed update removes a declared field set to null`() = runTest {
         val db = seeded()
 
-        db.write { Profiles.update(Profile("ada", Address("London"), nickname = null)) { "id" eq "ada" } }
+        db.write { Profiles.byId("ada").update(Profile("ada", Address("London"), nickname = null)) }
 
         val expected = json(
             """{"id":"ada","address":{"city":"London","zip":"N1"},"settings":{"theme":"dark","lang":"en"},"plan":"pro"}""",

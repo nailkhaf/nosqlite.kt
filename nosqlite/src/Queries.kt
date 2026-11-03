@@ -72,6 +72,76 @@ internal object Queries {
     fun delete(collection: Collection, condition: Where): Statement<Unit, Int> =
         (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(countRows)
 
+    /**
+     * Like [update], and returns the primary-key value at [jsonPath] after the write. A patch that would change that
+     * key leaves the row untouched and comes back [Kept.rejected]; the caller rolls the statement back by throwing.
+     */
+    fun updateKeeping(collection: Collection, json: String, condition: Where, jsonPath: String): Statement<Unit, Kept?> {
+        val set = Fragment(
+            "UPDATE ${collection.table} SET data = CASE " +
+                "WHEN json_type(?, ?) IS NULL OR json_extract(data, ?) = json_extract(?, ?) " +
+                "THEN jsonb_patch(data, ?) ELSE data END WHERE ",
+            listOf(json, jsonPath, jsonPath, json, jsonPath, json).texts(),
+        )
+        val returning = Fragment(
+            " RETURNING ${keyLiteral()}, " +
+                "CASE WHEN json_type(?, ?) IS NOT NULL AND json_extract(data, ?) IS NOT json_extract(?, ?) " +
+                "THEN 1 ELSE 0 END;",
+            listOf(jsonPath, jsonPath, json, jsonPath, jsonPath, json, jsonPath).texts(),
+        )
+        return (set + condition.render() + returning).statement(kept)
+    }
+
+    /** Like [replace], with the same primary-key result as [updateKeeping]. The new document must carry the key. */
+    fun replaceKeeping(collection: Collection, json: String, condition: Where, jsonPath: String): Statement<Unit, Kept?> {
+        val set = Fragment(
+            "UPDATE ${collection.table} SET data = CASE " +
+                "WHEN json_extract(data, ?) = json_extract(?, ?) THEN jsonb(?) ELSE data END WHERE ",
+            listOf(jsonPath, json, jsonPath, json).texts(),
+        )
+        val returning = Fragment(
+            " RETURNING ${keyLiteral()}, CASE WHEN json_extract(data, ?) IS NOT json_extract(?, ?) THEN 1 ELSE 0 END;",
+            listOf(jsonPath, jsonPath, jsonPath, json, jsonPath).texts(),
+        )
+        return (set + condition.render() + returning).statement(kept)
+    }
+
+    /** Deletes the one matching document and returns its primary-key value at [jsonPath], as JSON text. */
+    fun deleteReturning(collection: Collection, condition: Where, jsonPath: String): Statement<Unit, Kept?> =
+        (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() +
+            Fragment(" RETURNING ${keyLiteral()}, 0;", listOf(jsonPath, jsonPath).texts())).statement(kept)
+
+    /**
+     * Like [upsert], and returns the primary-key value at [jsonPath]. A conflicting patch that would change the key
+     * leaves the row untouched and comes back [Kept.rejected].
+     */
+    fun upsertKeeping(index: Index, json: String, jsonPath: String): Statement<Unit, Kept> = Statement(
+        sql = "INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?)) " +
+            "ON CONFLICT ${index.definition} DO UPDATE SET data = CASE " +
+            "WHEN json_type(?, ?) IS NULL OR json_extract(data, ?) = json_extract(?, ?) " +
+            "THEN jsonb_patch(data, ?) ELSE data END " +
+            "RETURNING ${keyLiteral()}, " +
+            "CASE WHEN json_type(?, ?) IS NOT NULL AND json_extract(data, ?) IS NOT json_extract(?, ?) " +
+            "THEN 1 ELSE 0 END;",
+        encode = {
+            bind(
+                listOf(
+                    json,
+                    json, jsonPath, jsonPath, json, jsonPath, json,
+                    jsonPath, jsonPath,
+                    json, jsonPath, jsonPath, json, jsonPath,
+                ).texts(),
+            )
+        },
+        decode = {
+            check(step()) { "upsert returned no row" }
+            keptRow()
+        },
+    )
+
+    /** A primary-key value returned as JSON text, and whether the write tried to change it. */
+    class Kept(val keyJson: String?, val rejected: Boolean)
+
     /** Inserts the input JSON, or applies it as a merge patch to the document it conflicts with in [index]. */
     fun upsert(index: Index): Statement<String, Unit> = Statement(
         sql = "INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?1)) " +
@@ -101,3 +171,17 @@ private val countRows: SQLiteStatement.() -> Int = {
     while (step()) count++
     count
 }
+
+// `json_extract` turns JSON true into 1. Quote scalars, and spell booleans out, so the text parses back.
+private fun keyLiteral(): String =
+    "CASE json_type(data, ?) WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' WHEN 'null' THEN 'null' " +
+        "ELSE json_quote(json_extract(data, ?)) END"
+
+private fun List<String>.texts(): List<SqlValue> = map(SqlValue::Text)
+
+private val kept: SQLiteStatement.() -> Queries.Kept? = { if (step()) keptRow() else null }
+
+private fun SQLiteStatement.keptRow(): Queries.Kept = Queries.Kept(
+    keyJson = if (isNull(0)) null else getText(0),
+    rejected = getLong(1) != 0L,
+)

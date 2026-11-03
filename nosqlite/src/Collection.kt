@@ -62,7 +62,128 @@ public open class Collection(public val name: String) {
     }
 
     override fun toString(): String = "Collection($name)"
+
+    /** The one statement [insert] runs. A subclass sees the encoded document and no extra read. */
+    context(_: WriteScope)
+    internal suspend fun performInsert(json: String): Unit = insert(json)
+
+    context(_: WriteScope)
+    protected open suspend fun insert(json: String) {
+        val collection = this
+        withConnection { Queries.insert(collection).execute(json) }
+        changed()
+    }
+
+    /** The one statement [UniqueIndex.upsert] runs. */
+    context(_: WriteScope)
+    internal suspend fun performUpsert(index: UniqueIndex, json: String): Unit = upsert(index, json)
+
+    context(_: WriteScope)
+    protected open suspend fun upsert(index: UniqueIndex, json: String) {
+        withConnection { Queries.upsert(index).execute(json) }
+        changed()
+    }
+
+    /** The one statement a unique lookup's `update` runs. [condition] matches at most that one document. */
+    context(_: WriteScope)
+    internal suspend fun performUpdate(json: String, condition: Where): Boolean = update(json, condition)
+
+    context(_: WriteScope)
+    protected open suspend fun update(json: String, condition: Where): Boolean {
+        val collection = this
+        val updated = withConnection { Queries.update(collection, json, condition).execute() }
+        if (updated > 0) changed()
+        return updated > 0
+    }
+
+    /** The one statement a unique lookup's `replace` runs. */
+    context(_: WriteScope)
+    internal suspend fun performReplace(json: String, condition: Where): Boolean = replace(json, condition)
+
+    context(_: WriteScope)
+    protected open suspend fun replace(json: String, condition: Where): Boolean {
+        val collection = this
+        val replaced = withConnection { Queries.replace(collection, json, condition).execute() }
+        if (replaced > 0) changed()
+        return replaced > 0
+    }
+
+    /** The one statement a unique lookup's `delete` runs. */
+    context(_: WriteScope)
+    internal suspend fun performDelete(condition: Where): Boolean = delete(condition)
+
+    context(_: WriteScope)
+    protected open suspend fun delete(condition: Where): Boolean {
+        val collection = this
+        val deleted = withConnection { Queries.delete(collection, condition).execute() }
+        if (deleted > 0) changed()
+        return deleted > 0
+    }
+
+    /**
+     * [update], but the statement also returns the primary-key value and refuses a patch that would change it.
+     * One statement, no read before it. [key] is one field.
+     */
+    context(_: WriteScope)
+    protected suspend fun updateReturning(json: String, condition: Where, key: UniqueIndex): PrimaryKey? =
+        writeKeeping(Queries.updateKeeping(this, json, condition, key.jsonPath()), key)
+
+    /** [replace], with the same single-statement primary-key check as [updateReturning]. */
+    context(_: WriteScope)
+    protected suspend fun replaceReturning(json: String, condition: Where, key: UniqueIndex): PrimaryKey? =
+        writeKeeping(Queries.replaceKeeping(this, json, condition, key.jsonPath()), key)
+
+    /** [delete], returning the primary-key value of the document it removed. */
+    context(_: WriteScope)
+    protected suspend fun deleteReturning(condition: Where, key: UniqueIndex): PrimaryKey? {
+        val row = withConnection { Queries.deleteReturning(this, condition, key.jsonPath()).execute() } ?: return null
+        val found = foundKey(key, row)
+        changed()
+        return found
+    }
+
+    /** [upsert], returning the primary-key value and refusing a patch that would change it. */
+    context(_: WriteScope)
+    protected suspend fun upsertReturning(index: UniqueIndex, json: String, key: UniqueIndex): PrimaryKey {
+        val row = withConnection { Queries.upsertKeeping(index, json, key.jsonPath()).execute() }
+        val found = foundKey(key, row)
+        changed()
+        return found
+    }
+
+    /** The primary-key field and its value as JSON text (`"ada"`, `1`, `true`). */
+    protected class PrimaryKey(public val field: String, public val json: String)
+
+    /** [key]'s one field, as the dotted path stored in documents (`"id"`, `"meta.id"`). */
+    protected fun fieldOf(key: UniqueIndex): String = key.onlyField()
+
+    context(_: WriteScope)
+    private suspend fun writeKeeping(statement: Statement<Unit, Queries.Kept?>, key: UniqueIndex): PrimaryKey? {
+        val row = withConnection { statement.execute() } ?: return null
+        val found = foundKey(key, row)
+        changed()
+        return found
+    }
+
+    private fun foundKey(key: UniqueIndex, row: Queries.Kept): PrimaryKey {
+        if (row.rejected) throw immutable(key)
+        val keyJson = row.keyJson ?: throw missingKey(key)
+        return PrimaryKey(key.onlyField(), keyJson)
+    }
+
+    private fun immutable(key: UniqueIndex): IllegalArgumentException =
+        IllegalArgumentException("Primary key ${key.onlyField()} of '$name' is immutable")
+
+    private fun missingKey(key: UniqueIndex): IllegalArgumentException =
+        IllegalArgumentException("Document of '$name' is missing primary key ${key.onlyField()}")
 }
+
+private fun UniqueIndex.onlyField(): String {
+    require(paths.size == 1) { "Primary key must be one field: $this" }
+    return paths.single().field
+}
+
+private fun UniqueIndex.jsonPath(): String = "$.${onlyField()}"
 
 private val CollectionName = Regex("[A-Za-z_][A-Za-z0-9_]*")
 
@@ -77,9 +198,7 @@ public suspend inline fun <reified T> Collection.insert(value: T): Unit = insert
 
 context(_: WriteScope)
 public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
-    val json = encode(serializer, value)
-    withConnection { Queries.insert(this@insert).execute(json) }
-    changed()
+    performInsert(encode(serializer, value))
 }
 
 /** The documents [query] selects, as [T]; without one, every document in an unspecified order. */
@@ -99,48 +218,6 @@ internal suspend fun <T> Collection.list(serializer: KSerializer<T>, query: Quer
 context(_: ReadScope)
 public suspend fun Collection.count(condition: (WhereScope.() -> Where)? = null): Long =
     withConnection { Queries.count(this@count, condition?.let(::where)).execute() }
-
-/**
- * Applies [value] as a JSON merge patch to every document matching [condition], so match on a unique field to update
- * one: its fields replace theirs, a `null` removes one, and fields it doesn't have are kept. The result is how many
- * documents were updated.
- */
-context(_: WriteScope)
-public suspend inline fun <reified T> Collection.update(value: T, noinline condition: WhereScope.() -> Where): Int =
-    update(serializer(), value, condition)
-
-context(_: WriteScope)
-public suspend fun <T> Collection.update(serializer: KSerializer<T>, value: T, condition: WhereScope.() -> Where): Int {
-    val json = encode(serializer, value)
-    val updated = withConnection { Queries.update(this@update, json, where(condition)).execute() }
-    if (updated > 0) changed()
-    return updated
-}
-
-/** Replaces every document matching [condition] with [value]; the result is how many documents were replaced. */
-context(_: WriteScope)
-public suspend inline fun <reified T> Collection.replace(value: T, noinline condition: WhereScope.() -> Where): Int =
-    replace(serializer(), value, condition)
-
-context(_: WriteScope)
-public suspend fun <T> Collection.replace(
-    serializer: KSerializer<T>,
-    value: T,
-    condition: WhereScope.() -> Where,
-): Int {
-    val json = encode(serializer, value)
-    val replaced = withConnection { Queries.replace(this@replace, json, where(condition)).execute() }
-    if (replaced > 0) changed()
-    return replaced
-}
-
-/** Deletes every document matching [condition]; the result is how many were deleted. */
-context(_: WriteScope)
-public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
-    val deleted = withConnection { Queries.delete(this@delete, where(condition)).execute() }
-    if (deleted > 0) changed()
-    return deleted
-}
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
 internal val Collection.table: String get() = identifier(name)
