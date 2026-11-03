@@ -21,7 +21,7 @@ public data class PendingChange(
     public val timestamp: Instant,
 ) {
     @Serializable
-    public enum class Action { Upsert, Delete }
+    public enum class Action { Insert, Update, Replace, Upsert, Delete }
 }
 
 /**

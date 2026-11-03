@@ -145,10 +145,10 @@ internal class LookupTest {
         val db = database()
 
         db.write {
-            assertEquals(1, Users.byActive(false).update(grace.copy(age = 50)))
-            assertEquals(1, Users.byActive(false).replace(grace.copy(age = 51)))
-            assertEquals(0, Users.byAge(99).delete())
-            assertEquals(1, Users.byAge(41).delete())
+            assertEquals(true, Users.byId("grace").update(grace.copy(age = 50)))
+            assertEquals(true, Users.byEmail("grace@x.com").replace(grace.copy(age = 51)))
+            assertEquals(false, Users.byId("nobody").delete())
+            assertEquals(true, Users.byId("alan").delete())
         }
 
         assertEquals(listOf(ada, grace.copy(age = 51), byron), db.read { Users.list<User>() })

@@ -34,9 +34,11 @@ public class ChangeTracker(public val db: NoSqlite) {
     /** Deletes these changes from the log. The documents they describe stay. The result is how many were removed. */
     context(_: WriteScope)
     public suspend fun acknowledge(changes: Iterable<PendingChange>): Int {
-        val ids = changes.map { it.id.toString() }
-        if (ids.isEmpty()) return 0
-        return PendingChanges.delete { "id" isIn ids }
+        var removed = 0
+        for (change in changes) {
+            if (PendingChanges.byId(change.id.toString()).delete()) removed++
+        }
+        return removed
     }
 
     /** Runs [block] in a write that changes documents without recording [PendingChange]s. */
