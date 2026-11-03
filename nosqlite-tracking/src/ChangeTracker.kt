@@ -10,32 +10,26 @@ import io.github.nailkhaf.nosqlite.observe
 import io.github.nailkhaf.nosqlite.write
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import kotlin.concurrent.atomics.AtomicReference
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
-import kotlin.time.Clock
-import kotlin.time.Instant
 
-/**
- * Reads and trims the [PendingChanges] log of [db]. [clock] stamps each change recorded after this tracker is
- * constructed; the latest tracker supplies the clock.
- */
-public class ChangeTracker(public val db: NoSqlite, public val clock: Clock = Clock.System) {
-    init {
-        TrackingClock.install(clock)
-    }
-
-    /** Recorded changes for [collection], oldest first. */
+/** Reads and trims the [PendingChanges] log of [db]. */
+public class ChangeTracker(public val db: NoSqlite) {
+    /** Recorded changes for [collection], oldest first. UUIDv7 ids sort by time. */
     context(_: ReadScope)
     public suspend fun pending(collection: TrackedCollection): List<PendingChange> =
-        PendingChanges.byCollection(collection.name).list<PendingChange>().sortedWith(pendingOrder)
+        PendingChanges.byCollection(collection.name).list {
+            orderBy { "id".asc }
+        }
 
     /** [pending], now and after every committed write that changed [PendingChanges]. */
     public fun observePending(collection: TrackedCollection): Flow<List<PendingChange>> =
-        with(db) { PendingChanges.byCollection(collection.name).observe<PendingChange>() }
-            .map { it.sortedWith(pendingOrder) }
+        with(db) {
+            PendingChanges.byCollection(collection.name).observe {
+                orderBy { "id".asc }
+            }
+        }
 
     /** Deletes these changes from the log. The documents they describe stay. The result is how many were removed. */
     context(_: WriteScope)
@@ -46,28 +40,16 @@ public class ChangeTracker(public val db: NoSqlite, public val clock: Clock = Cl
     }
 
     /** Runs [block] in a write that changes documents without recording [PendingChange]s. */
-    public suspend fun <R> applyRemote(block: suspend context(WriteScope) () -> R): R =
-        db.write { runUnrecorded(block) }
+    public suspend fun <R> untracked(block: suspend context(WriteScope) () -> R): R =
+        db.write { runUntracked(block) }
 
     context(scope: WriteScope)
-    private suspend fun <R> runUnrecorded(block: suspend context(WriteScope) () -> R): R =
-        withContext(ApplyRemote()) { context(scope) { block() } }
+    private suspend fun <R> runUntracked(block: suspend context(WriteScope) () -> R): R =
+        withContext(Untracked()) { context(scope) { block() } }
 }
 
-private val pendingOrder = compareBy<PendingChange>({ it.timestamp }, { it.id.toString() })
-
-internal object TrackingClock {
-    private val current = AtomicReference<Clock>(Clock.System)
-
-    fun install(clock: Clock) {
-        current.store(clock)
-    }
-
-    fun now(): Instant = current.load().now()
+internal class Untracked : AbstractCoroutineContextElement(Untracked) {
+    internal companion object : CoroutineContext.Key<Untracked>
 }
 
-internal class ApplyRemote : AbstractCoroutineContextElement(ApplyRemote) {
-    internal companion object : CoroutineContext.Key<ApplyRemote>
-}
-
-internal suspend fun isApplyingRemote(): Boolean = currentCoroutineContext()[ApplyRemote] != null
+internal suspend fun isUntracked(): Boolean = currentCoroutineContext()[Untracked] != null

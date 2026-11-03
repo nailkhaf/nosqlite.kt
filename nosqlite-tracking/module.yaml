@@ -8,9 +8,6 @@ dependencies:
 test-dependencies:
   - $libs.kotlinx.coroutines.test
 
-test-dependencies@jvm:
-  - $libs.kctfork.core
-
 settings:
   kotlin:
     freeCompilerArgs:
@@ -20,6 +17,5 @@ settings:
     version: 2.4.21
     optIns:
       - kotlin.uuid.ExperimentalUuidApi
-      - kotlin.concurrent.atomics.ExperimentalAtomicApi
       - kotlinx.coroutines.ExperimentalCoroutinesApi
     serialization: json

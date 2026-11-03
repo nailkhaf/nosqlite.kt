@@ -3,7 +3,6 @@ package io.github.nailkhaf.nosqlite.tracking
 import io.github.nailkhaf.nosqlite.NoSqlite
 import io.github.nailkhaf.nosqlite.NoSqliteException
 import io.github.nailkhaf.nosqlite.WriteScope
-import io.github.nailkhaf.nosqlite.div
 import io.github.nailkhaf.nosqlite.read
 import io.github.nailkhaf.nosqlite.write
 import kotlinx.coroutines.flow.Flow
@@ -30,7 +29,6 @@ import kotlin.time.Instant
 
 /** Covers tracked writes, the one pending change each records, and the reads forwarded around them. */
 internal class TrackedCollectionTest {
-    private val clock = ManualClock(Instant.fromEpochMilliseconds(1_700_000_000_000))
     private val ada = Item("ada", "ada@example.com", "Ada", 36)
     private val alan = Item("alan", "alan@example.com", "Alan", 41)
 
@@ -42,7 +40,7 @@ internal class TrackedCollectionTest {
             +Notes
             +PendingChanges
         }
-        return Opened(db, ChangeTracker(db, clock))
+        return Opened(db, ChangeTracker(db))
     }
 
     private suspend fun NoSqlite.change(block: suspend context(WriteScope) () -> Unit) {
@@ -108,7 +106,7 @@ internal class TrackedCollectionTest {
         db.change { deleted = Items.delete(ada.id) }
 
         assertTrue(deleted)
-        assertNull(db.read { Items.byId(ada.id).get<Item>() })
+        assertNull(db.read { Items.id(ada.id).get<Item>() })
         val removal = db.read { tracker.pending(Items) }.single { it.action == PendingChange.Action.Delete }
         assertEquals(buildJsonObject { put("id", "ada") }, removal.changeSet)
         assertEquals(Items.name, removal.collection)
@@ -193,7 +191,7 @@ internal class TrackedCollectionTest {
     @Test
     fun `a write rolls back when pending changes are not declared`() = runTest {
         val db = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) { +Items }
-        ChangeTracker(db, clock)
+        ChangeTracker(db)
 
         assertFailsWith<NoSqliteException.CollectionNotDeclared> {
             db.write { Items.upsert(ada) }
@@ -216,21 +214,21 @@ internal class TrackedCollectionTest {
     }
 
     @Test
-    fun `applyRemote writes without recording`() = runTest {
+    fun `untracked writes without recording`() = runTest {
         val (db, tracker) = open()
         db.change { Items.upsert(ada) }
 
-        tracker.applyRemote {
-            Items.upsert(buildJsonObject { put("id", ada.id); put("name", "Remote") })
+        tracker.untracked {
+            Items.upsert(buildJsonObject { put("id", ada.id); put("name", "Patched") })
             Items.delete("nobody")
         }
 
-        val stored = db.read { Items.byId(ada.id).get<Item>() }
-        assertEquals("Remote", stored!!.name)
+        val stored = db.read { Items.id(ada.id).get<Item>() }
+        assertEquals("Patched", stored!!.name)
         assertEquals(ada.email, stored.email)
         assertEquals(listOf(encoded(ada)), db.read { tracker.pending(Items).map { it.changeSet } })
 
-        tracker.applyRemote { Items.delete(ada.id) }
+        tracker.untracked { Items.delete(ada.id) }
         assertEquals(0, db.read { Items.count() })
         assertEquals(1, db.read { tracker.pending(Items).size })
     }
@@ -269,14 +267,14 @@ internal class TrackedCollectionTest {
 
         assertEquals(2, db.read { Items.count() })
         assertEquals(setOf(ada, alan), db.read { Items.list<Item>() }.toSet())
-        assertEquals(ada, db.read { Items.byId(ada.id).get<Item>() })
+        assertEquals(ada, db.read { Items.id(ada.id).get<Item>() })
         assertEquals(ada, db.read { Items.byEmail(ada.email).get<Item>() })
         assertEquals(listOf(ada), db.read { Items.byAge(ada.age).list<Item>() })
         assertEquals(1, db.read { Items.byAge(ada.age).count() })
         val seen = mutableListOf<String>()
         db.read { Items.forEach<Item> { seen += it.id } }
         assertEquals(setOf(ada.id, alan.id), seen.toSet())
-        assertEquals(ada, with(db) { Items.byId(ada.id).observe<Item>().first() })
+        assertEquals(ada, with(db) { Items.id(ada.id).observe<Item>().first() })
         assertEquals(listOf(ada), with(db) { Items.byAge(ada.age).observe<Item>().first() })
     }
 
@@ -293,21 +291,21 @@ internal class TrackedCollectionTest {
     }
 
     @Test
-    fun `a tracked collection without a primary key fails when declared`() {
+    fun `id must be declared with primaryKey`() {
         val failure = assertFailsWith<IllegalStateException> {
             object : TrackedCollection("bare") {
-                // no primary key
+                override val id = unique("id")
             }.let { bare -> NoSqlite { +bare } }
         }
 
-        assertTrue("no primary key" in failure.message!!)
+        assertTrue("primaryKey" in failure.message!!)
     }
 
     @Test
     fun `a second primary key fails immediately`() {
         val failure = assertFailsWith<IllegalStateException> {
             object : TrackedCollection("twice") {
-                val first = primaryKey("id")
+                override val id = primaryKey("id")
                 val second = primaryKey("email")
             }
         }
@@ -340,16 +338,18 @@ internal data class Meta(val id: String)
 @Serializable
 internal data class Goods(val meta: Meta, val name: String)
 
-private object Items : TrackedCollection("items") {
-    val byId = primaryKey(Item::id)
+private val clock = ManualClock(Instant.fromEpochMilliseconds(1_700_000_000_000))
+
+private object Items : TrackedCollection("items", clock) {
+    override val id = primaryKey(Item::id)
     val byEmail = unique(Item::email)
     val byAge = index(Item::age)
 }
 
-private object Stock : TrackedCollection("stock") {
-    val byId = primaryKey(Goods::meta / Meta::id)
+private object Stock : TrackedCollection("stock", clock) {
+    override val id = primaryKey("meta.id")
 }
 
-private object Notes : TrackedCollection("notes") {
-    val byId = primaryKey("id")
+private object Notes : TrackedCollection("notes", clock) {
+    override val id = primaryKey("id")
 }

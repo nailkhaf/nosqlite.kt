@@ -30,6 +30,6 @@ public data class PendingChange(
  */
 public object PendingChanges : Collection("__pending_changes") {
     public val byId: UniqueIndex = unique(PendingChange::id)
-    /** Collection name, then change id, so a collection's changes are one lookup. */
-    public val byCollection: Index = index(PendingChange::collection, PendingChange::id)
+    /** One collection's changes. Order a read by [PendingChange.id]; a UUIDv7 sorts by time. */
+    public val byCollection: Index = index(PendingChange::collection)
 }
