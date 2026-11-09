@@ -8,6 +8,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
+import kotlin.concurrent.Volatile
 
 /**
  * A document database. Every collection it serves is declared up front:
@@ -34,14 +35,22 @@ public class NoSqlite(
 
     internal val tracked = tables.collections.filter { it.tracked }
 
+    @Volatile
+    private var schemaCreated = false
+
     private val connections = ConnectionPool(location, driver, dispatcher) { connection ->
         connection.transaction(Boundary.Write) { context(connection) { createSchema(tables) } }
+        schemaCreated = true
     }
 
     /** How many committed writes changed each collection; one no write changed yet is missing. */
     internal val versions = MutableStateFlow(emptyMap<String, Long>())
 
-    internal fun pool(): ConnectionPool = connections
+    /** The pool, once the writer has created the schema, so a first read on a new file finds its tables. */
+    internal suspend fun pool(): ConnectionPool {
+        if (!schemaCreated) connections.withWriter {}
+        return connections
+    }
 
     internal fun committed(changed: Set<String>) {
         if (changed.isEmpty()) return

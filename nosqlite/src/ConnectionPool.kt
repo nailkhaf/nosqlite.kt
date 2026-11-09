@@ -16,7 +16,7 @@ import kotlinx.coroutines.withContext
  * One write connection and, for a file, [Location.File.maxReaders] `query_only` read connections in WAL mode.
  * Each is opened when first needed and handed to one coroutine at a time; an in-memory database has no readers,
  * its one connection serves both. [onWriterOpened] runs on every new write connection, a reopened one too,
- * before it is handed out; readers open only after it has run once.
+ * before it is handed out.
  */
 internal class ConnectionPool(
     location: Location = Location.InMemory,
@@ -28,13 +28,10 @@ internal class ConnectionPool(
         require(!driver.hasConnectionPool) { "SQLiteDriver with its own connection pool is not supported" }
     }
 
-    private val writer = Slots(1) { Connection.open(driver, location).also { it.onOpened() } }
+    private val writer = Slots(1) { Connection.open(driver, location).also { onWriterOpened(it) } }
 
     private val readers = (location as? Location.File)?.takeIf { it.maxReaders > 0 }?.let {
-        Slots(it.maxReaders) {
-            writer.use {} // Opens the writer if it isn't yet, so onWriterOpened has run before anything reads.
-            Connection.open(driver, location, queryOnly = true)
-        }
+        Slots(it.maxReaders) { Connection.open(driver, location, queryOnly = true) }
     }
 
     /** Runs [block] with the write connection, waiting while another coroutine holds it. */
@@ -47,16 +44,6 @@ internal class ConnectionPool(
     suspend fun close() {
         writer.close()
         readers?.close()
-    }
-
-    /** Runs [onWriterOpened], closing this new connection when it fails, as [Connection.open] does for pragmas. */
-    private suspend fun Connection.onOpened() {
-        try {
-            onWriterOpened(this)
-        } catch (e: Throwable) {
-            closeQuietly()
-            throw e
-        }
     }
 }
 
