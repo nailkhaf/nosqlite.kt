@@ -41,12 +41,11 @@ internal suspend fun <R> ConnectionPool.read(block: suspend context(ReadScope) (
 
 /**
  * Runs [block] in a write; [onCommit] gets the collections it changed once the outermost write commits, even when the
- * caller is cancelled right after the commit. [tracked] is empty when the database records nothing, and then the
- * write runs no tracking SQL. [untracked] sets the temp flag for this transaction only and cannot nest.
+ * caller is cancelled right after the commit. [untracked] drops the tracked collections' temp triggers inside the
+ * transaction and recreates them before commit, so a rollback restores them too. It cannot nest.
  */
 internal suspend fun <R> ConnectionPool.write(
     onCommit: (Set<String>) -> Unit = {},
-    tracked: List<Collection> = emptyList(),
     untracked: Boolean = false,
     block: suspend context(WriteScope) () -> R,
 ): R {
@@ -57,25 +56,20 @@ internal suspend fun <R> ConnectionPool.write(
         return active.connection.transaction(Boundary.Savepoint) { withScope(scope, block) }
             .also { active.changed += scope.changed }
     }
+    val paused = if (untracked) tracked else emptyList()
     return withWriter { connection ->
-        if (tracked.isNotEmpty()) connection.installTracking(tracked)
         val scope = WriteScope(connection, this)
         connection.transaction(Boundary.Write) {
-            // Set only for an untracked write. A throw skips the reset: rolling back restores the temp row to 0.
-            if (untracked && tracked.isNotEmpty()) connection.setUntracked(true)
-            withScope(scope, block).also {
-                if (untracked && tracked.isNotEmpty()) connection.setUntracked(false)
+            context(connection) {
+                paused.forEach { dropTrackingTriggers(it) }
+                withScope(scope, block).also { paused.forEach { createTrackingTriggers(it) } }
             }
         }.also { onCommit(scope.changed.toSet()) }
     }
 }
 
-private suspend fun Connection.setUntracked(untracked: Boolean) {
-    context(this) { Queries.setUntracked.execute(untracked) }
-}
-
 /** The SQL that opens, commits and rolls back one kind of transaction. */
-private enum class Boundary(val begin: String, val commit: String, val rollback: List<String>, val nested: Boolean) {
+internal enum class Boundary(val begin: String, val commit: String, val rollback: List<String>, val nested: Boolean) {
     Read("BEGIN DEFERRED TRANSACTION;", "COMMIT;", listOf("ROLLBACK;"), nested = false),
     Write("BEGIN IMMEDIATE TRANSACTION;", "COMMIT;", listOf("ROLLBACK;"), nested = false),
 
@@ -85,7 +79,7 @@ private enum class Boundary(val begin: String, val commit: String, val rollback:
 }
 
 /** Runs [block] between [boundary]'s begin and commit, rolling back when it throws or is cancelled. */
-private suspend fun <R> Connection.transaction(boundary: Boundary, block: suspend () -> R): R {
+internal suspend fun <R> Connection.transaction(boundary: Boundary, block: suspend () -> R): R {
     if (boundary.nested) {
         check(inTransaction()) { "Connection is not in a transaction, SAVEPOINT would start a new one" }
     } else {

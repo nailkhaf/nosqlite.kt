@@ -3,9 +3,6 @@ package io.github.nailkhaf.nosqlite
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Instant
 
-// SQLite's bound-variable cap is 32766 by default and 999 on older builds. Stay under both.
-private const val MaxBoundVariables = 500
-
 /** One recorded insert, update or delete of a tracked collection, in the order it was committed. */
 public data class PendingChange(
     public val id: Long,
@@ -22,8 +19,18 @@ public suspend fun pendingChanges(): List<PendingChange> = context(connection())
 /** Deletes exactly these rows. A change written after they were read stays. */
 context(_: WriteScope)
 public suspend fun removePendingChanges(changes: List<PendingChange>) {
-    val connection = connection()
-    for (ids in changes.map { it.id }.chunked(MaxBoundVariables)) {
-        context(connection) { Queries.deletePendingChanges(ids).execute() }
-    }
+    if (changes.isEmpty()) return
+    context(connection()) { Queries.deletePendingChanges.execute(changes.map { it.id }) }
+}
+
+/** Starts recording the collection's changes on this connection; a no-op when its triggers exist. */
+context(_: Connection)
+internal suspend fun createTrackingTriggers(collection: Collection) {
+    Queries.trackingTriggers(collection).forEach { command(it).execute() }
+}
+
+/** Stops recording the collection's changes on this connection; a no-op when its triggers are gone. */
+context(_: Connection)
+internal suspend fun dropTrackingTriggers(collection: Collection) {
+    Queries.dropTrackingTriggers(collection).forEach { command(it).execute() }
 }

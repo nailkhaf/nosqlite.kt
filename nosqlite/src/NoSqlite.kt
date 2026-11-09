@@ -34,16 +34,18 @@ public class NoSqlite(
 
     internal val tracked = tables.collections.filter { it.tracked }
 
-    private val connections = ConnectionPool(location, driver, dispatcher)
-
-    private val ready = suspendLazy {
-        connections.write {
-            context(connection()) {
-                tables.removed.forEach { Queries.dropTable(it).execute() }
-                tables.collections.forEach { createSchema(it) }
-                Queries.createPendingChanges.execute()
-            }
+    private val connections = ConnectionPool(location, driver, dispatcher, tracked) { connection ->
+        context(connection) {
+            tables.removed.forEach { Queries.dropTable(it).execute() }
+            tables.collections.forEach { createSchema(it) }
+            Queries.createPendingChanges.execute()
+            tracked.forEach { createTrackingTriggers(it) }
         }
+    }
+
+    // Opening the writer runs the setup above.
+    private val ready = suspendLazy {
+        connections.withWriter {}
         connections
     }
 
@@ -125,7 +127,7 @@ public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R):
 public suspend fun <R> NoSqlite.write(
     untracked: Boolean = false,
     block: suspend context(WriteScope) () -> R,
-): R = pool().write(onCommit = ::committed, tracked = tracked, untracked = untracked, block = block)
+): R = pool().write(onCommit = ::committed, untracked = untracked, block = block)
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
 context(_: Connection)
