@@ -15,24 +15,24 @@ import kotlinx.coroutines.withContext
 /**
  * One write connection and, for a file, [Location.File.maxReaders] `query_only` read connections in WAL mode.
  * Each is opened when first needed and handed to one coroutine at a time; an in-memory database has no readers,
- * its one connection serves both. Each time the write connection opens it sets up [tables] in one write transaction,
- * so a reopened writer gets its temp triggers back; readers open only after the writer has done that once.
+ * its one connection serves both. [onConnectionOpened] runs on every new write connection, a reopened one too,
+ * before it is handed out; readers open only after it has run once.
  */
 internal class ConnectionPool(
-    private val tables: SchemaBuilder,
     location: Location = Location.InMemory,
     driver: SQLiteDriver = BundledSQLiteDriver(),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val onConnectionOpened: suspend (Connection) -> Unit,
 ) {
     init {
         require(!driver.hasConnectionPool) { "SQLiteDriver with its own connection pool is not supported" }
     }
 
-    private val writer = Slots(1) { Connection.open(driver, location).setUp(tables) }
+    private val writer = Slots(1) { Connection.open(driver, location).also { it.onOpened() } }
 
     private val readers = (location as? Location.File)?.takeIf { it.maxReaders > 0 }?.let {
         Slots(it.maxReaders) {
-            writer.use {} // Opens the writer if it isn't yet, so the tables exist before anything reads them.
+            writer.use {} // Opens the writer if it isn't yet, so onConnectionOpened has run before anything reads.
             Connection.open(driver, location, queryOnly = true)
         }
     }
@@ -47,6 +47,16 @@ internal class ConnectionPool(
     suspend fun close() {
         writer.close()
         readers?.close()
+    }
+
+    /** Runs [onConnectionOpened], closing this new connection when it fails, as [Connection.open] does for pragmas. */
+    private suspend fun Connection.onOpened() {
+        try {
+            onConnectionOpened(this)
+        } catch (e: Throwable) {
+            closeQuietly()
+            throw e
+        }
     }
 }
 
@@ -99,15 +109,4 @@ private suspend fun Connection.closeQuietly() {
     } catch (_: Exception) {
         // Already unusable, and not going back to the pool.
     }
-}
-
-/** Creates [tables] on this new write connection, closing it when that fails, as [Connection.open] does for pragmas. */
-private suspend fun Connection.setUp(tables: SchemaBuilder): Connection {
-    try {
-        transaction(Boundary.Write) { context(this) { createSchema(tables) } }
-    } catch (e: Throwable) {
-        closeQuietly()
-        throw e
-    }
-    return this
 }

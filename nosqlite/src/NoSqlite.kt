@@ -34,7 +34,9 @@ public class NoSqlite(
 
     internal val tracked = tables.collections.filter { it.tracked }
 
-    private val connections = ConnectionPool(tables, location, driver, dispatcher)
+    private val connections = ConnectionPool(location, driver, dispatcher) { connection ->
+        connection.transaction(Boundary.Write) { context(connection) { createSchema(tables) } }
+    }
 
     /** How many committed writes changed each collection; one no write changed yet is missing. */
     internal val versions = MutableStateFlow(emptyMap<String, Long>())
