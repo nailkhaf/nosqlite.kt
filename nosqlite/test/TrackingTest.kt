@@ -104,7 +104,7 @@ internal class TrackingTest {
     }
 
     @Test
-    fun `a unique lookup update, replace and delete record before and after`() = runTest {
+    fun `a unique lookup update replace and delete record before and after`() = runTest {
         val db = database()
         val updated = ada.copy(name = "Ada Lovelace")
         val replaced = updated.copy(age = 37)
@@ -127,7 +127,7 @@ internal class TrackingTest {
     }
 
     @Test
-    fun `a where update, replace and delete record every match`() = runTest {
+    fun `a where update replace and delete record every match`() = runTest {
         val db = database()
         val ada99 = ada.copy(age = 99)
         val grace99 = grace.copy(age = 99)
@@ -156,7 +156,7 @@ internal class TrackingTest {
     }
 
     @Test
-    fun `a many lookup update, replace and delete record every match`() = runTest {
+    fun `a many lookup update replace and delete record every match`() = runTest {
         val db = database()
         val ada99 = ada.copy(age = 99)
         val grace99 = grace.copy(age = 99)
