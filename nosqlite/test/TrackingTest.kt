@@ -256,7 +256,8 @@ internal class TrackingTest {
     @Test
     fun `timestamps fall in the write window and rows stay ordered by id`() = runTest {
         val db = database()
-        val before = Clock.System.now()
+        // Changes record whole milliseconds, so the window starts at the current one.
+        val before = Instant.fromEpochMilliseconds(Clock.System.now().toEpochMilliseconds())
 
         db.write { Contacts.insert(ada) }
         db.write { Contacts.insert(alan) }
