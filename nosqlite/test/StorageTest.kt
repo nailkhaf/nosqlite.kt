@@ -193,7 +193,7 @@ internal class StorageTest {
         db.read { }
 
         assertEquals(
-            listOf(listOf("notes"), listOf("users")),
+            listOf(listOf("__pending_changes"), listOf("notes"), listOf("users")),
             // sqlite_sequence is SQLite's own AUTOINCREMENT table.
             db.querySql("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite%' ORDER BY 1"),
         )
@@ -326,8 +326,8 @@ internal class StorageTest {
             }
 
             assertEquals(
-                listOf(listOf("users")),
-                db.querySql("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite%'"),
+                listOf(listOf("__pending_changes"), listOf("users")),
+                db.querySql("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite%' ORDER BY 1"),
             )
             db.close()
         }

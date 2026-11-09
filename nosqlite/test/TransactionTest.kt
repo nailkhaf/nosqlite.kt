@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
 /** Covers read and write transactions: commit, rollback, savepoints and snapshots. */
 internal class TransactionTest {
 
-    private suspend fun poolWithTable(): ConnectionPool = ConnectionPool().apply { writeSql { createTable() } }
+    private suspend fun poolWithTable(): ConnectionPool = ConnectionPool {}.apply { writeSql { createTable() } }
 
     @Test
     fun `write commits everything it did`() = runTest {
@@ -133,7 +133,7 @@ internal class TransactionTest {
     @Test
     fun `read sees one snapshot while a write commits`() = runTest {
         withTempFile { location ->
-            val pool = ConnectionPool(location).apply {
+            val pool = ConnectionPool(location) {}.apply {
                 writeSql {
                     createTable()
                     insert("before")
@@ -162,7 +162,7 @@ internal class TransactionTest {
 
     @Test
     fun `write inside a read is rejected`() = runTest {
-        val pool = ConnectionPool()
+        val pool = ConnectionPool {}
 
         val error = assertFailsWith<IllegalStateException> { pool.readSql { pool.writeSql { } } }
 
@@ -171,8 +171,8 @@ internal class TransactionTest {
 
     @Test
     fun `transaction of another database is rejected`() = runTest {
-        val first = ConnectionPool()
-        val second = ConnectionPool()
+        val first = ConnectionPool {}
+        val second = ConnectionPool {}
 
         val error = assertFailsWith<IllegalStateException> { first.readSql { second.readSql { } } }
 
@@ -198,7 +198,7 @@ internal class TransactionTest {
     @Test
     fun `a rollback that fails once is retried and the connection reused`() = runTest {
         val driver = FailingDriver("ROLLBACK;", times = 1)
-        val pool = ConnectionPool(driver = driver)
+        val pool = ConnectionPool(driver = driver) {}
         pool.writeSql {
             createTable()
             insert("before")
@@ -224,7 +224,7 @@ internal class TransactionTest {
     fun `a rollback that keeps failing is replaced so the next write succeeds`() = runTest {
         withTempFile { location ->
             val driver = FailingDriver("ROLLBACK;")
-            val pool = ConnectionPool(location, driver)
+            val pool = ConnectionPool(location, driver) {}
             pool.writeSql {
                 createTable()
                 insert("before")
@@ -250,7 +250,7 @@ internal class TransactionTest {
     fun `a cancelled write whose rollback fails still frees the writer`() = runTest {
         withTempFile { location ->
             val driver = FailingDriver("ROLLBACK;")
-            val pool = ConnectionPool(location, driver)
+            val pool = ConnectionPool(location, driver) {}
             pool.writeSql {
                 createTable()
                 insert("before")
@@ -278,7 +278,7 @@ internal class TransactionTest {
     fun `a failed read rollback is replaced so the next read succeeds`() = runTest {
         withTempFile { location ->
             val driver = FailingDriver("ROLLBACK;")
-            val pool = ConnectionPool(location, driver)
+            val pool = ConnectionPool(location, driver) {}
             pool.writeSql {
                 createTable()
                 insert("kept")
