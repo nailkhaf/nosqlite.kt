@@ -17,8 +17,9 @@ import kotlinx.serialization.json.Json
  *     +Notes
  * }
  * ```
- * Nothing touches the file until the first [read] or [write], which drops the tables of removed collections and
- * creates the declared ones in one write transaction before anything else runs.
+ * Nothing touches the file until the first [read] or [write]. Opening the write connection drops the tables of removed
+ * collections and creates the declared ones in one write transaction before anything else runs.
+ * A tracked collection records each of its changes.
  * [close] closes every connection that was opened.
  */
 public class NoSqlite(
@@ -29,17 +30,15 @@ public class NoSqlite(
 ) {
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
 
-    private val connections = ConnectionPool(location, driver, dispatcher)
-
     private val tables = SchemaBuilder().apply(schema)
 
+    private val connections = ConnectionPool(location, driver, dispatcher) { connection ->
+        connection.transaction(Boundary.Write) { context(connection) { createSchema(tables) } }
+    }
+
+    // Opening the writer creates the schema, so a first read on a new file finds its tables.
     private val ready = suspendLazy {
-        connections.write {
-            context(connection()) {
-                tables.removed.forEach { Queries.dropTable(it).execute() }
-                tables.collections.forEach { createSchema(it) }
-            }
-        }
+        connections.withWriter {}
         connections
     }
 
@@ -116,12 +115,25 @@ public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R):
  * sequential. Using the database from coroutines launched inside it (`launch`, `async`, parallel flow operators)
  * concurrently is unsupported and can crash; sequential suspension inside the block is fine. Do parallel work
  * outside the transaction, each coroutine in its own [read] or [write], or gather results first and write them in
- * one sequential block.
+ * one sequential block. Pass [untracked] to record none of the writes tracked collections do in the block.
  */
-public suspend fun <R> NoSqlite.write(block: suspend context(WriteScope) () -> R): R =
-    pool().write(onCommit = ::committed, block)
+public suspend fun <R> NoSqlite.write(
+    untracked: Boolean = false,
+    block: suspend context(WriteScope) () -> R,
+): R = pool().write(onCommit = ::committed, untracked = untracked, block = block)
+
+// Drops the removed tables and creates the queue and the declared collections; safe to run again.
+context(_: Connection)
+internal suspend fun createSchema(tables: SchemaBuilder) {
+    tables.removed.forEach { Queries.dropTable(it).execute() }
+    Queries.createPendingChanges.execute()
+    Queries.createTrackingState.execute()
+    Queries.seedTrackingState.execute()
+    tables.collections.forEach { createSchema(it) }
+}
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
+// A tracked collection also gets its temp triggers on this connection.
 context(_: Connection)
 internal suspend fun createSchema(collection: Collection) {
     Queries.createTable(collection).execute()
@@ -132,5 +144,8 @@ internal suspend fun createSchema(collection: Collection) {
     current.filter { it !in wanted }.forEach { Queries.dropIndex(it).execute() }
     wanted.filterKeys { it !in current }.values.forEach { index ->
         mapErrors(collection) { Queries.createIndex(index).execute() }
+    }
+    if (collection.tracked) {
+        Queries.trackingTriggers(collection).forEach { command(it).execute() }
     }
 }

@@ -9,7 +9,8 @@ import kotlin.reflect.KProperty1
 /**
  * A named set of JSON object documents, stored in its own table. The documents are the JSON itself: each read decodes
  * them into the type it asks for, and a typed write changes only the fields its type declares, so fields the app
- * doesn't know yet survive. Create one directly, or extend it to declare indexes, and list it in `NoSqlite { }`:
+ * doesn't know yet survive. Create one directly, or extend it to declare indexes, and list it in `NoSqlite { }`.
+ * Pass `tracked = true` to record every insert, update and delete.
  * ```
  * val Notes = Collection("notes")
  *
@@ -25,7 +26,7 @@ import kotlin.reflect.KProperty1
  * }
  * ```
  */
-public open class Collection(public val name: String) {
+public open class Collection(public val name: String, public val tracked: Boolean = false) {
     init {
         requireCollectionName(name)
     }
@@ -69,6 +70,7 @@ private val CollectionName = Regex("[A-Za-z_][A-Za-z0-9_]*")
 internal fun requireCollectionName(name: String) {
     require(name.matches(CollectionName)) { "Invalid collection name: '$name'" }
     require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
+    require(name != PENDING_CHANGES && name != TRACKING_STATE) { "Collection name is reserved: '$name'" }
 }
 
 /** Inserts [value] as a new document; it must encode to a JSON object. */

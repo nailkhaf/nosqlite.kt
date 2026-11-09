@@ -2,6 +2,12 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.json.JsonObject
+import kotlin.time.Instant
+
+internal const val PENDING_CHANGES = "__pending_changes"
+
+internal const val TRACKING_STATE = "__tracking_state"
 
 internal object Queries {
 
@@ -85,6 +91,97 @@ internal object Queries {
         encode = { json -> bindText(1, json) },
         decode = { step() },
     )
+
+    val createPendingChanges: Command<Unit> = command(
+        """
+        CREATE TABLE IF NOT EXISTS $PENDING_CHANGES (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            collection TEXT NOT NULL,
+            before BLOB,
+            after BLOB,
+            timestamp INTEGER NOT NULL
+        ) STRICT;
+        """.trimIndent(),
+    )
+
+    val pendingChanges: Statement<Unit, List<PendingChange>> = Statement(
+        sql = """
+            SELECT id, collection, json(before), json(after), timestamp
+            FROM $PENDING_CHANGES ORDER BY id;
+        """.trimIndent(),
+        encode = {},
+        decode = rows {
+            PendingChange(
+                id = getLong(0),
+                collection = getText(1),
+                before = jsonObjectOrNull(2),
+                after = jsonObjectOrNull(3),
+                timestamp = Instant.fromEpochMilliseconds(getLong(4)),
+            )
+        },
+    )
+
+    /** Deletes the ids bound as one JSON array, such as `[1,2,3]`. */
+    val deletePendingChanges: Statement<List<Long>, Unit> = Statement(
+        sql = "DELETE FROM $PENDING_CHANGES WHERE id IN (SELECT value FROM json_each(?));",
+        encode = { ids -> bindText(1, ids.joinToString(",", "[", "]")) },
+        decode = { step() },
+    )
+
+    val createTrackingState: Command<Unit> = command(
+        """
+        CREATE TEMP TABLE IF NOT EXISTS $TRACKING_STATE (
+            untracked INTEGER NOT NULL
+        );
+        """.trimIndent(),
+    )
+
+    val seedTrackingState: Command<Unit> = command("INSERT INTO $TRACKING_STATE (untracked) VALUES (0);")
+
+    val setUntracked: Statement<Boolean, Unit> = Statement(
+        sql = "UPDATE $TRACKING_STATE SET untracked = ?;",
+        encode = { untracked -> bindLong(1, if (untracked) 1 else 0) },
+        decode = { step() },
+    )
+
+    /**
+     * Three temp triggers per tracked table that append the change unless the untracked flag is set. A trigger
+     * stored in main cannot read a temp table, and INSERT/UPDATE/DELETE inside a trigger reject database-qualified
+     * names, so the body stays unqualified.
+     */
+    fun trackingTriggers(collection: Collection): List<String> {
+        val table = "main.${collection.table}"
+        val name = SqlValue.Text(collection.name).literal
+        val guard = "WHEN NOT (SELECT untracked FROM $TRACKING_STATE)"
+        val record = "INSERT INTO $PENDING_CHANGES (collection, before, after, timestamp) VALUES"
+        val now = "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
+        return listOf(
+            """
+            CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_insert
+            AFTER INSERT ON $table
+            $guard
+            BEGIN
+                $record ($name, NULL, NEW.data, $now);
+            END;
+            """.trimIndent(),
+            """
+            CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_update
+            AFTER UPDATE ON $table
+            $guard
+            BEGIN
+                $record ($name, OLD.data, NEW.data, $now);
+            END;
+            """.trimIndent(),
+            """
+            CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_delete
+            AFTER DELETE ON $table
+            $guard
+            BEGIN
+                $record ($name, OLD.data, NULL, $now);
+            END;
+            """.trimIndent(),
+        )
+    }
 }
 
 // Identifiers can't be bound, so they are quoted into the SQL text with their own quotes doubled.
@@ -100,4 +197,9 @@ private val countRows: SQLiteStatement.() -> Int = {
     var count = 0
     while (step()) count++
     count
+}
+
+private fun SQLiteStatement.jsonObjectOrNull(index: Int): JsonObject? {
+    if (isNull(index)) return null
+    return NoSqlite.Json.parseToJsonElement(getText(index)) as JsonObject
 }
