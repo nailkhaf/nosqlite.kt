@@ -50,6 +50,22 @@ internal fun sqlValue(value: Any?): SqlValue = when (value) {
     else -> throw IllegalArgumentException("Unsupported value: ${value::class.simpleName}")
 }
 
+internal const val FLOAT_IS_NOT_AN_SQL_REAL =
+    "Unsupported number: Float, it is not exact as a SQL real; pass a Double (0.1f does not match 0.1)"
+
+/** Lookups and the typed where API convert a [Number] here, including the [Float] rejection. */
+internal val Number.sqlValue: SqlValue
+    get() = when (this) {
+        is Int, is Long, is Short, is Byte -> SqlValue.Integer(toLong())
+        // 0.1f.toDouble() is 0.10000000149011612, so it never equals the REAL 0.1 stored from JSON.
+        is Float -> {
+            require(isFinite()) { "Unsupported number: $this, SQLite has no NaN or infinity" }
+            throw IllegalArgumentException(FLOAT_IS_NOT_AN_SQL_REAL)
+        }
+        is Double -> sqlReal
+        else -> throw IllegalArgumentException("Unsupported number: ${this::class.simpleName}")
+    }
+
 /** The documents found that [query] selects, as [T]; its condition, if any, must hold as well. */
 context(_: ReadScope)
 public suspend inline fun <reified T> Lookup.Many.list(noinline query: QueryScope.() -> Unit = {}): List<T> =
