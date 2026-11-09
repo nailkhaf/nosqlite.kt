@@ -136,12 +136,7 @@ internal object Queries {
         """.trimIndent(),
     )
 
-    val seedTrackingState: Command<Unit> = command(
-        """
-        INSERT INTO $TRACKING_STATE (untracked)
-        SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM $TRACKING_STATE);
-        """.trimIndent(),
-    )
+    val seedTrackingState: Command<Unit> = command("INSERT INTO $TRACKING_STATE (untracked) VALUES (0);")
 
     val setUntracked: Statement<Boolean, Unit> = Statement(
         sql = "UPDATE $TRACKING_STATE SET untracked = ?;",
