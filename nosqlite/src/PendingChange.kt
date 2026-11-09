@@ -15,24 +15,15 @@ public data class PendingChange(
     public val timestamp: Instant,
 )
 
-/** The pending changes recorded so far, ordered by id. Empty when nothing is tracked. */
+/** The pending changes recorded so far, ordered by id. */
 context(_: ReadScope)
-public suspend fun pendingChanges(): List<PendingChange> = readPendingChanges()
+public suspend fun pendingChanges(): List<PendingChange> = context(connection()) { Queries.pendingChanges.execute() }
 
 /** Deletes exactly these rows. A change written after they were read stays. */
-context(scope: WriteScope)
+context(_: WriteScope)
 public suspend fun removePendingChanges(changes: List<PendingChange>) {
-    if (changes.isEmpty()) return
-    var deleted = 0
     val connection = connection()
     for (ids in changes.map { it.id }.chunked(MaxBoundVariables)) {
-        deleted += context(connection) { Queries.deletePendingChanges(ids).execute() }
+        context(connection) { Queries.deletePendingChanges(ids).execute() }
     }
-    if (deleted > 0) scope.changed += PENDING_CHANGES
-}
-
-context(scope: ReadScope)
-internal suspend fun readPendingChanges(): List<PendingChange> {
-    if (!scope.pool.tracks) return emptyList()
-    return context(connection()) { Queries.pendingChanges.execute() }
 }

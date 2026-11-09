@@ -10,7 +10,7 @@ import kotlin.reflect.KProperty1
  * A named set of JSON object documents, stored in its own table. The documents are the JSON itself: each read decodes
  * them into the type it asks for, and a typed write changes only the fields its type declares, so fields the app
  * doesn't know yet survive. Create one directly, or extend it to declare indexes, and list it in `NoSqlite { }`.
- * Pass `tracked = true` and declare one `primaryKey` to record every insert, update and delete.
+ * Pass `tracked = true` to record every insert, update and delete.
  * ```
  * val Notes = Collection("notes")
  *
@@ -33,22 +33,6 @@ public open class Collection(public val name: String, public val tracked: Boolea
 
     internal val indexes: List<Index>
         field = mutableListOf()
-
-    /** The one-field unique index declared with [primaryKey], when this collection has one. */
-    internal var primaryKeyIndex: UniqueIndex? = null
-        private set
-
-    /** The unique index on [field], this collection's identity. A tracked collection declares exactly one. */
-    protected fun primaryKey(field: String): UniqueIndex {
-        require(tracked) { "Collection '$name' declares a primary key but is not tracked" }
-        require(primaryKeyIndex == null) { "Collection '$name' declares more than one primary key" }
-        return unique(field).also { primaryKeyIndex = it }
-    }
-
-    /** The unique index on property [field], this collection's identity. */
-    protected fun primaryKey(field: Field<*, *>): UniqueIndex = primaryKey(field.path)
-
-    protected fun primaryKey(property: KProperty1<*, *>): UniqueIndex = primaryKey(property.field)
 
     /** A unique index on [fields]: documents can't share their values; with [where] only matching ones count. */
     protected fun unique(vararg fields: String, where: (WhereScope.() -> Where)? = null): UniqueIndex =

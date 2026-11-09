@@ -194,30 +194,29 @@ the last one isn't emitted. Changes are tracked per collection.
 
 ### Change tracking
 
-`Collection("contacts", tracked = true)` records every insert, update and delete in `__pending_changes`.
-The collection declares its identity with one `primaryKey`, a unique index on a single field. Only a tracked
-collection declares one, and it must. A write that changes that field is rejected, an untracked write included.
+`Collection("contacts", tracked = true)` records every insert, update and delete in `__pending_changes`, with
+the document before and after the change. Identity is up to the app: it reads its own id field from that JSON.
 
 ```kotlin
 object Contacts : Collection("contacts", tracked = true) {
-    val byId = primaryKey(Contact::id)
+    val byId = unique(Contact::id)
 }
 
 val db = NoSqlite("app.db") { +Contacts }
 
-db.pendingChanges().collect { changes ->
-    sync(changes)
-    db.write { removePendingChanges(changes) }
-}
+val changes = db.read { pendingChanges() }
+sync(changes)
+db.write { removePendingChanges(changes) }
+
 db.write(untracked = true) { import(contacts) }
 ```
 
-`pendingChanges()` emits the queue, ordered by id, again after every committed write that appended or removed rows.
-With no tracked collection it is empty. `removePendingChanges` deletes exactly the given rows, so a change written
-after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
+`pendingChanges()` returns the queue ordered by id. Read it whenever sync
+runs, for example after `observe` on a tracked collection emits. `removePendingChanges` deletes exactly the given
+rows, so a change written after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
 `write(untracked = true)` records nothing and does not nest inside another write.
 The queue is append-only. A collection that is not tracked has no triggers, and a database with none of them writes
-as before.
+as before. Rows queued before a collection stopped being tracked stay readable until they are removed.
 
 ## Sample
 

@@ -5,11 +5,7 @@ import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
 
@@ -36,30 +32,22 @@ public class NoSqlite(
 
     private val tables = SchemaBuilder().apply(schema)
 
-    private val tracked = tables.collections.filter { it.tracked }
+    internal val tracked = tables.collections.filter { it.tracked }
 
-    private val connections = ConnectionPool(location, driver, dispatcher, tracks = tracked.isNotEmpty())
+    private val connections = ConnectionPool(location, driver, dispatcher)
 
     private val ready = suspendLazy {
-        tracked.forEach { collection ->
-            requireNotNull(collection.primaryKeyIndex) {
-                "Tracked collection '${collection.name}' must declare a primary key"
-            }
-        }
         connections.write {
             context(connection()) {
                 tables.removed.forEach { Queries.dropTable(it).execute() }
                 tables.collections.forEach { createSchema(it) }
-                if (tracked.isNotEmpty()) Queries.createPendingChanges.execute()
+                Queries.createPendingChanges.execute()
             }
         }
         connections
     }
 
-    /**
-     * How many committed writes changed each collection, and [PENDING_CHANGES] when a tracked write recorded or
-     * removed pending changes. A key no write changed yet is missing.
-     */
+    /** How many committed writes changed each collection; one no write changed yet is missing. */
     internal val versions = MutableStateFlow(emptyMap<String, Long>())
 
     internal suspend fun pool(): ConnectionPool = ready.get()
@@ -68,34 +56,6 @@ public class NoSqlite(
         if (changed.isEmpty()) return
         versions.update { current -> current + changed.associateWith { (current[it] ?: 0) + 1 } }
     }
-
-    /**
-     * Adds the pending-change queue to [changed] when this commit recorded any. Triggers cannot bump the version map
-     * observers watch, and the untracked flag lives only in the write connection's temp row.
-     */
-    internal fun publish(changed: Set<String>, untracked: Boolean): Set<String> =
-        if (untracked || tracked.none { it.name in changed }) changed else changed + PENDING_CHANGES
-
-    internal suspend fun <R> writeChanges(
-        untracked: Boolean,
-        block: suspend context(WriteScope) () -> R,
-    ): R = pool().write(
-        onCommit = { committed(publish(it, untracked)) },
-        tracked = tracked,
-        untracked = untracked,
-        block = block,
-    )
-
-    /**
-     * The pending changes recorded so far, ordered by id, now and again after every committed write that recorded or
-     * removed any. Empty, and no query, when nothing is tracked.
-     */
-    public fun pendingChanges(): Flow<List<PendingChange>> =
-        if (!connections.tracks) flowOf(emptyList())
-        else versions.map { it[PENDING_CHANGES] }
-            .distinctUntilChanged()
-            .map { read { readPendingChanges() } }
-            .distinctUntilChanged()
 
     /** Closes every connection that was opened; the database can't be used afterwards. */
     public suspend fun close(): Unit = connections.close()
@@ -165,7 +125,7 @@ public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R):
 public suspend fun <R> NoSqlite.write(
     untracked: Boolean = false,
     block: suspend context(WriteScope) () -> R,
-): R = writeChanges(untracked, block)
+): R = pool().write(onCommit = ::committed, tracked = tracked, untracked = untracked, block = block)
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
 context(_: Connection)

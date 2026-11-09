@@ -121,10 +121,10 @@ internal object Queries {
         },
     )
 
-    fun deletePendingChanges(ids: List<Long>): Statement<Unit, Int> = Statement(
-        sql = "DELETE FROM $PENDING_CHANGES WHERE id IN (${ids.joinToString { "?" }}) RETURNING 1;",
+    fun deletePendingChanges(ids: List<Long>): Statement<Unit, Unit> = Statement(
+        sql = "DELETE FROM $PENDING_CHANGES WHERE id IN (${ids.joinToString { "?" }});",
         encode = { ids.forEachIndexed { index, id -> bindLong(index + 1, id) } },
-        decode = countRows,
+        decode = { step() },
     )
 
     val createTrackingState: Command<Unit> = command(
@@ -149,26 +149,17 @@ internal object Queries {
     )
 
     /**
-     * Temp triggers per tracked table: one that rejects a changed primary key, and three that append the change
-     * unless the untracked flag is set. A trigger stored in main cannot read a temp table, and
-     * INSERT/UPDATE/DELETE inside a trigger reject database-qualified names, so the body stays unqualified.
+     * Three temp triggers per tracked table that append the change unless the untracked flag is set. A trigger
+     * stored in main cannot read a temp table, and INSERT/UPDATE/DELETE inside a trigger reject database-qualified
+     * names, so the body stays unqualified.
      */
     fun trackingTriggers(collection: Collection): List<String> {
         val table = "main.${collection.table}"
         val name = SqlValue.Text(collection.name).literal
-        val key = SqlValue.Text(collection.primaryKeyIndex!!.paths.single().jsonPath).literal
         val guard = "WHEN NOT (SELECT untracked FROM $TRACKING_STATE)"
         val record = "INSERT INTO $PENDING_CHANGES (collection, before, after, timestamp) VALUES"
         val now = "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
         return listOf(
-            """
-            CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_key
-            BEFORE UPDATE ON $table
-            BEGIN
-                SELECT RAISE(ABORT, 'primary key is immutable')
-                WHERE json_extract(OLD.data, $key) IS NOT json_extract(NEW.data, $key);
-            END;
-            """.trimIndent(),
             """
             CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_insert
             AFTER INSERT ON $table

@@ -21,7 +21,6 @@ internal class ConnectionPool(
     location: Location = Location.InMemory,
     driver: SQLiteDriver = BundledSQLiteDriver(),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-    internal val tracks: Boolean = false,
 ) {
     init {
         require(!driver.hasConnectionPool) { "SQLiteDriver with its own connection pool is not supported" }
