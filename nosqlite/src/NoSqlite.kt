@@ -8,7 +8,6 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.json.Json
-import kotlin.concurrent.Volatile
 
 /**
  * A document database. Every collection it serves is declared up front:
@@ -33,24 +32,20 @@ public class NoSqlite(
 
     private val tables = SchemaBuilder().apply(schema)
 
-    internal val tracked = tables.collections.filter { it.tracked }
-
-    @Volatile
-    private var schemaCreated = false
-
     private val connections = ConnectionPool(location, driver, dispatcher) { connection ->
         connection.transaction(Boundary.Write) { context(connection) { createSchema(tables) } }
-        schemaCreated = true
+    }
+
+    // Opening the writer creates the schema, so a first read on a new file finds its tables.
+    private val ready = suspendLazy {
+        connections.withWriter {}
+        connections
     }
 
     /** How many committed writes changed each collection; one no write changed yet is missing. */
     internal val versions = MutableStateFlow(emptyMap<String, Long>())
 
-    /** The pool, once the writer has created the schema, so a first read on a new file finds its tables. */
-    internal suspend fun pool(): ConnectionPool {
-        if (!schemaCreated) connections.withWriter {}
-        return connections
-    }
+    internal suspend fun pool(): ConnectionPool = ready.get()
 
     internal fun committed(changed: Set<String>) {
         if (changed.isEmpty()) return
@@ -125,13 +120,15 @@ public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R):
 public suspend fun <R> NoSqlite.write(
     untracked: Boolean = false,
     block: suspend context(WriteScope) () -> R,
-): R = pool().write(onCommit = ::committed, tracked = tracked, untracked = untracked, block = block)
+): R = pool().write(onCommit = ::committed, untracked = untracked, block = block)
 
 // Drops the removed tables and creates the queue and the declared collections; safe to run again.
 context(_: Connection)
 internal suspend fun createSchema(tables: SchemaBuilder) {
     tables.removed.forEach { Queries.dropTable(it).execute() }
     Queries.createPendingChanges.execute()
+    Queries.createTrackingState.execute()
+    Queries.seedTrackingState.execute()
     tables.collections.forEach { createSchema(it) }
 }
 
@@ -149,8 +146,6 @@ internal suspend fun createSchema(collection: Collection) {
         mapErrors(collection) { Queries.createIndex(index).execute() }
     }
     if (collection.tracked) {
-        Queries.createTrackingState.execute()
-        Queries.seedTrackingState.execute()
         Queries.trackingTriggers(collection).forEach { command(it).execute() }
     }
 }
