@@ -70,7 +70,7 @@ private val CollectionName = Regex("[A-Za-z_][A-Za-z0-9_]*")
 internal fun requireCollectionName(name: String) {
     require(name.matches(CollectionName)) { "Invalid collection name: '$name'" }
     require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
-    require(name != PENDING_CHANGES) { "Collection name is reserved: '$name'" }
+    require(name != PENDING_CHANGES && name != TRACKING_STATE) { "Collection name is reserved: '$name'" }
 }
 
 /** Inserts [value] as a new document; it must encode to a JSON object. */

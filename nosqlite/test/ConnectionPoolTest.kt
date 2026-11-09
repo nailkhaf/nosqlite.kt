@@ -16,7 +16,7 @@ internal class ConnectionPoolTest {
 
     @Test
     fun `in-memory reader uses the writer's connection`() = runTest {
-        val pool = ConnectionPool()
+        val pool = ConnectionPool(SchemaBuilder())
         pool.withWriter {
             it.createTable()
             it.insert("hello")
@@ -30,7 +30,7 @@ internal class ConnectionPoolTest {
     @Test
     fun `file readers see what the writer committed`() = runTest {
         withTempFile { location ->
-            val pool = ConnectionPool(location)
+            val pool = ConnectionPool(SchemaBuilder(), location)
             pool.withWriter {
                 it.createTable()
                 it.insert("hello")
@@ -46,7 +46,7 @@ internal class ConnectionPoolTest {
     @Test
     fun `file connections use WAL journal mode`() = runTest {
         withTempFile { location ->
-            val pool = ConnectionPool(location)
+            val pool = ConnectionPool(SchemaBuilder(), location)
 
             val mode = pool.withWriter { it.single("PRAGMA journal_mode;") }
 
@@ -58,7 +58,7 @@ internal class ConnectionPoolTest {
     @Test
     fun `readers refuse to write`() = runTest {
         withTempFile { location ->
-            val pool = ConnectionPool(location)
+            val pool = ConnectionPool(SchemaBuilder(), location)
             pool.withWriter { it.createTable() }
 
             assertFailsWith<SQLiteException> { pool.withReader { it.insert("nope") } }
@@ -70,7 +70,7 @@ internal class ConnectionPoolTest {
     @Test
     fun `readers serve coroutines at the same time`() = runTest {
         withTempFile(maxReaders = 2) { location ->
-            val pool = ConnectionPool(location)
+            val pool = ConnectionPool(SchemaBuilder(), location)
             pool.withWriter {
                 it.createTable()
                 it.insert("hello")
@@ -97,7 +97,7 @@ internal class ConnectionPoolTest {
     fun `connections open on first use only`() = runTest {
         withTempFile(maxReaders = 3) { location ->
             val driver = CountingDriver()
-            val pool = ConnectionPool(location, driver)
+            val pool = ConnectionPool(SchemaBuilder(), location, driver)
             assertEquals(0, driver.opened)
 
             pool.withWriter { it.createTable() }
@@ -114,7 +114,7 @@ internal class ConnectionPoolTest {
         withTempFile { location ->
             val driver = CountingDriver()
 
-            ConnectionPool(location, driver).close()
+            ConnectionPool(SchemaBuilder(), location, driver).close()
 
             assertEquals(0, driver.opened)
             assertFalse(location.exists())
@@ -123,7 +123,7 @@ internal class ConnectionPoolTest {
 
     @Test
     fun `a closed pool lends no connection`() = runTest {
-        val pool = ConnectionPool()
+        val pool = ConnectionPool(SchemaBuilder())
         pool.withWriter { it.createTable() }
         pool.close()
 
@@ -136,7 +136,7 @@ internal class ConnectionPoolTest {
 
     @Test
     fun `closing twice is allowed`() = runTest {
-        val pool = ConnectionPool()
+        val pool = ConnectionPool(SchemaBuilder())
         pool.withWriter { it.createTable() }
 
         pool.close()
@@ -145,7 +145,7 @@ internal class ConnectionPoolTest {
 
     @Test
     fun `a connection in use closes when it comes back`() = runTest {
-        val pool = ConnectionPool()
+        val pool = ConnectionPool(SchemaBuilder())
 
         pool.withWriter {
             it.createTable()
@@ -160,7 +160,7 @@ internal class ConnectionPoolTest {
     @Test
     fun `delete removes the file and its sidecars`() = runTest {
         withTempFile { location ->
-            val pool = ConnectionPool(location)
+            val pool = ConnectionPool(SchemaBuilder(), location)
             pool.withWriter { it.createTable() }
             pool.close()
             assertTrue(location.exists())
@@ -181,10 +181,10 @@ internal class ConnectionPoolTest {
     @Test
     fun `write fails with Busy while another pool on the file holds the write lock`() = runTest {
         withTempFile { location ->
-            val pool = ConnectionPool(location)
+            val pool = ConnectionPool(SchemaBuilder(), location)
             pool.writeSql { createTable() }
             pool.withWriter { it.execute("PRAGMA busy_timeout = 0;") }
-            val other = ConnectionPool(location)
+            val other = ConnectionPool(SchemaBuilder(), location)
 
             other.withWriter {
                 it.execute("BEGIN IMMEDIATE;")

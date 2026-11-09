@@ -233,7 +233,7 @@ internal class TrackingTest {
     }
 
     @Test
-    fun `a rolled-back untracked write leaves the triggers working`() = runTest {
+    fun `a thrown untracked write leaves the flag unset`() = runTest {
         val db = database()
         db.write { Contacts.insert(ada) }
 
@@ -244,10 +244,7 @@ internal class TrackingTest {
             }
         }
 
-        assertEquals(
-            listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_update"),
-            db.tempTriggers(),
-        )
+        assertEquals(listOf(listOf("0")), db.querySql("SELECT untracked FROM __tracking_state"))
         db.write { Contacts.insert(grace) }
         assertEquals(
             listOf(recorded(1, null, ada.json()), recorded(2, null, grace.json())),
@@ -324,7 +321,7 @@ internal class TrackingTest {
     }
 
     @Test
-    fun `a plain write adds no tracking statements and an untracked one only drops and recreates triggers`() = runTest {
+    fun `a plain write in a tracked database adds no statements`() = runTest {
         val log = mutableListOf<String>()
         val db = NoSqlite(driver = SqlLog(log)) {
             +Contacts
@@ -337,41 +334,17 @@ internal class TrackingTest {
 
         assertEquals(1, log.size, log.joinToString("\n"))
         assertTrue("notes" in log.single())
-        assertTrue(log.none { "TRIGGER" in it || "__pending_changes" in it })
+        assertTrue(log.none { "__tracking_state" in it || "__pending_changes" in it })
 
-        // The CREATE TRIGGER statements were prepared when the writer opened and are reused from the cache.
         log.clear()
         db.write(untracked = true) { Notes.insert(note) }
-        assertEquals(
-            listOf(
-                "DROP TRIGGER IF EXISTS temp.nsq_contacts_insert;",
-                "DROP TRIGGER IF EXISTS temp.nsq_contacts_update;",
-                "DROP TRIGGER IF EXISTS temp.nsq_contacts_delete;",
-            ),
-            log,
-        )
-        assertEquals(
-            listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_update"),
-            db.tempTriggers(),
-        )
-    }
-
-    @Test
-    fun `an untracked write in a database that tracks nothing runs no trigger statements`() = runTest {
-        val log = mutableListOf<String>()
-        val db = NoSqlite(driver = SqlLog(log)) { +Notes }
-        db.write { Notes.insert(note) }
-        log.clear()
-
-        db.write(untracked = true) { Notes.insert(note) }
-
-        assertEquals(emptyList(), log)
+        assertEquals(listOf("UPDATE __tracking_state SET untracked = ?;"), log)
     }
 
     @Test
     fun `a writer replaced after a failed rollback still records changes`() = runTest {
         withTempFile { location ->
-            val driver = FailingDriver("ROLLBACK;")
+            val driver = FailingDriver("ROLLBACK;", times = 2)
             val db = NoSqlite(location, driver) { +Contacts }
             db.write { Contacts.insert(ada) }
 
@@ -384,11 +357,7 @@ internal class TrackingTest {
             db.write { Contacts.insert(grace) }
 
             assertTrue(driver.connections.first().closed)
-            assertEquals(
-                listOf(recorded(1, null, ada.json()), recorded(2, null, grace.json())),
-                changes(db),
-            )
-            assertEquals(listOf(ada, grace), db.contacts())
+            assertEquals(listOf(recorded(1, null, ada.json()), recorded(2, null, grace.json())), changes(db))
             db.close()
         }
     }
@@ -419,15 +388,19 @@ internal class TrackingTest {
     }
 
     @Test
-    fun `removing more than a thousand changes in one call deletes only those`() = runTest {
+    fun `removing tens of thousands of ids in one call deletes only those ids`() = runTest {
         val db = database()
-        db.write { repeat(1500) { Contacts.insert(contact("c$it", it)) } }
-        val all = db.read { pendingChanges() }
+        db.write { Contacts.insert(ada) }
+        val first = db.read { pendingChanges() }.single()
+        db.write { Contacts.insert(alan) }
+        val extra = (3L..32_768L).map { id ->
+            PendingChange(id, Contacts.name, null, null, Instant.fromEpochMilliseconds(0))
+        }
 
-        db.write { removePendingChanges(all.take(1200)) }
+        db.write { removePendingChanges(listOf(first) + extra) }
 
-        assertEquals((1201L..1500L).toList(), db.read { pendingChanges() }.map { it.id })
-        assertEquals(1500, db.contacts().size)
+        assertEquals(listOf(recorded(2, null, alan.json())), changes(db))
+        assertEquals(listOf(ada, alan), db.contacts())
     }
 }
 

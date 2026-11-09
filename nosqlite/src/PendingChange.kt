@@ -22,15 +22,3 @@ public suspend fun removePendingChanges(changes: List<PendingChange>) {
     if (changes.isEmpty()) return
     context(connection()) { Queries.deletePendingChanges.execute(changes.map { it.id }) }
 }
-
-/** Starts recording the collection's changes on this connection; a no-op when its triggers exist. */
-context(_: Connection)
-internal suspend fun createTrackingTriggers(collection: Collection) {
-    Queries.trackingTriggers(collection).forEach { command(it).execute() }
-}
-
-/** Stops recording the collection's changes on this connection; a no-op when its triggers are gone. */
-context(_: Connection)
-internal suspend fun dropTrackingTriggers(collection: Collection) {
-    Queries.dropTrackingTriggers(collection).forEach { command(it).execute() }
-}

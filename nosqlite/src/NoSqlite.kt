@@ -17,8 +17,8 @@ import kotlinx.serialization.json.Json
  *     +Notes
  * }
  * ```
- * Nothing touches the file until the first [read] or [write], which drops the tables of removed collections and
- * creates the declared ones in one write transaction before anything else runs.
+ * Nothing touches the file until the first [read] or [write]. Opening the write connection drops the tables of removed
+ * collections and creates the declared ones in one write transaction before anything else runs.
  * A tracked collection records each of its changes.
  * [close] closes every connection that was opened.
  */
@@ -34,25 +34,12 @@ public class NoSqlite(
 
     internal val tracked = tables.collections.filter { it.tracked }
 
-    private val connections = ConnectionPool(location, driver, dispatcher, tracked) { connection ->
-        context(connection) {
-            tables.removed.forEach { Queries.dropTable(it).execute() }
-            tables.collections.forEach { createSchema(it) }
-            Queries.createPendingChanges.execute()
-            tracked.forEach { createTrackingTriggers(it) }
-        }
-    }
-
-    // Opening the writer runs the setup above.
-    private val ready = suspendLazy {
-        connections.withWriter {}
-        connections
-    }
+    private val connections = ConnectionPool(tables, location, driver, dispatcher)
 
     /** How many committed writes changed each collection; one no write changed yet is missing. */
     internal val versions = MutableStateFlow(emptyMap<String, Long>())
 
-    internal suspend fun pool(): ConnectionPool = ready.get()
+    internal fun pool(): ConnectionPool = connections
 
     internal fun committed(changed: Set<String>) {
         if (changed.isEmpty()) return
@@ -127,9 +114,18 @@ public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R):
 public suspend fun <R> NoSqlite.write(
     untracked: Boolean = false,
     block: suspend context(WriteScope) () -> R,
-): R = pool().write(onCommit = ::committed, untracked = untracked, block = block)
+): R = pool().write(onCommit = ::committed, tracked = tracked, untracked = untracked, block = block)
+
+// Drops the removed tables and creates the queue and the declared collections; safe to run again.
+context(_: Connection)
+internal suspend fun createSchema(tables: SchemaBuilder) {
+    tables.removed.forEach { Queries.dropTable(it).execute() }
+    Queries.createPendingChanges.execute()
+    tables.collections.forEach { createSchema(it) }
+}
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
+// A tracked collection also gets its temp triggers on this connection.
 context(_: Connection)
 internal suspend fun createSchema(collection: Collection) {
     Queries.createTable(collection).execute()
@@ -140,5 +136,10 @@ internal suspend fun createSchema(collection: Collection) {
     current.filter { it !in wanted }.forEach { Queries.dropIndex(it).execute() }
     wanted.filterKeys { it !in current }.values.forEach { index ->
         mapErrors(collection) { Queries.createIndex(index).execute() }
+    }
+    if (collection.tracked) {
+        Queries.createTrackingState.execute()
+        Queries.seedTrackingState.execute()
+        Queries.trackingTriggers(collection).forEach { command(it).execute() }
     }
 }

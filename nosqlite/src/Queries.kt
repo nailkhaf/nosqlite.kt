@@ -7,6 +7,8 @@ import kotlin.time.Instant
 
 internal const val PENDING_CHANGES = "__pending_changes"
 
+internal const val TRACKING_STATE = "__tracking_state"
+
 internal object Queries {
 
     fun createTable(collection: Collection): Command<Unit> = command(
@@ -126,20 +128,43 @@ internal object Queries {
         decode = { step() },
     )
 
+    val createTrackingState: Command<Unit> = command(
+        """
+        CREATE TEMP TABLE IF NOT EXISTS $TRACKING_STATE (
+            untracked INTEGER NOT NULL
+        );
+        """.trimIndent(),
+    )
+
+    val seedTrackingState: Command<Unit> = command(
+        """
+        INSERT INTO $TRACKING_STATE (untracked)
+        SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM $TRACKING_STATE);
+        """.trimIndent(),
+    )
+
+    val setUntracked: Statement<Boolean, Unit> = Statement(
+        sql = "UPDATE $TRACKING_STATE SET untracked = ?;",
+        encode = { untracked -> bindLong(1, if (untracked) 1 else 0) },
+        decode = { step() },
+    )
+
     /**
-     * Three temp triggers per tracked table that append each change. They live on the write connection only, so it
-     * creates them each time it opens. INSERT/UPDATE/DELETE inside a trigger reject database-qualified names, so the
-     * body stays unqualified.
+     * Three temp triggers per tracked table that append the change unless the untracked flag is set. A trigger
+     * stored in main cannot read a temp table, and INSERT/UPDATE/DELETE inside a trigger reject database-qualified
+     * names, so the body stays unqualified.
      */
     fun trackingTriggers(collection: Collection): List<String> {
         val table = "main.${collection.table}"
         val name = SqlValue.Text(collection.name).literal
+        val guard = "WHEN NOT (SELECT untracked FROM $TRACKING_STATE)"
         val record = "INSERT INTO $PENDING_CHANGES (collection, before, after, timestamp) VALUES"
         val now = "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
         return listOf(
             """
             CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_insert
             AFTER INSERT ON $table
+            $guard
             BEGIN
                 $record ($name, NULL, NEW.data, $now);
             END;
@@ -147,6 +172,7 @@ internal object Queries {
             """
             CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_update
             AFTER UPDATE ON $table
+            $guard
             BEGIN
                 $record ($name, OLD.data, NEW.data, $now);
             END;
@@ -154,16 +180,13 @@ internal object Queries {
             """
             CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_delete
             AFTER DELETE ON $table
+            $guard
             BEGIN
                 $record ($name, OLD.data, NULL, $now);
             END;
             """.trimIndent(),
         )
     }
-
-    /** Drops the triggers [trackingTriggers] creates. */
-    fun dropTrackingTriggers(collection: Collection): List<String> =
-        listOf("insert", "update", "delete").map { "DROP TRIGGER IF EXISTS temp.nsq_${collection.name}_$it;" }
 }
 
 // Identifiers can't be bound, so they are quoted into the SQL text with their own quotes doubled.
