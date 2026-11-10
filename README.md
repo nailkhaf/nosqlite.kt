@@ -16,6 +16,33 @@ by their unique indexes.
 - `observe` flows that read again after each committed write to the collection
 - Optional change tracking: a tracked collection appends each insert, update and delete to a queue
 
+## Installation
+
+nosqlite `0.0.1` is published to Maven Central as one Kotlin Multiplatform library. Change tracking is part of
+that artifact. With the Kotlin toolchain, in `module.yaml`:
+
+```yaml
+dependencies:
+  - io.github.nailkhaf:nosqlite:0.0.1
+```
+
+With Gradle:
+
+```kotlin
+// build.gradle.kts
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation("io.github.nailkhaf:nosqlite:0.0.1")
+        }
+    }
+}
+```
+
+Documents are encoded with kotlinx.serialization. The library exports `kotlinx-serialization-json`, and the compiler
+plugin still has to be enabled (`settings.kotlin.serialization: json` with the Kotlin toolchain, `plugin.serialization`
+with Gradle).
+
 ## Example
 
 ```kotlin
@@ -262,6 +289,15 @@ toolchain has no device or instrumented test runner yet. The same common tests r
 
 The jobs cache the toolchain and its dependencies, and restore the build output of the latest `main` run so pull
 requests compile incrementally; only `main` saves it.
+
+## Releasing
+
+Pushing a tag `v*` runs [`release.yml`](.github/workflows/release.yml). The tag must be `v` plus
+`settings.publishing.version` in [`publishing.module-template.yaml`](publishing.module-template.yaml), so this
+release is `v0.0.1`. The job tests the library on the JVM and the iOS simulator, then runs
+`./kotlin publish -m nosqlite mavenCentral`. It runs in the `release` environment, whose secrets hold the Central
+Portal token and the signing key, and it uploads the signed bundle without releasing it: check it in the
+[Central Portal](https://central.sonatype.com/publishing/deployments), then publish it there.
 
 ## License
 
