@@ -215,6 +215,8 @@ internal suspend fun Collection.ensureTable() {
     }
 }
 
+private val IndexName = Regex("index '([^']+)'")
+
 private val ErrorCode = Regex("^Error code: (\\d+)")
 
 // SQLITE_BUSY and SQLITE_LOCKED, with their extended codes, which keep the primary code in the low byte.
@@ -223,9 +225,9 @@ private val BusyCodes = setOf(5, 6)
 /**
  * Runs [block], making SQLite's errors typed: a locked database for any statement, and for one about [collection]
  * its missing table, a duplicate id and an id change. Only declared collections have a table, so SQLite not knowing
- * this collection's table means it wasn't declared, except on an [untracked] write, which creates the table itself.
- * The id index is the only unique index, so a unique constraint failure is a duplicate id. Both are matched by
- * SQLite's message text, which IdTest pins for the bundled driver.
+ * this collection's table means it wasn't declared, except on an untracked write, which creates the table itself.
+ * A unique constraint is a duplicate id only when it names the id index; any other unique index is left as the
+ * driver's exception. IdTest pins the message text for the bundled driver.
  */
 internal inline fun <R> mapErrors(collection: Collection? = null, untracked: Boolean = false, block: () -> R): R = try {
     block()
@@ -240,7 +242,11 @@ internal inline fun <R> mapErrors(collection: Collection? = null, untracked: Boo
         "no such table: ${collection.name}" in message ->
             if (untracked) throw e else throw NoSqliteException.CollectionNotDeclared(collection.name, e)
 
-        "UNIQUE constraint failed" in message -> throw NoSqliteException.DuplicateId(collection.name, e)
+        "UNIQUE constraint failed" in message -> {
+            val index = IndexName.find(message)?.groupValues?.get(1)
+            if (index == collection.idIndex.name) throw NoSqliteException.DuplicateId(collection.name, e)
+            throw e
+        }
 
         "id is immutable" in message -> throw NoSqliteException.ImmutableId(collection.name, e)
 

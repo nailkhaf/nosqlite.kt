@@ -95,7 +95,7 @@ internal object Queries {
      * writer opens. `RAISE(ABORT)` undoes the statement and leaves the rest of the transaction in place.
      */
     fun idTrigger(collection: Collection): String = """
-        CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_id
+        CREATE TEMP TRIGGER IF NOT EXISTS ${identifier("nsq_${collection.name}_id")}
         BEFORE UPDATE ON main.${collection.table}
         WHEN OLD.data ->> '$.id' IS NOT NEW.data ->> '$.id'
         BEGIN
@@ -168,7 +168,8 @@ internal object Queries {
      * stored in main cannot read a temp table, and INSERT/UPDATE/DELETE inside a trigger reject database-qualified
      * names, so the body stays unqualified. An update whose JSONB did not change records nothing. The update's
      * change set is an RFC 7396 merge patch built in SQL: nested objects are diffed, arrays are replaced whole, and
-     * a removed key is null at the outermost removed path.
+     * a removed key is null at the outermost removed path. Values keep their JSON type. Array elements are skipped
+     * because the walk only enters objects, so a key that contains '[' is still a key. An empty patch is not recorded.
      */
     fun trackingTriggers(collection: Collection): List<String> {
         val table = "main.${collection.table}"
@@ -191,58 +192,58 @@ internal object Queries {
             $guard AND OLD.data IS NOT NEW.data
             BEGIN
                 $record
-                VALUES (
-                    $name,
-                    NEW.data ->> '$.id',
-                    'update',
-                    (
-                        WITH RECURSIVE
-                        walk(path) AS (
-                            SELECT '${'$'}'
-                            UNION ALL
-                            SELECT n.fullkey
-                            FROM walk w
-                            JOIN json_tree(NEW.data) n
-                                ON n.path = w.path
-                                AND n.key IS NOT NULL
-                                AND n.type = 'object'
-                                AND instr(n.fullkey, '[') = 0
-                            JOIN json_tree(OLD.data) o
-                                ON o.fullkey = n.fullkey AND o.type = 'object'
-                        ),
-                        emitted(fullkey, value) AS (
-                            SELECT n.fullkey, jsonb_extract(NEW.data, n.fullkey)
-                            FROM walk w
-                            JOIN json_tree(NEW.data) n
-                                ON n.path = w.path AND n.key IS NOT NULL AND instr(n.fullkey, '[') = 0
-                            LEFT JOIN json_tree(OLD.data) o ON o.fullkey = n.fullkey
-                            WHERE o.fullkey IS NULL
-                                OR (
-                                    NOT (o.type = 'object' AND n.type = 'object')
-                                    AND jsonb_extract(OLD.data, n.fullkey) IS NOT jsonb_extract(NEW.data, n.fullkey)
-                                )
-                            UNION ALL
-                            SELECT o.fullkey, jsonb('null')
-                            FROM walk w
-                            JOIN json_tree(OLD.data) o
-                                ON o.path = w.path AND o.key IS NOT NULL AND instr(o.fullkey, '[') = 0
-                            LEFT JOIN json_tree(NEW.data) n ON n.fullkey = o.fullkey
-                            WHERE n.fullkey IS NULL
-                        ),
-                        numbered(fullkey, value, n) AS (
-                            SELECT fullkey, value, row_number() OVER (ORDER BY fullkey) FROM emitted
-                        ),
-                        folded(n, patch) AS (
-                            SELECT 0, jsonb('{}')
-                            UNION ALL
-                            SELECT folded.n + 1, jsonb_set(folded.patch, numbered.fullkey, numbered.value)
-                            FROM folded
-                            JOIN numbered ON numbered.n = folded.n + 1
-                        )
-                        SELECT patch FROM folded ORDER BY n DESC LIMIT 1
+                SELECT $name, NEW.data ->> '$.id', 'update', patch, $now
+                FROM (
+                    WITH RECURSIVE
+                    walk(path) AS (
+                        SELECT '${'$'}'
+                        UNION ALL
+                        SELECT n.fullkey
+                        FROM walk w
+                        JOIN json_tree(NEW.data) n
+                            ON n.path = w.path AND n.key IS NOT NULL AND n.type = 'object'
+                        JOIN json_tree(OLD.data) o
+                            ON o.fullkey = n.fullkey AND o.type = 'object'
                     ),
-                    $now
-                );
+                    emitted(fullkey, value) AS (
+                        SELECT n.fullkey, CASE n.type
+                            WHEN 'true' THEN jsonb('true')
+                            WHEN 'false' THEN jsonb('false')
+                            WHEN 'null' THEN jsonb('null')
+                            WHEN 'integer' THEN jsonb(n.atom)
+                            WHEN 'real' THEN jsonb(n.atom)
+                            WHEN 'text' THEN jsonb(json_quote(n.atom))
+                            ELSE jsonb(json_extract(NEW.data, n.fullkey))
+                        END
+                        FROM walk w
+                        JOIN json_tree(NEW.data) n ON n.path = w.path AND n.key IS NOT NULL
+                        LEFT JOIN json_tree(OLD.data) o ON o.fullkey = n.fullkey
+                        WHERE o.fullkey IS NULL
+                            OR o.type IS NOT n.type
+                            OR (
+                                NOT (o.type = 'object' AND n.type = 'object')
+                                AND (OLD.data -> n.fullkey) IS NOT (NEW.data -> n.fullkey)
+                            )
+                        UNION ALL
+                        SELECT o.fullkey, jsonb('null')
+                        FROM walk w
+                        JOIN json_tree(OLD.data) o ON o.path = w.path AND o.key IS NOT NULL
+                        LEFT JOIN json_tree(NEW.data) n ON n.fullkey = o.fullkey
+                        WHERE n.fullkey IS NULL
+                    ),
+                    numbered(fullkey, value, n) AS (
+                        SELECT fullkey, value, row_number() OVER (ORDER BY fullkey) FROM emitted
+                    ),
+                    folded(n, patch) AS (
+                        SELECT 0, jsonb('{}')
+                        UNION ALL
+                        SELECT folded.n + 1, jsonb_set(folded.patch, numbered.fullkey, numbered.value)
+                        FROM folded
+                        JOIN numbered ON numbered.n = folded.n + 1
+                    )
+                    SELECT patch FROM folded ORDER BY n DESC LIMIT 1
+                )
+                WHERE json(patch) != '{}';
             END;
             """.trimIndent(),
             """
