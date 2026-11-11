@@ -44,10 +44,12 @@ internal class StorageTest {
     object Adults : Collection("adults")
 
     private val ada = buildJsonObject {
+        put("id", uuid("ada"))
         put("name", "Ada")
         put("age", 36)
     }
     private val alan = buildJsonObject {
+        put("id", uuid("alan"))
         put("name", "Alan")
         put("age", 41)
     }
@@ -94,7 +96,7 @@ internal class StorageTest {
     @Test
     fun `list pages with limit and offset`() = runTest {
         val db = NoSqlite { +Users }
-        val people = (1..5).map { buildJsonObject { put("age", it) } }
+        val people = (1..5).map { buildJsonObject { put("id", uuid("p$it")); put("age", it) } }
         db.write { people.forEach { Users.insert(it) } }
 
         db.read {
@@ -121,7 +123,7 @@ internal class StorageTest {
     }
 
     @Serializable
-    data class User(val name: String, val age: Int)
+    data class User(val id: String, val name: String, val age: Int)
 
     @Test
     fun `a collection can be created without a subclass`() = runTest {
@@ -137,10 +139,13 @@ internal class StorageTest {
     fun `a serializable value is stored as its JSON`() = runTest {
         val db = NoSqlite { +People }
 
-        db.write { People.insert(User("Ada", 36)) }
+        db.write { People.insert(User(uuid("ada"), "Ada", 36)) }
 
-        assertEquals(listOf(User("Ada", 36)), db.read { People.list<User> { limit(1) } })
-        assertEquals(listOf(listOf("""{"name":"Ada","age":36}""")), db.querySql("SELECT json(data) FROM people"))
+        assertEquals(listOf(User(uuid("ada"), "Ada", 36)), db.read { People.list<User> { limit(1) } })
+        assertEquals(
+            listOf(listOf("""{"id":"${uuid("ada")}","name":"Ada","age":36}""")),
+            db.querySql("SELECT json(data) FROM people"),
+        )
     }
 
     @Test
@@ -180,7 +185,10 @@ internal class StorageTest {
 
         db.write { Users.insert(ada) }
 
-        assertEquals(listOf(listOf("""{"name":"Ada","age":36}""")), db.querySql("SELECT json(data) FROM users"))
+        assertEquals(
+            listOf(listOf("""{"id":"${uuid("ada")}","name":"Ada","age":36}""")),
+            db.querySql("SELECT json(data) FROM users"),
+        )
     }
 
     @Test
@@ -326,7 +334,10 @@ internal class StorageTest {
                 listOf(listOf("__pending_changes"), listOf("notes"), listOf("users")),
                 db.querySql("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite%' ORDER BY 1"),
             )
-            assertEquals(listOf(listOf("""{"name":"Ada","age":36}""")), db.querySql("SELECT json(data) FROM notes"))
+            assertEquals(
+                listOf(listOf("""{"id":"${uuid("ada")}","name":"Ada","age":36}""")),
+                db.querySql("SELECT json(data) FROM notes"),
+            )
             db.close()
         }
     }
@@ -350,7 +361,7 @@ internal class StorageTest {
     @Test
     fun `document that does not decode names its collection and row`() = runTest {
         val db = NoSqlite { +People }
-        db.write { People.insert(User("ada", 36)) }
+        db.write { People.insert(User(uuid("ada"), "ada", 36)) }
         db.pool().writeSql { execute("""INSERT INTO people (data) VALUES (jsonb('{"name":1}'))""") }
 
         val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.list<User>() } }
@@ -362,9 +373,9 @@ internal class StorageTest {
     @Test
     fun `forEach stops at a document that does not decode`() = runTest {
         val db = NoSqlite { +People }
-        db.write { People.insert(User("ada", 36)) }
+        db.write { People.insert(User(uuid("ada"), "ada", 36)) }
         db.pool().writeSql { execute("""INSERT INTO people (data) VALUES (jsonb('{"name":1}'))""") }
-        db.write { People.insert(User("alan", 41)) }
+        db.write { People.insert(User(uuid("alan"), "alan", 41)) }
         val seen = mutableListOf<String>()
 
         assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.forEach<User> { seen += it.name } } }

@@ -76,13 +76,26 @@ internal object Queries {
     fun delete(collection: Collection, condition: Where): Statement<Unit, Int> =
         (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(countRows)
 
-    /** Inserts the input JSON, or applies it as a merge patch to the document it conflicts with in [index]. */
-    fun upsert(index: Index): Statement<String, Unit> = Statement(
-        sql = "INSERT INTO ${index.collection.table} (data) VALUES (jsonb(?1)) " +
-            "ON CONFLICT ${index.definition} DO UPDATE SET data = jsonb_patch(data, ?1);",
+    /** Inserts the input JSON, or applies it as a merge patch to the document with the same id. */
+    fun upsert(collection: Collection): Statement<String, Unit> = Statement(
+        sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?1)) " +
+            "ON CONFLICT ${collection.idIndex.definition} DO UPDATE SET data = jsonb_patch(data, ?1);",
         encode = { json -> bindText(1, json) },
         decode = { step() },
     )
+
+    /**
+     * Rejects an update that changes `id`. Temp, like the tracking triggers, so it is created again whenever the
+     * writer opens. `RAISE(ABORT)` undoes the statement and leaves the rest of the transaction in place.
+     */
+    fun idTrigger(collection: Collection): String = """
+        CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_id
+        BEFORE UPDATE ON main.${collection.table}
+        WHEN OLD.data ->> '$.id' IS NOT NEW.data ->> '$.id'
+        BEGIN
+            SELECT RAISE(ABORT, 'id is immutable');
+        END;
+    """.trimIndent()
 
     fun insert(collection: Collection): Statement<String, Unit> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?));",

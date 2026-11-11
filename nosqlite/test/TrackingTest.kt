@@ -24,8 +24,6 @@ internal class TrackingTest {
     data class Contact(val id: String, val email: String, val name: String, val age: Int)
 
     object Contacts : Collection("contacts", tracked = true) {
-        val byId = unique("id")
-        val byEmail = unique("email")
         val byAge = index("age")
     }
 
@@ -34,10 +32,11 @@ internal class TrackingTest {
     private val ada = contact("ada", 36)
     private val alan = contact("alan", 41)
     private val grace = contact("grace", 36)
-    private val note = buildJsonObject { put("text", "hi") }
+    private val note = buildJsonObject { put("id", uuid("note")); put("text", "hi") }
+    private val anotherNote = buildJsonObject { put("id", uuid("note-2")); put("text", "hi") }
 
     private fun contact(id: String, age: Int, name: String = id.replaceFirstChar { it.uppercase() }) =
-        Contact(id, "$id@x.com", name, age)
+        Contact(uuid(id), "$id@x.com", name, age)
 
     private fun database() = NoSqlite {
         +Contacts
@@ -89,9 +88,9 @@ internal class TrackingTest {
         val older = ada.copy(age = 37)
         val renamed = older.copy(name = "Ada Lovelace")
 
-        db.write { Contacts.byId.upsert(ada) }
-        db.write { Contacts.byId.upsert(older) }
-        db.write { Contacts.byEmail.upsert(renamed) }
+        db.write { Contacts.upsert(ada) }
+        db.write { Contacts.upsert(older) }
+        db.write { Contacts.upsert(renamed) }
 
         assertEquals(
             listOf(
@@ -104,15 +103,15 @@ internal class TrackingTest {
     }
 
     @Test
-    fun `a unique lookup update replace and delete record before and after`() = runTest {
+    fun `an id update replace and delete record before and after`() = runTest {
         val db = database()
         val updated = ada.copy(name = "Ada Lovelace")
         val replaced = updated.copy(age = 37)
 
         db.write { Contacts.insert(ada) }
-        db.write { Contacts.byEmail(ada.email).update(updated) }
-        db.write { Contacts.byEmail(ada.email).replace(replaced) }
-        assertEquals(true, db.write { Contacts.byEmail(ada.email).delete() })
+        db.write { Contacts.id(ada.id).update(updated) }
+        db.write { Contacts.id(ada.id).replace(replaced) }
+        assertEquals(true, db.write { Contacts.id(ada.id).delete() })
 
         assertEquals(
             listOf(
@@ -192,10 +191,10 @@ internal class TrackingTest {
         db.write { Contacts.insert(ada) }
 
         db.write {
-            assertEquals(0, Contacts.update(ada.copy(age = 1)) { "id" eq "nobody" })
-            assertEquals(0, Contacts.replace(ada) { "id" eq "nobody" })
-            assertEquals(0, Contacts.delete { "id" eq "nobody" })
-            assertEquals(false, Contacts.byEmail("nobody@x.com").delete())
+            assertEquals(0, Contacts.update(ada.copy(age = 1)) { "id" eq uuid("nobody") })
+            assertEquals(0, Contacts.replace(ada) { "id" eq uuid("nobody") })
+            assertEquals(0, Contacts.delete { "id" eq uuid("nobody") })
+            assertEquals(false, Contacts.id(uuid("nobody")).delete())
             assertEquals(0, Contacts.byAge(1).delete())
         }
 
@@ -209,7 +208,7 @@ internal class TrackingTest {
 
         db.write { Contacts.insert(ada) }
         db.write(untracked = true) { Contacts.insert(alan) }
-        db.write { Contacts.byId("ada").update(older) }
+        db.write { Contacts.id(ada.id).update(older) }
 
         assertEquals(
             listOf(recorded(1, null, ada.json()), recorded(2, ada.json(), older.json())),
@@ -261,7 +260,7 @@ internal class TrackingTest {
 
         db.write { Contacts.insert(ada) }
         db.write { Contacts.insert(alan) }
-        db.write { Contacts.byId("ada").delete() }
+        db.write { Contacts.id(ada.id).delete() }
 
         val after = Clock.System.now()
         val rows = db.read { pendingChanges() }
@@ -297,7 +296,10 @@ internal class TrackingTest {
 
         assertEquals(emptyList(), db.read { pendingChanges() })
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger'"))
-        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_temp_schema WHERE type = 'trigger'"))
+        assertEquals(
+            listOf(listOf("nsq_notes_id")),
+            db.querySql("SELECT name FROM sqlite_temp_schema WHERE type = 'trigger'"),
+        )
     }
 
     @Test
@@ -310,7 +312,13 @@ internal class TrackingTest {
         }
 
         assertEquals(
-            listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_update"),
+            listOf(
+                "nsq_contacts_delete",
+                "nsq_contacts_id",
+                "nsq_contacts_insert",
+                "nsq_contacts_update",
+                "nsq_notes_id",
+            ),
             db.tempTriggers(),
         )
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger'"))
@@ -338,7 +346,7 @@ internal class TrackingTest {
         assertTrue(log.none { "__tracking_state" in it || "__pending_changes" in it })
 
         log.clear()
-        db.write(untracked = true) { Notes.insert(note) }
+        db.write(untracked = true) { Notes.insert(anotherNote) }
         assertEquals(listOf("UPDATE __tracking_state SET untracked = ?;"), log)
     }
 
@@ -371,7 +379,7 @@ internal class TrackingTest {
             first.close()
 
             val second = NoSqlite(location) { +Contacts }
-            second.write { Contacts.byId("ada").update(ada.copy(age = 37)) }
+            second.write { Contacts.id(ada.id).update(ada.copy(age = 37)) }
 
             assertEquals(
                 listOf(
@@ -381,7 +389,7 @@ internal class TrackingTest {
                 changes(second),
             )
             assertEquals(
-                listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_update"),
+                listOf("nsq_contacts_delete", "nsq_contacts_id", "nsq_contacts_insert", "nsq_contacts_update"),
                 second.tempTriggers(),
             )
             second.close()

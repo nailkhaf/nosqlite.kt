@@ -19,13 +19,13 @@ internal class StreamingTest {
     object Log : Collection("log")
 
     private val users = listOf(
-        User("ann", 30, 1.5),
-        User("bob", null, 2.5),
-        User("cid", 30, null),
-        User("dan", 20, 1.5),
-        User("eve", null, null),
-        User("fay", 40, 0.5),
-        User("gus", 20, 2.5),
+        User(uuid("ann"), 30, 1.5),
+        User(uuid("bob"), null, 2.5),
+        User(uuid("cid"), 30, null),
+        User(uuid("dan"), 20, 1.5),
+        User(uuid("eve"), null, null),
+        User(uuid("fay"), 40, 0.5),
+        User(uuid("gus"), 20, 2.5),
     )
 
     private suspend fun database(): NoSqlite = NoSqlite {
