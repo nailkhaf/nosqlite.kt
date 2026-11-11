@@ -545,6 +545,24 @@ internal class TrackingTest {
     }
 
     @Test
+    fun `number values keep their exact json text`() = runTest {
+        val db = NoSqlite { +People }
+        val id = uuid("ada")
+        db.write { People.insert(buildJsonObject { put("id", id); put("n", 0) }) }
+        val numbers = listOf("0.30000000000000004", "123456789012345678901234567890", "-0.0")
+
+        for (number in numbers) {
+            db.pool().writeSql { execute("UPDATE people SET data = jsonb('{\"id\":\"$id\",\"n\":$number}')") }
+        }
+
+        val patches = db.querySql("SELECT json(change_set) FROM __pending_changes ORDER BY id").map { it.single() }
+        assertEquals(
+            numbers.map { """{"n":$it}""" },
+            patches.drop(1),
+        )
+    }
+
+    @Test
     fun `keys with brackets dots and quotes are diffed`() = runTest {
         val db = NoSqlite { +People }
         val id = uuid("ada")
