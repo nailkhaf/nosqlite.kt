@@ -130,11 +130,12 @@ internal suspend fun createSchema(collection: Collection) {
     val columns = Queries.tableColumns.execute(collection.name)
     if (columns != Queries.TableColumns) throw NoSqliteException.IncompatibleTable(collection.name, columns)
     val current = Queries.indexNames.execute(collection.name)
-    val wanted = collection.indexes.associateBy { it.name }
+    val wanted = collection.indexes.associateBy { it.name } + (collection.idIndex.name to collection.idIndex)
     current.filter { it !in wanted }.forEach { Queries.dropIndex(it).execute() }
     wanted.filterKeys { it !in current }.values.forEach { index ->
         mapErrors(collection) { Queries.createIndex(index).execute() }
     }
+    command(Queries.idTrigger(collection)).execute()
     if (collection.tracked) {
         Queries.trackingTriggers(collection).forEach { command(it).execute() }
     }

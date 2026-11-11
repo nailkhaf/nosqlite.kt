@@ -7,12 +7,13 @@ public sealed class NoSqliteException(message: String, cause: Throwable? = null)
     public class CollectionNotDeclared internal constructor(public val collection: String, cause: Throwable) :
         NoSqliteException("Collection '$collection' is not declared, add +$collection to NoSqlite { }", cause)
 
-    /** A write would give two documents of [collection] the same key in a unique [index], `null` when unknown. */
-    public class UniqueViolation internal constructor(
-        public val collection: String,
-        public val index: Index?,
-        cause: Throwable,
-    ) : NoSqliteException("Unique constraint violated in '$collection': ${index ?: cause.message}", cause)
+    /** Two documents of [collection] would share an id. */
+    public class DuplicateId internal constructor(public val collection: String, cause: Throwable) :
+        NoSqliteException("Duplicate id in '$collection'", cause)
+
+    /** A write would change the id of a document in [collection]. An id is permanent. */
+    public class ImmutableId internal constructor(public val collection: String, cause: Throwable) :
+        NoSqliteException("Id of a document in '$collection' is immutable", cause)
 
     /** A document of [collection] can't be decoded into the requested type. */
     public class DecodingFailed internal constructor(public val collection: String, cause: Throwable) :

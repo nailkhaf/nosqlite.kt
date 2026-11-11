@@ -10,9 +10,9 @@ import kotlin.test.assertFailsWith
 internal class FieldTest {
 
     object Users : Collection("users") {
-        val byEmail = unique(User::email)
+        val byEmail = index(User::email)
         val byName = index(User::name / Name::last, User::name / Name::first)
-        val activeNickname = unique(User::nickname, where = { User::active eq true })
+        val activeNickname = index(User::nickname, where = { User::active eq true })
     }
 
     private fun sql(block: WhereScope.() -> Where): Fragment = where(block).render()
@@ -80,9 +80,9 @@ internal class FieldTest {
     fun `property indexes are the same as field name indexes`() {
         // Read through the base type: Kotlin/Native fails to link an internal member read through a test object.
         val byStrings: Collection = object : Collection("users") {
-            val byEmail = unique("email")
+            val byEmail = index("email")
             val byName = index("name.last", "name.first")
-            val activeNickname = unique("nickname", where = { "active".isTrue() })
+            val activeNickname = index("nickname", where = { "active".isTrue() })
         }
 
         val byProperties: Collection = Users
@@ -161,6 +161,7 @@ internal class FieldTest {
 
 @Serializable
 internal data class Measure(
+    val id: String,
     val label: String,
     val count: Int,
     val serial: Long,
@@ -188,4 +189,4 @@ private fun measure(
     scores: List<Double> = listOf(score),
     flags: List<Boolean> = listOf(on),
     labels: List<String> = listOf(label),
-): Measure = Measure(label, count, serial, score, on, note, counts, serials, scores, flags, labels)
+): Measure = Measure(uuid(label), label, count, serial, score, on, note, counts, serials, scores, flags, labels)

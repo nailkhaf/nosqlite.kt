@@ -26,15 +26,15 @@ internal class ObserveTest {
     data class User(val id: String, val age: Int)
 
     object Users : Collection("users") {
-        val byId = unique("id")
         val byAge = index("age")
     }
 
     object Notes : Collection("notes")
 
-    private val ada = User("ada", 36)
-    private val alan = User("alan", 41)
-    private val note = buildJsonObject { put("text", "hi") }
+    private val ada = User(uuid("ada"), 36)
+    private val alan = User(uuid("alan"), 41)
+    private val cid = User(uuid("cid"), 36)
+    private val note = buildJsonObject { put("id", uuid("note")); put("text", "hi") }
 
     private fun TestScope.database() = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
         +Users
@@ -62,9 +62,9 @@ internal class ObserveTest {
         val users = collect(with(db) { Users.observe<User> { orderBy { "id".asc } } })
 
         db.write { Users.insert(ada) }
-        db.write { Users.byId.upsert(alan) }
-        db.write { Users.update(alan.copy(age = 42)) { "id" eq "alan" } }
-        db.write { Users.byId("ada").delete() }
+        db.write { Users.upsert(alan) }
+        db.write { Users.update(alan.copy(age = 42)) { "id" eq alan.id } }
+        db.write { Users.id(ada.id).delete() }
 
         assertEquals(
             listOf(
@@ -87,10 +87,10 @@ internal class ObserveTest {
 
         db.write { Users.insert(ada) }
         db.write { Users.insert(alan) }
-        db.write { Users.insert(User("bob", 7)) }
+        db.write { Users.insert(User(uuid("bob"), 7)) }
         runCurrent()
 
-        assertEquals(listOf(emptyList(), listOf(ada, alan, User("bob", 7))), users)
+        assertEquals(listOf(emptyList(), listOf(ada, alan, User(uuid("bob"), 7))), users)
     }
 
     @Test
@@ -98,7 +98,7 @@ internal class ObserveTest {
         val db = database()
         val adults = collect(with(db) { Users.observe<User> { where { "age" gte 18 } } })
 
-        db.write { Users.insert(User("kid", 10)) }
+        db.write { Users.insert(User(uuid("kid"), 10)) }
         db.write { Notes.insert(note) }
         db.write { Users.insert(ada) }
 
@@ -106,13 +106,13 @@ internal class ObserveTest {
     }
 
     @Test
-    fun `observe a unique lookup`() = runTest {
+    fun `observe one document by id`() = runTest {
         val db = database()
-        val found = collect(with(db) { Users.byId("alan").observe<User>() })
+        val found = collect(with(db) { Users.id(alan.id).observe<User>() })
 
         db.write { Users.insert(alan) }
-        db.write { Users.byId("alan").update(alan.copy(age = 42)) }
-        db.write { Users.byId("alan").delete() }
+        db.write { Users.id(alan.id).update(alan.copy(age = 42)) }
+        db.write { Users.id(alan.id).delete() }
 
         assertEquals(listOf(null, alan, alan.copy(age = 42), null), found)
     }
@@ -124,11 +124,11 @@ internal class ObserveTest {
 
         db.write {
             Users.insert(ada)
-            Users.insert(User("cid", 36))
+            Users.insert(cid)
             Users.insert(alan)
         }
 
-        assertEquals(listOf(emptyList(), listOf(User("cid", 36), ada)), found)
+        assertEquals(listOf(emptyList(), listOf(cid, ada)), found)
     }
 
     @Test
@@ -151,7 +151,7 @@ internal class ObserveTest {
         db.write { Notes.insert(note) }
         db.write { Notes.update(buildJsonObject { put("text", "bye") }) { "text" eq "hi" } }
         db.write { Notes.replace(note) { "text" eq "bye" } }
-        db.write { Users.byId.upsert(ada) }
+        db.write { Users.upsert(ada) }
         db.write { Notes.delete { "text" eq "hi" } }
 
         assertEquals(mapOf("notes" to 4L, "users" to 1L), db.versions.value)
@@ -181,7 +181,9 @@ internal class ObserveTest {
         runCurrent()
 
         db.write { Users.insert(ada) }
-        repeat(100) { db.write { Notes.insert(note) } }
+        repeat(100) { i ->
+            db.write { Notes.insert(buildJsonObject { put("id", uuid("note-$i")); put("text", "hi") }) }
+        }
         runCurrent()
 
         assertEquals(listOf(emptyList(), listOf(ada)), users)
@@ -199,8 +201,8 @@ internal class ObserveTest {
             }
         }
         db.write { Users.delete { "age" gt 100 } }
-        db.write { Users.update(User("x", 1)) { "id" eq "nobody" } }
-        db.write { Users.byId("nobody").delete() }
+        db.write { Users.update(User(uuid("x"), 1)) { "id" eq uuid("nobody") } }
+        db.write { Users.id(uuid("nobody")).delete() }
 
         assertEquals(mapOf("users" to 1L), db.versions.value)
     }

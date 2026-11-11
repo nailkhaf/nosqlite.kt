@@ -27,10 +27,6 @@ public open class Index internal constructor(
             (where?.let { " where $it" } ?: "")
 }
 
-/** An index whose documents can't share their values for its fields; with a `where`, only the ones it indexes. */
-public class UniqueIndex internal constructor(collection: Collection, paths: List<Path>, where: Where?) :
-    Index(collection, paths, isUnique = true, where)
-
 internal const val INDEX_PREFIX = "nsq_"
 
 /** The 64-bit FNV-1a hash of [text] as 16 hex digits: short, and the same on every platform. */

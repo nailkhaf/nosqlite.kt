@@ -21,10 +21,10 @@ internal class QueryTest {
         val byAge = index("age")
     }
 
-    private val ada = User("ada", Name("Ada", "Lovelace"), 36)
-    private val alan = User("alan", Name("Alan", "Turing"), 41)
-    private val grace = User("grace", Name("Grace", "Hopper"), 36)
-    private val linus = User("linus", Name("Linus", "Torvalds"))
+    private val ada = User(uuid("ada"), Name("Ada", "Lovelace"), 36)
+    private val alan = User(uuid("alan"), Name("Alan", "Turing"), 41)
+    private val grace = User(uuid("grace"), Name("Grace", "Hopper"), 36)
+    private val linus = User(uuid("linus"), Name("Linus", "Torvalds"))
 
     private suspend fun database(): NoSqlite = NoSqlite { +Users }.also { db ->
         db.write { listOf(ada, alan, grace, linus).forEach { Users.insert(it) } }
