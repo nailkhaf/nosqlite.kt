@@ -77,7 +77,7 @@ public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
     ensureTable()
     val json = encode(serializer, value)
     requireDocumentId(json)
-    withConnection { Queries.insert(this@insert).execute(json) }
+    withWriteConnection { Queries.insert(this@insert).execute(json) }
     changed()
 }
 
@@ -112,7 +112,7 @@ context(_: WriteScope)
 public suspend fun <T> Collection.update(serializer: KSerializer<T>, value: T, condition: WhereScope.() -> Where): Int {
     ensureTable()
     val json = encode(serializer, value)
-    val updated = withConnection { Queries.update(this@update, json, where(condition)).execute() }
+    val updated = withWriteConnection { Queries.update(this@update, json, where(condition)).execute() }
     if (updated > 0) changed()
     return updated
 }
@@ -131,7 +131,7 @@ public suspend fun <T> Collection.replace(
     ensureTable()
     val json = encode(serializer, value)
     requireDocumentId(json)
-    val replaced = withConnection { Queries.replace(this@replace, json, where(condition)).execute() }
+    val replaced = withWriteConnection { Queries.replace(this@replace, json, where(condition)).execute() }
     if (replaced > 0) changed()
     return replaced
 }
@@ -140,7 +140,7 @@ public suspend fun <T> Collection.replace(
 context(_: WriteScope)
 public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
     ensureTable()
-    val deleted = withConnection { Queries.delete(this@delete, where(condition)).execute() }
+    val deleted = withWriteConnection { Queries.delete(this@delete, where(condition)).execute() }
     if (deleted > 0) changed()
     return deleted
 }
@@ -196,23 +196,33 @@ internal fun <T> Collection.decode(serializer: KSerializer<T>, row: SQLiteStatem
 }
 
 /** Runs [block] on the transaction's connection, with SQLite's errors about this collection made typed. */
-context(scope: ReadScope)
-internal suspend fun <R> Collection.withConnection(block: suspend context(Connection) () -> R): R =
-    mapErrors(this, untracked = scope is WriteScope && scope.untracked) { context(connection()) { block() } }
+context(_: ReadScope)
+internal suspend fun <R> Collection.withConnection(
+    untracked: Boolean = false,
+    block: suspend context(Connection) () -> R,
+): R = mapErrors(this, untracked = untracked) { context(connection()) { block() } }
+
+/** A write: a missing table is not [NoSqliteException.CollectionNotDeclared], because an untracked write creates it. */
+context(scope: WriteScope)
+internal suspend fun <R> Collection.withWriteConnection(block: suspend context(Connection) () -> R): R =
+    withConnection(untracked = scope.untracked, block)
 
 /**
  * An untracked write creates a missing collection the first time it touches it: the standard table and the id index,
- * and no triggers. Later writes in the same [WriteScope] reuse the lookup.
+ * and no triggers. The name is remembered only after that succeeds, so a failed create is tried again. Later writes
+ * in the same [WriteScope] reuse the lookup.
  */
 context(scope: WriteScope)
 internal suspend fun Collection.ensureTable() {
-    if (!scope.untracked || !scope.ensured.add(name)) return
+    if (!scope.untracked || name in scope.ensured) return
     val exists = context(connection()) { Queries.tableExists.execute(name) }
-    if (exists) return
-    context(connection()) {
-        Queries.createTable(this@ensureTable).execute()
-        Queries.createIndex(idIndex).execute()
+    if (!exists) {
+        context(connection()) {
+            Queries.createTable(this@ensureTable).execute()
+            Queries.createIndex(idIndex).execute()
+        }
     }
+    scope.ensured += name
 }
 
 private val IndexName = Regex("index '([^']+)'")
@@ -225,7 +235,8 @@ private val BusyCodes = setOf(5, 6)
 /**
  * Runs [block], making SQLite's errors typed: a locked database for any statement, and for one about [collection]
  * its missing table, a duplicate id and an id change. Only declared collections have a table, so SQLite not knowing
- * this collection's table means it wasn't declared, except on an untracked write, which creates the table itself.
+ * this collection's table means it wasn't declared. An untracked write creates a missing table before it writes, so
+ * that write does not report a missing table; a read still does.
  * A unique constraint is a duplicate id only when it names the id index; any other unique index is left as the
  * driver's exception. IdTest pins the message text for the bundled driver.
  */

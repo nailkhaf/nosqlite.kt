@@ -332,7 +332,7 @@ internal class StorageTest {
             db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'notes'"),
         )
         assertEquals(
-            listOf(listOf("""CREATE UNIQUE INDEX "${Notes.idIndex.name}" ON "notes" (data ->> '$.id')""")),
+            listOf(listOf("""CREATE UNIQUE INDEX "${idIndexName(Notes)}" ON "notes" (data ->> '$.id')""")),
             db.querySql("SELECT sql FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'notes'"),
         )
         assertEquals(
@@ -355,6 +355,38 @@ internal class StorageTest {
 
         assertEquals("notes", error.collection)
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'notes'"))
+    }
+
+    @Test
+    fun `a read of a missing table inside an untracked write is still not declared`() = runTest {
+        val db = NoSqlite { }
+
+        val error = assertFailsWith<NoSqliteException.CollectionNotDeclared> {
+            db.write(untracked = true) { Notes.list<JsonObject>() }
+        }
+
+        assertEquals("notes", error.collection)
+    }
+
+    @Test
+    fun `a failed create is tried again in the same untracked write`() = runTest {
+        val driver = FailingDriver(
+            """
+            CREATE TABLE IF NOT EXISTS "notes" (
+                data BLOB NOT NULL
+            ) STRICT;
+            """.trimIndent(),
+            times = 1,
+        )
+        val db = NoSqlite(driver = driver) { }
+        val note = buildJsonObject { put("id", uuid("note")); put("text", "hi") }
+
+        db.write(untracked = true) {
+            assertFails { Notes.insert(note) }
+            Notes.insert(note)
+        }
+
+        assertEquals(1L, db.read { Notes.count() })
     }
 
     @Test
@@ -443,3 +475,6 @@ internal class StorageTest {
         assertEquals("Can't decode a document of 'adults': Too young: 17", error.message)
     }
 }
+
+/** Kotlin/Native cannot link an internal member read through a test object. */
+private fun idIndexName(collection: Collection): String = collection.idIndex.name
