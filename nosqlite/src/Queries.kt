@@ -108,8 +108,9 @@ internal object Queries {
         CREATE TABLE IF NOT EXISTS $PENDING_CHANGES (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             collection TEXT NOT NULL,
-            before BLOB,
-            after BLOB,
+            document_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            change_set BLOB NOT NULL,
             timestamp INTEGER NOT NULL
         ) STRICT;
         """.trimIndent(),
@@ -117,7 +118,7 @@ internal object Queries {
 
     val pendingChanges: Statement<Unit, List<PendingChange>> = Statement(
         sql = """
-            SELECT id, collection, json(before), json(after), timestamp
+            SELECT id, collection, document_id, action, json(change_set), timestamp
             FROM $PENDING_CHANGES ORDER BY id;
         """.trimIndent(),
         encode = {},
@@ -125,9 +126,10 @@ internal object Queries {
             PendingChange(
                 id = getLong(0),
                 collection = getText(1),
-                before = jsonObjectOrNull(2),
-                after = jsonObjectOrNull(3),
-                timestamp = Instant.fromEpochMilliseconds(getLong(4)),
+                documentId = getText(2),
+                action = pendingAction(getText(3)),
+                changeSet = jsonObject(4),
+                timestamp = Instant.fromEpochMilliseconds(getLong(5)),
             )
         },
     )
@@ -158,13 +160,15 @@ internal object Queries {
     /**
      * Three temp triggers per tracked table that append the change unless the untracked flag is set. A trigger
      * stored in main cannot read a temp table, and INSERT/UPDATE/DELETE inside a trigger reject database-qualified
-     * names, so the body stays unqualified.
+     * names, so the body stays unqualified. An update whose JSONB did not change records nothing. The update's
+     * change set is an RFC 7396 merge patch built in SQL: nested objects are diffed, arrays are replaced whole, and
+     * a removed key is null at the outermost removed path.
      */
     fun trackingTriggers(collection: Collection): List<String> {
         val table = "main.${collection.table}"
         val name = SqlValue.Text(collection.name).literal
         val guard = "WHEN NOT (SELECT untracked FROM $TRACKING_STATE)"
-        val record = "INSERT INTO $PENDING_CHANGES (collection, before, after, timestamp) VALUES"
+        val record = "INSERT INTO $PENDING_CHANGES (collection, document_id, action, change_set, timestamp)"
         val now = "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
         return listOf(
             """
@@ -172,15 +176,67 @@ internal object Queries {
             AFTER INSERT ON $table
             $guard
             BEGIN
-                $record ($name, NULL, NEW.data, $now);
+                $record VALUES ($name, NEW.data ->> '$.id', 'insert', NEW.data, $now);
             END;
             """.trimIndent(),
             """
             CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_update
             AFTER UPDATE ON $table
-            $guard
+            $guard AND OLD.data IS NOT NEW.data
             BEGIN
-                $record ($name, OLD.data, NEW.data, $now);
+                $record
+                VALUES (
+                    $name,
+                    NEW.data ->> '$.id',
+                    'update',
+                    (
+                        WITH RECURSIVE
+                        walk(path) AS (
+                            SELECT '${'$'}'
+                            UNION ALL
+                            SELECT n.fullkey
+                            FROM walk w
+                            JOIN json_tree(NEW.data) n
+                                ON n.path = w.path
+                                AND n.key IS NOT NULL
+                                AND n.type = 'object'
+                                AND instr(n.fullkey, '[') = 0
+                            JOIN json_tree(OLD.data) o
+                                ON o.fullkey = n.fullkey AND o.type = 'object'
+                        ),
+                        emitted(fullkey, value) AS (
+                            SELECT n.fullkey, jsonb_extract(NEW.data, n.fullkey)
+                            FROM walk w
+                            JOIN json_tree(NEW.data) n
+                                ON n.path = w.path AND n.key IS NOT NULL AND instr(n.fullkey, '[') = 0
+                            LEFT JOIN json_tree(OLD.data) o ON o.fullkey = n.fullkey
+                            WHERE o.fullkey IS NULL
+                                OR (
+                                    NOT (o.type = 'object' AND n.type = 'object')
+                                    AND jsonb_extract(OLD.data, n.fullkey) IS NOT jsonb_extract(NEW.data, n.fullkey)
+                                )
+                            UNION ALL
+                            SELECT o.fullkey, jsonb('null')
+                            FROM walk w
+                            JOIN json_tree(OLD.data) o
+                                ON o.path = w.path AND o.key IS NOT NULL AND instr(o.fullkey, '[') = 0
+                            LEFT JOIN json_tree(NEW.data) n ON n.fullkey = o.fullkey
+                            WHERE n.fullkey IS NULL
+                        ),
+                        numbered(fullkey, value, n) AS (
+                            SELECT fullkey, value, row_number() OVER (ORDER BY fullkey) FROM emitted
+                        ),
+                        folded(n, patch) AS (
+                            SELECT 0, jsonb('{}')
+                            UNION ALL
+                            SELECT folded.n + 1, jsonb_set(folded.patch, numbered.fullkey, numbered.value)
+                            FROM folded
+                            JOIN numbered ON numbered.n = folded.n + 1
+                        )
+                        SELECT patch FROM folded ORDER BY n DESC LIMIT 1
+                    ),
+                    $now
+                );
             END;
             """.trimIndent(),
             """
@@ -188,7 +244,7 @@ internal object Queries {
             AFTER DELETE ON $table
             $guard
             BEGIN
-                $record ($name, OLD.data, NULL, $now);
+                $record VALUES ($name, OLD.data ->> '$.id', 'delete', jsonb('{}'), $now);
             END;
             """.trimIndent(),
         )
@@ -210,7 +266,12 @@ private val countRows: SQLiteStatement.() -> Int = {
     count
 }
 
-private fun SQLiteStatement.jsonObjectOrNull(index: Int): JsonObject? {
-    if (isNull(index)) return null
-    return NoSqlite.Json.parseToJsonElement(getText(index)) as JsonObject
+private fun SQLiteStatement.jsonObject(index: Int): JsonObject =
+    NoSqlite.Json.parseToJsonElement(getText(index)) as JsonObject
+
+private fun pendingAction(text: String): PendingChange.Action = when (text) {
+    "insert" -> PendingChange.Action.Insert
+    "update" -> PendingChange.Action.Update
+    "delete" -> PendingChange.Action.Delete
+    else -> error("Unknown pending change action: $text")
 }
