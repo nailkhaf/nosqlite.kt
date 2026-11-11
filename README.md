@@ -243,8 +243,11 @@ the last one isn't emitted. Changes are tracked per collection.
 
 ### Change tracking
 
-`Collection("contacts", tracked = true)` records every insert, update and delete in `__pending_changes`, with
-the document before and after the change. The document's id is its `id` field.
+`Collection("contacts", tracked = true)` records every insert, update and delete in `__pending_changes`.
+Each row has the document's `id`, an action (`Insert`, `Update` or `Delete`) and a change set. An insert's change
+set is the new document. A delete's is `{}`. An update's is a JSON merge patch: nested objects are diffed
+recursively, arrays are replaced whole, and a removed key is `null` at the outermost removed path. An update that
+does not change the stored document records nothing.
 
 ```kotlin
 object Contacts : Collection("contacts", tracked = true)
@@ -258,7 +261,7 @@ db.write { removePendingChanges(changes) }
 db.write(untracked = true) { import(contacts) }
 ```
 
-`pendingChanges()` returns the queue ordered by id. Read it whenever sync
+`pendingChanges()` returns the queue ordered by its row id. Read it whenever sync
 runs, for example after `observe` on a tracked collection emits. `removePendingChanges` deletes exactly the given
 rows, so a change written after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
 `write(untracked = true)` records nothing and does not nest inside another write.

@@ -3,14 +3,23 @@ package io.github.nailkhaf.nosqlite
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Instant
 
-/** One recorded insert, update or delete of a tracked collection, in the order it was committed. */
+/**
+ * One recorded insert, update or delete of a tracked collection, in the order it was committed.
+ * [changeSet] is the new document for an [Action.Insert], `{}` for an [Action.Delete], and a JSON merge patch for an
+ * [Action.Update]: nested objects are diffed recursively, arrays are replaced whole, and a removed key is `null` at
+ * the outermost removed path.
+ */
 public data class PendingChange(
     public val id: Long,
     public val collection: String,
-    public val before: JsonObject?,
-    public val after: JsonObject?,
+    public val documentId: String,
+    public val action: Action,
+    public val changeSet: JsonObject,
     public val timestamp: Instant,
-)
+) {
+    /** What happened to [documentId]. */
+    public enum class Action { Insert, Update, Delete }
+}
 
 /** The pending changes recorded so far, ordered by id. */
 context(_: ReadScope)
