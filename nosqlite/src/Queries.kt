@@ -29,8 +29,6 @@ internal object Queries {
         decode = rows { getText(0) },
     )
 
-    fun dropTable(name: String): Command<Unit> = command("DROP TABLE IF EXISTS ${identifier(name)};")
-
     /** The indexes nosqlite manages on the input table; others are left alone. */
     val indexNames: Statement<String, List<String>> = Statement(
         sql = "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = ? AND name GLOB '$INDEX_PREFIX*';",
