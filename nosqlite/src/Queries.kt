@@ -200,15 +200,7 @@ internal object Queries {
                             ON o.fullkey = n.fullkey AND o.type = 'object'
                     ),
                     emitted(fullkey, value) AS (
-                        SELECT n.fullkey, CASE n.type
-                            WHEN 'true' THEN jsonb('true')
-                            WHEN 'false' THEN jsonb('false')
-                            WHEN 'null' THEN jsonb('null')
-                            WHEN 'integer' THEN jsonb(n.atom)
-                            WHEN 'real' THEN jsonb(n.atom)
-                            WHEN 'text' THEN jsonb(json_quote(n.atom))
-                            ELSE jsonb(json_extract(NEW.data, n.fullkey))
-                        END
+                        SELECT n.fullkey, jsonb(NEW.data -> n.fullkey)
                         FROM walk w
                         JOIN json_tree(NEW.data) n ON n.path = w.path AND n.key IS NOT NULL
                         LEFT JOIN json_tree(OLD.data) o ON o.fullkey = n.fullkey
