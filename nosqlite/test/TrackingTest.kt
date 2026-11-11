@@ -92,7 +92,6 @@ internal class TrackingTest {
         }
     }
 
-
     @Test
     fun `insert records the new document`() = runTest {
         val db = database()
@@ -515,6 +514,82 @@ internal class TrackingTest {
 
         assertEquals(listOf(inserted(1, ada)), changes(db))
         assertEquals(listOf(ada), db.contacts())
+    }
+
+    @Test
+    fun `a boolean change stays a boolean`() = runTest {
+        val db = NoSqlite { +People }
+        val id = uuid("ada")
+        db.write { People.insert(buildJsonObject { put("id", id); put("done", false) }) }
+
+        db.write { People.replace(buildJsonObject { put("id", id); put("done", true) }) { "id" eq id } }
+
+        assertEquals(buildJsonObject { put("done", true) }, db.read { pendingChanges() }.last().changeSet)
+    }
+
+    @Test
+    fun `a number changed to a boolean is recorded`() = runTest {
+        val db = NoSqlite { +People }
+        val id = uuid("ada")
+        db.write { People.insert(buildJsonObject { put("id", id); put("done", 1) }) }
+
+        db.write { People.replace(buildJsonObject { put("id", id); put("done", true) }) { "id" eq id } }
+
+        assertEquals(buildJsonObject { put("done", true) }, db.read { pendingChanges() }.last().changeSet)
+    }
+
+    @Test
+    fun `keys with brackets dots and quotes are diffed`() = runTest {
+        val db = NoSqlite { +People }
+        val id = uuid("ada")
+        val quote = "say \"hi\""
+        db.write {
+            People.insert(
+                buildJsonObject {
+                    put("id", id)
+                    put("a[0]", "old")
+                    put("a[b", "gone")
+                    put("a.b", 1)
+                    put(quote, "x")
+                    put("n", buildJsonObject { put("a[0]", "old") })
+                },
+            )
+        }
+
+        db.write {
+            People.replace(
+                buildJsonObject {
+                    put("id", id)
+                    put("a[0]", "new")
+                    put(quote, "y")
+                    put("x]", true)
+                    put("n", buildJsonObject { put("a[0]", "new"); put("mid", JsonNull) })
+                },
+            ) { "id" eq id }
+        }
+
+        assertEquals(
+            buildJsonObject {
+                put("a[0]", "new")
+                put("a[b", JsonNull)
+                put("a.b", JsonNull)
+                put(quote, "y")
+                put("x]", true)
+                put("n", buildJsonObject { put("a[0]", "new"); put("mid", JsonNull) })
+            },
+            db.read { pendingChanges() }.last().changeSet,
+        )
+    }
+
+    @Test
+    fun `a key order change queues nothing`() = runTest {
+        val db = NoSqlite { +People }
+        val id = uuid("ada")
+        db.write { People.insert(buildJsonObject { put("id", id); put("a", 1); put("z", 2) }) }
+
+        db.write { People.replace(buildJsonObject { put("id", id); put("z", 2); put("a", 1) }) { "id" eq id } }
+
+        assertEquals(1, db.read { pendingChanges() }.size)
     }
 
     private fun nested(id: String, last: String, tags: List<String>): JsonObject = buildJsonObject {
