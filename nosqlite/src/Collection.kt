@@ -74,6 +74,7 @@ public suspend inline fun <reified T> Collection.insert(value: T): Unit = insert
 
 context(_: WriteScope)
 public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
+    ensureTable()
     val json = encode(serializer, value)
     requireDocumentId(json)
     withConnection { Queries.insert(this@insert).execute(json) }
@@ -109,6 +110,7 @@ public suspend inline fun <reified T> Collection.update(value: T, noinline condi
 
 context(_: WriteScope)
 public suspend fun <T> Collection.update(serializer: KSerializer<T>, value: T, condition: WhereScope.() -> Where): Int {
+    ensureTable()
     val json = encode(serializer, value)
     val updated = withConnection { Queries.update(this@update, json, where(condition)).execute() }
     if (updated > 0) changed()
@@ -126,6 +128,7 @@ public suspend fun <T> Collection.replace(
     value: T,
     condition: WhereScope.() -> Where,
 ): Int {
+    ensureTable()
     val json = encode(serializer, value)
     requireDocumentId(json)
     val replaced = withConnection { Queries.replace(this@replace, json, where(condition)).execute() }
@@ -136,6 +139,7 @@ public suspend fun <T> Collection.replace(
 /** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
 public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
+    ensureTable()
     val deleted = withConnection { Queries.delete(this@delete, where(condition)).execute() }
     if (deleted > 0) changed()
     return deleted
@@ -192,9 +196,24 @@ internal fun <T> Collection.decode(serializer: KSerializer<T>, row: SQLiteStatem
 }
 
 /** Runs [block] on the transaction's connection, with SQLite's errors about this collection made typed. */
-context(_: ReadScope)
+context(scope: ReadScope)
 internal suspend fun <R> Collection.withConnection(block: suspend context(Connection) () -> R): R =
-    mapErrors(this) { context(connection()) { block() } }
+    mapErrors(this, untracked = scope is WriteScope && scope.untracked) { context(connection()) { block() } }
+
+/**
+ * An untracked write creates a missing collection the first time it touches it: the standard table and the id index,
+ * and no triggers. Later writes in the same [WriteScope] reuse the lookup.
+ */
+context(scope: WriteScope)
+internal suspend fun Collection.ensureTable() {
+    if (!scope.untracked || !scope.ensured.add(name)) return
+    val exists = context(connection()) { Queries.tableExists.execute(name) }
+    if (exists) return
+    context(connection()) {
+        Queries.createTable(this@ensureTable).execute()
+        Queries.createIndex(idIndex).execute()
+    }
+}
 
 private val ErrorCode = Regex("^Error code: (\\d+)")
 
@@ -204,10 +223,11 @@ private val BusyCodes = setOf(5, 6)
 /**
  * Runs [block], making SQLite's errors typed: a locked database for any statement, and for one about [collection]
  * its missing table, a duplicate id and an id change. Only declared collections have a table, so SQLite not knowing
- * this collection's table means it wasn't declared. The id index is the only unique index, so a unique constraint
- * failure is a duplicate id. Both are matched by SQLite's message text, which IdTest pins for the bundled driver.
+ * this collection's table means it wasn't declared, except on an [untracked] write, which creates the table itself.
+ * The id index is the only unique index, so a unique constraint failure is a duplicate id. Both are matched by
+ * SQLite's message text, which IdTest pins for the bundled driver.
  */
-internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R): R = try {
+internal inline fun <R> mapErrors(collection: Collection? = null, untracked: Boolean = false, block: () -> R): R = try {
     block()
 } catch (e: SQLiteException) {
     val message = e.message.orEmpty()
@@ -218,7 +238,7 @@ internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R
         collection == null -> throw e
 
         "no such table: ${collection.name}" in message ->
-            throw NoSqliteException.CollectionNotDeclared(collection.name, e)
+            if (untracked) throw e else throw NoSqliteException.CollectionNotDeclared(collection.name, e)
 
         "UNIQUE constraint failed" in message -> throw NoSqliteException.DuplicateId(collection.name, e)
 

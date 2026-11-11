@@ -309,6 +309,55 @@ internal class StorageTest {
     }
 
     @Test
+    fun `an untracked write creates a missing table and its id index`() = runTest {
+        val db = NoSqlite { }
+        val note = buildJsonObject { put("id", uuid("note")); put("text", "hi") }
+        val other = buildJsonObject { put("id", uuid("note-2")); put("text", "yo") }
+
+        db.write(untracked = true) {
+            Notes.insert(note)
+            Notes.insert(other)
+        }
+
+        assertEquals(
+            listOf(
+                listOf(
+                    """
+                    CREATE TABLE "notes" (
+                        data BLOB NOT NULL
+                    ) STRICT
+                    """.trimIndent(),
+                ),
+            ),
+            db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'notes'"),
+        )
+        assertEquals(
+            listOf(listOf("""CREATE UNIQUE INDEX "${Notes.idIndex.name}" ON "notes" (data ->> '$.id')""")),
+            db.querySql("SELECT sql FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'notes'"),
+        )
+        assertEquals(
+            emptyList(),
+            db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger' AND tbl_name = 'notes'"),
+        )
+        assertEquals(
+            emptyList(),
+            db.querySql("SELECT name FROM sqlite_temp_schema WHERE type = 'trigger' AND tbl_name = 'notes'"),
+        )
+        assertEquals(2L, db.read { Notes.count() })
+    }
+
+    @Test
+    fun `a write that is not untracked still rejects an undeclared collection`() = runTest {
+        val db = NoSqlite { }
+        val note = buildJsonObject { put("id", uuid("note")); put("text", "hi") }
+
+        val error = assertFailsWith<NoSqliteException.CollectionNotDeclared> { db.write { Notes.insert(note) } }
+
+        assertEquals("notes", error.collection)
+        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'notes'"))
+    }
+
+    @Test
     fun `collection declared twice is rejected`() {
         val error = assertFailsWith<IllegalArgumentException> {
             NoSqlite {

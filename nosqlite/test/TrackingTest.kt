@@ -363,7 +363,13 @@ internal class TrackingTest {
 
         log.clear()
         db.write(untracked = true) { Notes.insert(anotherNote) }
-        assertEquals(listOf("UPDATE __tracking_state SET untracked = ?;"), log)
+        assertEquals(
+            listOf(
+                "UPDATE __tracking_state SET untracked = ?;",
+                "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?;",
+            ),
+            log,
+        )
     }
 
     @Test

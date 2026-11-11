@@ -29,6 +29,12 @@ internal object Queries {
         decode = rows { getText(0) },
     )
 
+    val tableExists: Statement<String, Boolean> = Statement(
+        sql = "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?;",
+        encode = { table -> bindText(1, table) },
+        decode = { step() },
+    )
+
     /** The indexes nosqlite manages on the input table; others are left alone. */
     val indexNames: Statement<String, List<String>> = Statement(
         sql = "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = ? AND name GLOB '$INDEX_PREFIX*';",

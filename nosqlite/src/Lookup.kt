@@ -151,6 +151,7 @@ public suspend inline fun <reified T> Collection.upsert(value: T): Unit = upsert
 
 context(_: WriteScope)
 public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T) {
+    ensureTable()
     val json = encode(serializer, value)
     requireDocumentId(json)
     withConnection { Queries.upsert(this@upsert).execute(json) }
