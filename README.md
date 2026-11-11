@@ -2,6 +2,11 @@
 
 A Kotlin Multiplatform document store on SQLite JSONB with kotlinx.serialization.
 
+> [!WARNING]
+> nosqlite is experimental, an early 0.0.x library, and not ready for production. The public API and the on-disk
+> storage format may change between releases, with no migration path. Don't store data in it that you can't afford
+> to lose.
+
 Documents are JSON objects stored as JSONB, one STRICT table per collection. Each read decodes them into the
 `@Serializable` class it asks for, and an update is a JSON merge patch, so fields the app doesn't know yet, such as
 ones a newer backend sent, survive it. Fields are named by property references
@@ -15,6 +20,33 @@ by their unique indexes.
 - Streaming with an open cursor (`forEach`)
 - `observe` flows that read again after each committed write to the collection
 - Optional change tracking: a tracked collection appends each insert, update and delete to a queue
+
+## Installation
+
+nosqlite 0.0.1 is available on Maven Central as one Kotlin Multiplatform library. Change tracking is part of
+that artifact. With the Kotlin toolchain, in `module.yaml`:
+
+```yaml
+dependencies:
+  - io.github.nailkhaf:nosqlite:0.0.1
+```
+
+With Gradle:
+
+```kotlin
+// build.gradle.kts
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation("io.github.nailkhaf:nosqlite:0.0.1")
+        }
+    }
+}
+```
+
+Documents are encoded with kotlinx.serialization. The library exports `kotlinx-serialization-json`, and the compiler
+plugin still has to be enabled (`settings.kotlin.serialization: json` with the Kotlin toolchain, `plugin.serialization`
+with Gradle).
 
 ## Example
 
@@ -165,9 +197,12 @@ Users.list<User> {
 Conditions compare text, `Long` and `Double`: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `isIn`, `contains` for an array
 element, `like` for a pattern (`"title" like "%milk%"`, case-insensitive for ASCII), `isTrue()`, `isFalse()`,
 `isNull()`, `isNotNull()`, combined with `and`, `or` and `not`. An integer literal adapts to `Long`, so
-`"age" eq 18` and `"age" isIn listOf(1, 2)` compile. An `Int` variable needs `.toLong()`. Other values compare as
-they are stored, so an enum as its serial name. The order of documents with equal sort keys is unspecified, so add
-a unique field as the last sort key when a stable order or offset pagination matters.
+`"age" eq 18` and `"age" isIn listOf(1, 2)` compile. An `Int` variable needs `.toLong()`. `Float` has no overload,
+because `toDouble()` is not exact and `0.1f` would not match the stored real `0.1`; write a fraction as a `Double`
+(`"ratio" eq 0.1`). `Short`, `Byte` and other number types are the same. Other values compare as they are stored,
+so an enum as its serial name (`"role" eq "member"`). A `Double` that is `NaN` or infinite is rejected when the
+condition is built. The order of documents with equal sort keys is unspecified, so add a unique field as the last
+sort key when a stable order or offset pagination matters.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
 run other queries in that same transaction, one at a time.
@@ -181,14 +216,9 @@ property renamed with `@SerialName` is named by its string instead.
 A comparison accepts a value of the property's type when that type is an SQL scalar: `String`, `Int`, `Long`,
 `Double` or `Boolean` (a boolean compares as 1 and 0). `User::age gte 18` compiles. `User::age gte "18"` does not.
 Null is `isNull()` or `isNotNull()`, including on a nullable property; the other operators take a non-null value.
-An enum, `Float`, `Char`, unsigned type, value class or other type has no overload. Compare an enum by its string
-key and serial name (`"role" eq "member"`), and a fraction as a `Double` (`"ratio" eq 0.1`). String-key
-comparisons take `String`, `Long` and `Double`. An integer literal adapts to `Long` (`"age" eq 18`,
-`"age" isIn listOf(1, 2)`); an `Int` variable needs `.toLong()`. `Float` has no overload, because `toDouble()` is
-not exact and `0.1f` would not match the stored real `0.1`; `Short`, `Byte` and other number types are the same.
-A `Double` that is `NaN` or infinite is rejected when the condition is built. Sorting and declaring an index take
-any property. Each typed call builds the same condition, sort key or index as its string form, so the two mix
-freely.
+An enum, `Float`, `Char`, unsigned type, value class or other type has no overload, so name that field by its
+string key. Sorting and declaring an index take any property. Each typed call builds the same condition, sort key
+or index as its string form, so the two mix freely.
 
 ### Observing
 
@@ -234,34 +264,7 @@ database; `androidApp`, `iosApp` and `jvmApp` each open the database file in the
 ./kotlin run -m iosApp       # macOS with Xcode, on a simulator
 ```
 
-## Build
-
-The project uses the [Kotlin toolchain](https://kotlin-toolchain.org/). The `kotlin` (macOS, Linux) and `kotlin.bat`
-(Windows) scripts in the root are self-bootstrapping wrappers: they download the pinned toolchain on first use, so there
-is nothing to install.
-
-```sh
-./kotlin test -p jvm
-./kotlin test -p iosSimulatorArm64
-```
-
-## Platforms and CI
-
-nosqlite targets the JVM, Android and iOS (arm64 and simulator arm64). Every pull request and push to `main` runs
-three jobs:
-
-| Job | Runner | What it checks |
-| --- | --- | --- |
-| JVM tests | Linux | `./kotlin test -p jvm`: the common tests on the JVM |
-| Android build | Linux | `./kotlin build -p android`: main and test sources compile for Android |
-| iOS tests | macOS | `./kotlin test -p iosSimulatorArm64`: the common tests on the iOS simulator |
-
-Android is build-only for now. Kotlin toolchain 0.13.0 runs Android tests on the host JVM, and the Android artifact
-of `androidx.sqlite:sqlite-bundled` ships `libsqliteJni` only for Android ABIs, so it can't load there; the
-toolchain has no device or instrumented test runner yet. The same common tests run on the JVM and the iOS simulator.
-
-The jobs cache the toolchain and its dependencies, and restore the build output of the latest `main` run so pull
-requests compile incrementally; only `main` saves it.
+Building, testing and releasing are described in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
