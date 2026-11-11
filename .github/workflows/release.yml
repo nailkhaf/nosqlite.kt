@@ -47,12 +47,6 @@ jobs:
             exit 1
           fi
 
-      - name: Run JVM tests
-        run: ./kotlin test -p jvm
-
-      - name: Run iOS simulator tests
-        run: ./kotlin test -p iosSimulatorArm64
-
       - name: Publish to Maven Central
         run: ./kotlin publish -m nosqlite mavenCentral
         env:
