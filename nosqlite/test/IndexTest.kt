@@ -42,7 +42,7 @@ internal class IndexTest {
         val sql = db.querySql("SELECT sql FROM sqlite_schema WHERE type = 'index'").map { it.single() }.toSet()
         assertEquals(
             setOf(
-                """CREATE UNIQUE INDEX "${Users.idIndex.name}" ON "users" (data ->> '$.id')""",
+                """CREATE UNIQUE INDEX "${idIndexName(Users)}" ON "users" (data ->> '$.id')""",
                 """CREATE INDEX "${Users.byEmail.name}" ON "users" (data ->> '$.email')""",
                 """CREATE INDEX "${Users.byAge.name}" ON "users" (data ->> '$.age')""",
                 """CREATE INDEX "${Users.byName.name}" ON "users" (data ->> '$.name.last', data ->> '$.name.first')""",
@@ -56,7 +56,7 @@ internal class IndexTest {
     @Test
     fun `index names hash their definition`() {
         assertTrue(Users.byEmail.name.matches(Regex("nsq_users_[0-9a-f]{16}")))
-        assertTrue(Users.idIndex.name.matches(Regex("nsq_users_[0-9a-f]{16}")))
+        assertTrue(idIndexName(Users).matches(Regex("nsq_users_[0-9a-f]{16}")))
         // Read through the base type: Kotlin/Native fails to link an internal member read through a test object.
         val collection: Collection = Users
         assertEquals(4, collection.indexes.map { it.name }.toSet().size)
@@ -83,9 +83,9 @@ internal class IndexTest {
 
             val db = NoSqlite(location) { +after }
 
-            assertEquals(setOf(after.byEmail.name, after.byLastName.name, after.idIndex.name), db.indexNames())
+            assertEquals(setOf(after.byEmail.name, after.byLastName.name, idIndexName(after)), db.indexNames())
             assertEquals(before.byEmail.name, after.byEmail.name)
-            assertEquals(before.idIndex.name, after.idIndex.name)
+            assertEquals(idIndexName(before), idIndexName(after))
             db.close()
         }
     }
@@ -103,7 +103,7 @@ internal class IndexTest {
 
             val db = NoSqlite(location) { +wider }
 
-            assertEquals(setOf(wider.byEmail.name, wider.idIndex.name), db.indexNames())
+            assertEquals(setOf(wider.byEmail.name, idIndexName(wider)), db.indexNames())
             assertTrue(plain.byEmail.name != wider.byEmail.name)
             db.close()
         }
@@ -169,7 +169,7 @@ internal class IndexTest {
             it.last()!!
         }
 
-        assertTrue(Users.idIndex.name in plan, plan)
+        assertTrue(idIndexName(Users) in plan, plan)
     }
 
     @Test
@@ -190,7 +190,7 @@ internal class IndexTest {
         val core = Team(uuid("core"), "core", Name("Ada", "Lovelace"))
         db.write { Teams.insert(core) }
 
-        assertEquals(setOf(Teams.byLead.name, Teams.byLeadFirst.name, Teams.idIndex.name), db.indexNames())
+        assertEquals(setOf(Teams.byLead.name, Teams.byLeadFirst.name, idIndexName(Teams)), db.indexNames())
         assertEquals(listOf(core), db.read { Teams.list<Team> { where { "lead.last" eq "Lovelace" } } })
     }
 
@@ -206,3 +206,6 @@ internal class IndexTest {
         assertEquals("Collection 'twice' declares index twice(age) more than once", error.message)
     }
 }
+
+/** Kotlin/Native cannot link an internal member read through a test object. */
+private fun idIndexName(collection: Collection): String = collection.idIndex.name

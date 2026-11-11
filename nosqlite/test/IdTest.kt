@@ -1,5 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
+import androidx.sqlite.SQLiteException
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.execSQL
 import kotlinx.coroutines.test.runTest
@@ -11,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** Covers the id every document carries: required, a UUID string, unique and immutable. */
 internal class IdTest {
@@ -128,6 +130,20 @@ internal class IdTest {
         }
 
         assertEquals(2, db.read { Users.count() })
+    }
+
+    @Test
+    fun `a unique constraint on another index is not a duplicate id`() = runTest {
+        val db = NoSqlite { +Users }
+        db.pool().writeSql { execute("CREATE UNIQUE INDEX mine ON users (data ->> '$.email')") }
+        val first = buildJsonObject { put("id", adaId); put("email", "a@x.com") }
+        val second = buildJsonObject { put("id", alanId); put("email", "a@x.com") }
+        db.write { Users.insert(first) }
+
+        val error = assertFailsWith<SQLiteException> { db.write { Users.insert(second) } }
+
+        assertTrue("UNIQUE constraint failed" in error.message.orEmpty(), error.message)
+        assertEquals(first, db.read { Users.id(adaId).get<JsonObject>() })
     }
 
     @Test

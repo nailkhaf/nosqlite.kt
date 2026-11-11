@@ -89,7 +89,7 @@ internal object Queries {
      * writer opens. `RAISE(ABORT)` undoes the statement and leaves the rest of the transaction in place.
      */
     fun idTrigger(collection: Collection): String = """
-        CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_id
+        CREATE TEMP TRIGGER IF NOT EXISTS ${identifier("nsq_${collection.name}_id")}
         BEFORE UPDATE ON main.${collection.table}
         WHEN OLD.data ->> '$.id' IS NOT NEW.data ->> '$.id'
         BEGIN
