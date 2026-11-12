@@ -313,88 +313,22 @@ internal class StorageTest {
     }
 
     @Test
-    fun `removed collection is dropped on open`() = runTest {
+    fun `reopening without a collection keeps its table`() = runTest {
         withTempFile { location ->
             NoSqlite(location) {
                 +Users
                 +Notes
             }.apply { write { Notes.insert(ada) } }.close()
 
-            val db = NoSqlite(location) {
-                +Users
-                -"notes"
-            }
+            val db = NoSqlite(location) { +Users }
 
             assertEquals(
-                listOf(listOf("__pending_changes"), listOf("users")),
+                listOf(listOf("__pending_changes"), listOf("notes"), listOf("users")),
                 db.querySql("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite%' ORDER BY 1"),
             )
+            assertEquals(listOf(listOf("""{"name":"Ada","age":36}""")), db.querySql("SELECT json(data) FROM notes"))
             db.close()
         }
-    }
-
-    @Test
-    fun `collection declared again after removal starts empty`() = runTest {
-        withTempFile { location ->
-            NoSqlite(location) { +Notes }.apply { write { Notes.insert(ada) } }.close()
-            NoSqlite(location) { -"notes" }.apply { read { } }.close()
-
-            val db = NoSqlite(location) { +Notes }
-            db.write { Notes.insert(alan) }
-
-            assertEquals(listOf(alan), db.read { Notes.list<JsonObject>() })
-            db.close()
-        }
-    }
-
-    @Test
-    fun `removing a missing collection does nothing`() = runTest {
-        val db = NoSqlite {
-            +Users
-            -"notes"
-        }
-
-        db.write { Users.insert(ada) }
-
-        assertEquals(1L, db.read { Users.count() })
-    }
-
-    @Test
-    fun `collection both declared and removed is rejected`() {
-        val declaredFirst = assertFailsWith<IllegalArgumentException> {
-            NoSqlite {
-                +Users
-                -"users"
-            }
-        }
-        val removedFirst = assertFailsWith<IllegalArgumentException> {
-            NoSqlite {
-                -"users"
-                +Users
-            }
-        }
-
-        assertEquals("Collection 'users' is both declared and removed", declaredFirst.message)
-        assertEquals("Collection 'users' is both declared and removed", removedFirst.message)
-    }
-
-    @Test
-    fun `collection removed twice is rejected`() {
-        val error = assertFailsWith<IllegalArgumentException> {
-            NoSqlite {
-                -"notes"
-                -"notes"
-            }
-        }
-
-        assertEquals("Collection 'notes' is removed more than once", error.message)
-    }
-
-    @Test
-    fun `removed collection name is validated`() {
-        val error = assertFailsWith<IllegalArgumentException> { NoSqlite { -"sqlite_master" } }
-
-        assertEquals("Collection name is reserved by SQLite: 'sqlite_master'", error.message)
     }
 
     @Test

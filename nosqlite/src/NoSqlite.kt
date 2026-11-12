@@ -17,8 +17,9 @@ import kotlinx.serialization.json.Json
  *     +Notes
  * }
  * ```
- * Nothing touches the file until the first [read] or [write]. Opening the write connection drops the tables of removed
- * collections and creates the declared ones in one write transaction before anything else runs.
+ * Nothing touches the file until the first [read] or [write]. Opening the write connection creates the declared
+ * collections in one write transaction before anything else runs. A collection's name is permanent: a table that
+ * already exists is left in place when its collection is not declared.
  * A tracked collection records each of its changes.
  * [close] closes every connection that was opened.
  */
@@ -82,21 +83,11 @@ public annotation class SchemaDsl
 @SchemaDsl
 public class SchemaBuilder internal constructor() {
     internal val collections = mutableListOf<Collection>()
-    internal val removed = mutableListOf<String>()
 
     /** Declares this collection; each name can be declared once. */
     public operator fun Collection.unaryPlus() {
         require(collections.none { it.name == name }) { "Collection '$name' is declared more than once" }
-        require(name !in removed) { "Collection '$name' is both declared and removed" }
         collections += this
-    }
-
-    /** Removes the collection with this name: its table and documents are dropped on open, if they exist. */
-    public operator fun String.unaryMinus() {
-        requireCollectionName(this)
-        require(this !in removed) { "Collection '$this' is removed more than once" }
-        require(collections.none { it.name == this }) { "Collection '$this' is both declared and removed" }
-        removed += this
     }
 }
 
@@ -122,10 +113,9 @@ public suspend fun <R> NoSqlite.write(
     block: suspend context(WriteScope) () -> R,
 ): R = pool().write(onCommit = ::committed, untracked = untracked, block = block)
 
-// Drops the removed tables and creates the queue and the declared collections; safe to run again.
+// Creates the queue and the declared collections; safe to run again. Existing tables are never dropped.
 context(_: Connection)
 internal suspend fun createSchema(tables: SchemaBuilder) {
-    tables.removed.forEach { Queries.dropTable(it).execute() }
     Queries.createPendingChanges.execute()
     Queries.createTrackingState.execute()
     Queries.seedTrackingState.execute()

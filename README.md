@@ -106,8 +106,8 @@ A collection is a name and its indexes. Create one directly, `Collection("notes"
 declare indexes with `unique(...)` and `index(...)`. A database lists the collections it serves,
 `NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
 Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDeclared`.
-To remove a collection, list its name with a minus, `NoSqlite("app.db") { +Users; -"notes" }`: its table and
-documents are dropped on open if they exist.
+A collection's name is permanent. Opening a database without listing a collection leaves that collection's table
+and documents in place.
 
 `NoSqlite()` without a path is in memory. `NoSqlite(location, driver, dispatcher) { }` takes a `Location.File` with
 its number of readers, an `SQLiteDriver` and the dispatcher connections run on, `Dispatchers.IO` by default.
