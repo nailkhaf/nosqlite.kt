@@ -57,7 +57,7 @@ public open class Collection(public val name: String, public val tracked: Boolea
 private val CollectionName = Regex("[A-Za-z_][A-Za-z0-9_]*")
 
 internal fun requireCollectionName(name: String) {
-    require(name.matches(CollectionName)) { "Invalid collection name: '$name'" }
+    require(name.matches(CollectionName) && !name.startsWith("idx")) { "Invalid collection name: '$name'" }
     require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
     require(tableName(name) != PENDING_CHANGES && tableName(name) != TRACKING_STATE) {
         "Collection name is reserved: '$name'"

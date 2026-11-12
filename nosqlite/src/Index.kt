@@ -2,8 +2,8 @@ package io.github.nailkhaf.nosqlite
 
 /**
  * An SQLite index over document fields, declared in a [Collection]. Indexes are synced when the database opens.
- * Each one's name is `nsq_<collection>:<hash>`, and the hash is of its definition, so a changed index is dropped and
- * created again and a removed one dropped. `:` cannot occur in a collection name, so the name cannot be a table's.
+ * Each one's name is `nsq_idx_<collection>_<hash>`, and the hash is of its definition, so a changed index is dropped
+ * and created again and a removed one dropped.
  */
 public open class Index internal constructor(
     internal val collection: Collection,
@@ -19,7 +19,7 @@ public open class Index internal constructor(
         paths.joinToString(", ", prefix = "(", postfix = ")") { it.sql } +
             (where?.let { " WHERE ${it.render(inline = true).sql}" } ?: "")
 
-    internal val name: String = objectName(collection.name, fnv1a64(definition))
+    internal val name: String = indexName(collection.name, fnv1a64(definition))
 
     override fun toString(): String =
         "index ${collection.name}(${paths.joinToString(", ")})" + (where?.let { " where $it" } ?: "")
@@ -28,14 +28,14 @@ public open class Index internal constructor(
 /** Prefix of every SQLite object nosqlite creates. */
 internal const val PREFIX: String = "nsq_"
 
-/**
- * Between a collection name and an index or trigger suffix. A collection name cannot contain it, and tables and
- * indexes share one namespace, so `nsq_<collection>:<suffix>` cannot be a table.
- */
-internal const val SEPARATOR: String = ":"
+/** Prefix of every index. A collection name cannot start with `idx`, so no table is `nsq_idx...`. */
+internal const val INDEX_PREFIX: String = "${PREFIX}idx_"
 
-/** [PREFIX], the collection name, [SEPARATOR], then [suffix]. Quote the result with [identifier] in SQL. */
-internal fun objectName(collection: String, suffix: String): String = "$PREFIX$collection$SEPARATOR$suffix"
+/** [INDEX_PREFIX], the collection name, `_`, then [suffix]. Quote the result with [identifier] in SQL. */
+internal fun indexName(collection: String, suffix: String): String = "$INDEX_PREFIX${collection}_$suffix"
+
+/** [PREFIX], the collection name, `_`, then [suffix]. Triggers have their own namespace. */
+internal fun triggerName(collection: String, suffix: String): String = "$PREFIX${collection}_$suffix"
 
 /** [PREFIX] plus the collection name: the table, unquoted. */
 internal fun tableName(collection: String): String = "$PREFIX$collection"

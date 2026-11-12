@@ -26,8 +26,8 @@ internal const val TRACKING_STATE: String = "${PREFIX}_tracking_state"
 internal object Queries {
 
     /**
-     * The collection table, then its id index `nsq_<collection>:id`, then the trigger
-     * `nsq_<collection>:id_immutable`, in that order. The caller runs them in its write transaction.
+     * The collection table, then its id index `nsq_idx_<collection>_id`, then the trigger
+     * `nsq_<collection>_id_immutable`, in that order. The caller runs them in its write transaction.
      */
     fun createTable(collection: Collection): List<Command<Unit>> =
         listOf(table(collection), idIndex(collection), idTrigger(collection))
@@ -47,14 +47,14 @@ internal object Queries {
             SELECT m.name, i.name
             FROM sqlite_schema AS m
             JOIN pragma_index_list(m.name) AS i
-            WHERE m.type = 'table' AND i.name GLOB '${PREFIX}*'
+            WHERE m.type = 'table' AND i.name GLOB '${INDEX_PREFIX}*'
             ORDER BY m.name, i.seq
         """.trimIndent(),
         encode = {},
         decode = { rowsGrouped() },
     )
 
-    fun idIndexName(collection: Collection): String = objectName(collection.name, "id")
+    fun idIndexName(collection: Collection): String = indexName(collection.name, "id")
 
     private fun idIndex(collection: Collection): Command<Unit> = command(
         "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(idIndexName(collection))} " +
@@ -109,13 +109,13 @@ internal object Queries {
     )
 
     /**
-     * Rejects an update that changes `id`. Named `nsq_<collection>:id_immutable` and stored in `main` with the table:
+     * Rejects an update that changes `id`. Named `nsq_<collection>_id_immutable` and stored in `main` with the table:
      * it reads only `OLD` and `NEW`, so it can be persistent. The tracking triggers stay temp, because a trigger in
      * `main` cannot read the temp tracking-state table. `RAISE(ABORT)` undoes the statement and leaves the rest of
      * the transaction in place.
      */
     private fun idTrigger(collection: Collection): Command<Unit> = command("""
-        CREATE TRIGGER IF NOT EXISTS main.${identifier(objectName(collection.name, "id_immutable"))}
+        CREATE TRIGGER IF NOT EXISTS main.${identifier(triggerName(collection.name, "id_immutable"))}
         BEFORE UPDATE ON ${collection.table}
         WHEN OLD.data ->> '$.$ID' IS NOT NEW.data ->> '$.$ID'
         BEGIN
@@ -182,7 +182,7 @@ internal object Queries {
     )
 
     /**
-     * Temp triggers `nsq_<collection>:insert`, `:update` and `:delete` that append the change unless the untracked
+     * Temp triggers `nsq_<collection>_insert`, `_update` and `_delete` that append the change unless the untracked
      * flag is set. A trigger stored in main cannot read a temp table, and INSERT/UPDATE/DELETE inside a trigger
      * reject database-qualified names, so the body stays unqualified.
      */
@@ -194,7 +194,7 @@ internal object Queries {
         val now = "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
         return listOf(
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(objectName(collection.name, "insert"))}
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(triggerName(collection.name, "insert"))}
             AFTER INSERT ON $table
             $guard
             BEGIN
@@ -202,7 +202,7 @@ internal object Queries {
             END;
             """.trimIndent()),
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(objectName(collection.name, "update"))}
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(triggerName(collection.name, "update"))}
             AFTER UPDATE ON $table
             $guard
             BEGIN
@@ -210,7 +210,7 @@ internal object Queries {
             END;
             """.trimIndent()),
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(objectName(collection.name, "delete"))}
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(triggerName(collection.name, "delete"))}
             AFTER DELETE ON $table
             $guard
             BEGIN

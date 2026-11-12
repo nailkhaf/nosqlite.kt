@@ -328,6 +328,9 @@ internal class StorageTest {
             "my users" to "Invalid collection name: 'my users'",
             "1users" to "Invalid collection name: '1users'",
             "sqlite_users" to "Collection name is reserved by SQLite: 'sqlite_users'",
+            "idx" to "Invalid collection name: 'idx'",
+            "idx_users" to "Invalid collection name: 'idx_users'",
+            "idxfoo" to "Invalid collection name: 'idxfoo'",
         )
 
         for ((name, message) in invalid) {

@@ -297,7 +297,7 @@ internal class TrackingTest {
 
         assertEquals(emptyList(), db.read { pendingChanges() })
         assertEquals(
-            listOf(listOf("nsq_notes:id_immutable")),
+            listOf(listOf("nsq_notes_id_immutable")),
             db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger'"),
         )
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_temp_schema WHERE type = 'trigger'"))
@@ -314,14 +314,14 @@ internal class TrackingTest {
 
         assertEquals(
             listOf(
-                "nsq_contacts:delete",
-                "nsq_contacts:insert",
-                "nsq_contacts:update",
+                "nsq_contacts_delete",
+                "nsq_contacts_insert",
+                "nsq_contacts_update",
             ),
             db.tempTriggers(),
         )
         assertEquals(
-            listOf(listOf("nsq_contacts:id_immutable"), listOf("nsq_notes:id_immutable")),
+            listOf(listOf("nsq_contacts_id_immutable"), listOf("nsq_notes_id_immutable")),
             db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger' ORDER BY name"),
         )
         val sql = db.tempTriggerSql().joinToString("\n")
@@ -329,6 +329,20 @@ internal class TrackingTest {
         val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'nsq__pending_changes'").single().single()
         assertTrue("AUTOINCREMENT" in table!!)
         assertEquals(listOf(recorded(1, null, ada.json())), changes(db))
+    }
+
+    @Test
+    fun `stored trigger names use an underscore suffix and no colon`() = runTest {
+        val db = database()
+        db.read { }
+
+        val main = db.querySql("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name")
+            .map { it.single()!! }
+        val temp = db.tempTriggers()
+
+        assertEquals(listOf("nsq_contacts_id_immutable", "nsq_notes_id_immutable"), main)
+        assertEquals(listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_update"), temp)
+        assertTrue((main + temp).all { ':' !in it })
     }
 
     @Test
@@ -391,7 +405,7 @@ internal class TrackingTest {
                 changes(second),
             )
             assertEquals(
-                listOf("nsq_contacts:delete", "nsq_contacts:insert", "nsq_contacts:update"),
+                listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_update"),
                 second.tempTriggers(),
             )
             second.close()

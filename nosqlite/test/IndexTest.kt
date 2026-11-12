@@ -56,8 +56,8 @@ internal class IndexTest {
 
     @Test
     fun `index names hash their definition`() {
-        assertTrue(Users.byEmail.name.matches(Regex("nsq_users:[0-9a-f]{16}")))
-        assertEquals("nsq_users:id", idIndexName(Users))
+        assertTrue(Users.byEmail.name.matches(Regex("nsq_idx_users_[0-9a-f]{16}")))
+        assertEquals("nsq_idx_users_id", idIndexName(Users))
         // Read through the base type: Kotlin/Native fails to link an internal member read through a test object.
         val collection: Collection = Users
         assertEquals(4, collection.indexes.map { it.name }.toSet().size)
@@ -128,12 +128,12 @@ internal class IndexTest {
     fun `reopening drops an undeclared index whose name has a quote`() = runTest {
         withTempFile { location ->
             val db = NoSqlite(location) { +Users }
-            db.pool().writeSql { execute("CREATE INDEX \"nsq_users_\"\"x\" ON nsq_users (data ->> '$.score')") }
+            db.pool().writeSql { execute("CREATE INDEX \"nsq_idx_users_\"\"x\" ON nsq_users (data ->> '$.score')") }
             db.close()
 
             val reopened = NoSqlite(location) { +Users }
 
-            assertTrue("nsq_users_\"x" !in reopened.indexNames())
+            assertTrue("nsq_idx_users_\"x" !in reopened.indexNames())
             reopened.close()
         }
     }
@@ -232,6 +232,20 @@ internal class IndexTest {
             setOf(users.byEmail.name, usersId.byEmail.name, idIndexName(users), idIndexName(usersId)),
             db.indexNames(),
         )
+    }
+
+    @Test
+    fun `stored index names use the idx prefix and no colon`() = runTest {
+        val db = NoSqlite { +Users }
+        db.read { }
+
+        val names = db.querySql(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite%'",
+        ).map { it.single()!! }
+        val collection: Collection = Users
+
+        assertEquals(setOf(idIndexName(Users)) + collection.indexes.map { it.name }, names.toSet())
+        assertTrue(names.all { it.startsWith("nsq_idx_users_") && ':' !in it })
     }
 
     @Test
