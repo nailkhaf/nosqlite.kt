@@ -113,6 +113,7 @@ internal object Queries {
         """
         CREATE TABLE IF NOT EXISTS $PENDING_CHANGES (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uid TEXT NOT NULL DEFAULT $NEW_PENDING_UID,
             collection TEXT NOT NULL,
             document_id TEXT NOT NULL,
             action TEXT NOT NULL,
@@ -124,18 +125,19 @@ internal object Queries {
 
     val pendingChanges: Statement<Unit, List<PendingChange>> = Statement(
         sql = """
-            SELECT id, collection, document_id, action, json(change_set), timestamp
+            SELECT id, uid, collection, document_id, action, json(change_set), timestamp
             FROM $PENDING_CHANGES ORDER BY id;
         """.trimIndent(),
         encode = {},
         decode = rows {
             PendingChange(
                 id = getLong(0),
-                collection = getText(1),
-                documentId = getText(2),
-                action = pendingAction(getText(3)),
-                changeSet = jsonObject(4),
-                timestamp = Instant.fromEpochMilliseconds(getLong(5)),
+                uid = getText(1),
+                collection = getText(2),
+                documentId = getText(3),
+                action = pendingAction(getText(4)),
+                changeSet = jsonObject(5),
+                timestamp = Instant.fromEpochMilliseconds(getLong(6)),
             )
         },
     )
@@ -267,6 +269,16 @@ private val countRows: SQLiteStatement.() -> Int = {
 
 private fun SQLiteStatement.jsonObject(index: Int): JsonObject =
     NoSqlite.Json.parseToJsonElement(getText(index)) as JsonObject
+
+/**
+ * One RFC 4122 version-4 UUID, lowercase, in the same 8-4-4-4-12 form as `Uuid.toString()`.
+ * Version nibble `4`, variant nibble `8`, `9`, `a` or `b` from the low two bits of `random()`. A column default may
+ * not contain a subquery, so each group comes from its own `randomblob`. The tracking triggers omit `uid`, so this
+ * runs exactly once, on insert.
+ */
+private const val NEW_PENDING_UID =
+    "(lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-'||'4'||substr(hex(randomblob(2)),2)||'-'||" +
+        "substr('89ab',(random()&3)+1,1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))))"
 
 private fun pendingAction(text: String): PendingChange.Action = when (text) {
     "insert" -> PendingChange.Action.Insert

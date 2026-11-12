@@ -19,6 +19,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 /** Covers change tracking: triggers, the pending queue, and untracked writes. */
 internal class TrackingTest {
@@ -57,7 +58,7 @@ internal class TrackingTest {
         action: PendingChange.Action,
         changeSet: JsonObject,
         collection: String = Contacts.name,
-    ) = PendingChange(id, collection, documentId, action, changeSet, Instant.fromEpochMilliseconds(0))
+    ) = PendingChange(id, "", collection, documentId, action, changeSet, Instant.fromEpochMilliseconds(0))
 
     private fun inserted(id: Long, contact: Contact) = recorded(id, contact.id, PendingChange.Action.Insert, contact.json())
 
@@ -69,7 +70,9 @@ internal class TrackingTest {
 
     private suspend fun changes(db: NoSqlite): List<PendingChange> = db.read { pendingChanges() }.withoutTime()
 
-    private fun List<PendingChange>.withoutTime() = map { it.copy(timestamp = Instant.fromEpochMilliseconds(0)) }
+    /** Drops the clock and the random uid so an assertion can name the change itself. */
+    private fun List<PendingChange>.withoutTime() =
+        map { it.copy(timestamp = Instant.fromEpochMilliseconds(0), uid = "") }
 
     /** Each change, with queue ids 1..n in order and no duplicate triple. */
     private fun List<PendingChange>.bodies(): Set<Triple<String, PendingChange.Action, JsonObject>> {
@@ -429,6 +432,7 @@ internal class TrackingTest {
         val extra = (3L..32_768L).map { id ->
             PendingChange(
                 id,
+                "",
                 Contacts.name,
                 ada.id,
                 PendingChange.Action.Delete,
@@ -606,6 +610,49 @@ internal class TrackingTest {
             },
             db.read { pendingChanges() }.last().changeSet,
         )
+    }
+
+    @Test
+    fun `every queued change has a unique uuid uid`() = runTest {
+        val db = database()
+        val first = contact("p0", 1)
+        db.write {
+            repeat(32) { n -> Contacts.insert(contact("p$n", n)) }
+            Contacts.id(first.id).update(first.copy(age = 2))
+            Contacts.id(first.id).update(first.copy(age = 3))
+            Contacts.id(first.id).delete()
+        }
+
+        val rows = db.read { pendingChanges() }
+        val sameDocument = rows.filter { it.documentId == first.id }
+        assertEquals(4, sameDocument.size)
+        assertTrue(rows.size > sameDocument.size)
+        assertEquals(rows.size, rows.map { it.uid }.toSet().size)
+        for (row in rows) assertEquals(Uuid.parse(row.uid).toString(), row.uid)
+    }
+
+    @Test
+    fun `a pending change uid stays the same until the row is removed`() = runTest {
+        withTempFile { location ->
+            val db = NoSqlite(location) { +Contacts }
+            db.write { Contacts.insert(ada) }
+            val written = db.read { pendingChanges() }.single()
+            assertEquals(written.uid, db.read { pendingChanges() }.single().uid)
+            db.write { Contacts.id(ada.id).update(ada.copy(age = 37)) }
+            val both = db.read { pendingChanges() }
+            assertEquals(written.uid, both.first().uid)
+            db.close()
+
+            val reopened = NoSqlite(location) { +Contacts }
+            val kept = reopened.read { pendingChanges() }
+            assertEquals(written.uid, kept.first().uid)
+            assertEquals(both.map { it.uid }, kept.map { it.uid })
+            reopened.write { removePendingChanges(listOf(kept.first())) }
+            assertEquals(listOf(kept.last().uid), reopened.read { pendingChanges() }.map { it.uid })
+            reopened.write { removePendingChanges(reopened.read { pendingChanges() }) }
+            assertEquals(emptyList(), reopened.read { pendingChanges() })
+            reopened.close()
+        }
     }
 
     @Test

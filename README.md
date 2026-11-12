@@ -244,10 +244,11 @@ the last one isn't emitted. Changes are tracked per collection.
 ### Change tracking
 
 `Collection("contacts", tracked = true)` records every insert, update and delete in `__pending_changes`.
-Each row has the document's `id`, an action (`Insert`, `Update` or `Delete`) and a change set. An insert's change
-set is the new document. A delete's is `{}`. An update's is a JSON merge patch: nested objects are diffed
-recursively, arrays are replaced whole, and a removed key is `null` at the outermost removed path. An update that
-does not change the stored document records nothing.
+Each row has the document's `id`, a `uid`, an action (`Insert`, `Update` or `Delete`) and a change set. `uid` is a
+random UUID assigned when the row is inserted and never changed, so a retried upload writes the same remote document.
+An insert's change set is the new document. A delete's is `{}`. An update's is a JSON merge patch: nested objects are
+diffed recursively, arrays are replaced whole, and a removed key is `null` at the outermost removed path. An update
+that does not change the stored document records nothing.
 
 ```kotlin
 object Contacts : Collection("contacts", tracked = true)

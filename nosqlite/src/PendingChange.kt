@@ -5,12 +5,15 @@ import kotlin.time.Instant
 
 /**
  * One recorded insert, update or delete of a tracked collection, in the order it was committed.
+ * [uid] is a random UUID assigned when the row is inserted and never changed, so a sync layer can use it as the remote
+ * document id and a retried upload writes the same document. [id] is only the local queue position.
  * [changeSet] is the new document for an [Action.Insert], `{}` for an [Action.Delete], and a JSON merge patch for an
  * [Action.Update]: nested objects are diffed recursively, arrays are replaced whole, and a removed key is `null` at
  * the outermost removed path.
  */
 public data class PendingChange(
     public val id: Long,
+    public val uid: String,
     public val collection: String,
     public val documentId: String,
     public val action: Action,
