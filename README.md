@@ -146,8 +146,7 @@ throws `NoSqliteException.InvalidId`. A second document with the same id throws 
 
 Inside `db.write { }`:
 
-- `insert(value)` adds a document. It must encode to a JSON object whose `id` is `Uuid.toString()`. A `Uuid`
-  property serializes to that string.
+- `insert(value)` adds a document. It must encode to a JSON object whose `id` is `Uuid.toString()`.
 - `update(value) { condition }` applies the value to every match as a JSON merge patch: its fields replace theirs,
   a `null` removes one, and fields it doesn't have are kept.
 - `replace(value) { condition }` stores the value as the whole document of every match. The value must carry each
