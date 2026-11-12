@@ -24,7 +24,7 @@ import kotlin.test.assertTrue
 internal class ObserveTest {
 
     @Serializable
-    data class User(val id: String, val age: Int)
+    data class User(val id: Uuid, val age: Int)
 
     object Users : Collection("users") {
         val byAge = index("age")
@@ -35,7 +35,7 @@ internal class ObserveTest {
     private val ada = User(uuid("ada"), 36)
     private val alan = User(uuid("alan"), 41)
     private val cid = User(uuid("cid"), 36)
-    private val note = buildJsonObject { put("id", uuid("note")); put("text", "hi") }
+    private val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
     private fun TestScope.database() = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
         +Users
@@ -64,8 +64,8 @@ internal class ObserveTest {
 
         db.write { Users.insert(ada) }
         db.write { Users.upsert(alan) }
-        db.write { Users.update(alan.copy(age = 42)) { "id" eq alan.id } }
-        db.write { Users.id(Uuid.parse(ada.id)).delete() }
+        db.write { Users.update(alan.copy(age = 42)) { "id" eq alan.id.toString() } }
+        db.write { Users.id(ada.id).delete() }
 
         assertEquals(
             listOf(
@@ -109,11 +109,11 @@ internal class ObserveTest {
     @Test
     fun `observe one document by id`() = runTest {
         val db = database()
-        val found = collect(with(db) { Users.id(Uuid.parse(alan.id)).observe<User>() })
+        val found = collect(with(db) { Users.id(alan.id).observe<User>() })
 
         db.write { Users.insert(alan) }
-        db.write { Users.id(Uuid.parse(alan.id)).update(alan.copy(age = 42)) }
-        db.write { Users.id(Uuid.parse(alan.id)).delete() }
+        db.write { Users.id(alan.id).update(alan.copy(age = 42)) }
+        db.write { Users.id(alan.id).delete() }
 
         assertEquals(listOf(null, alan, alan.copy(age = 42), null), found)
     }
@@ -183,7 +183,7 @@ internal class ObserveTest {
 
         db.write { Users.insert(ada) }
         repeat(100) { i ->
-            db.write { Notes.insert(buildJsonObject { put("id", uuid("note-$i")); put("text", "hi") }) }
+            db.write { Notes.insert(buildJsonObject { put("id", uuid("note-$i").toString()); put("text", "hi") }) }
         }
         runCurrent()
 
@@ -202,8 +202,8 @@ internal class ObserveTest {
             }
         }
         db.write { Users.delete { "age" gt 100 } }
-        db.write { Users.update(User(uuid("x"), 1)) { "id" eq uuid("nobody") } }
-        db.write { Users.id(Uuid.parse(uuid("nobody"))).delete() }
+        db.write { Users.update(User(uuid("x"), 1)) { "id" eq uuid("nobody").toString() } }
+        db.write { Users.id(uuid("nobody")).delete() }
 
         assertEquals(mapOf("users" to 1L), db.versions.value)
     }

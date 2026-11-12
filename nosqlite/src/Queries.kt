@@ -22,43 +22,61 @@ internal const val TRACKING_STATE = "__tracking_state"
 
 internal object Queries {
 
-    fun createTable(collection: Collection): Command<Unit> = command(
-        """
-            CREATE TABLE IF NOT EXISTS ${collection.table} (
-                data BLOB NOT NULL,
-                CONSTRAINT document_id CHECK (json_type(data, '$.id') IS 'text' AND (data ->> '$.id') GLOB '$CANONICAL_UUID_GLOB')
-            ) STRICT;
-        """.trimIndent(),
-    )
+    /**
+     * Creates the collection table, then its id index `nsq_<collection>_id`, then the trigger
+     * `nsq_<collection>_id_immutable`. The three statements run in the caller's write transaction, in that order.
+     */
+    context(_: Connection)
+    suspend fun createTable(collection: Collection) {
+        command(table(collection)).execute()
+        command(idIndex(collection)).execute()
+        idTrigger(collection).execute()
+    }
 
-    /** The columns [createTable] makes, as [tableColumns] lists them. */
+    private fun table(collection: Collection): String = """
+        CREATE TABLE IF NOT EXISTS ${collection.table} (
+            data BLOB NOT NULL,
+            CONSTRAINT document_id CHECK (json_type(data, '$.id') IS 'text' AND (data ->> '$.id') GLOB '$CANONICAL_UUID_GLOB')
+        ) STRICT;
+    """.trimIndent()
+
+    /** The columns [createTable] makes, as [collectionColumns] lists them. */
     val TableColumns = listOf("data BLOB")
 
-    /** The input table's columns: name, type, and whether it is the primary key. */
-    val tableColumns: Statement<String, List<String>> = Statement(
-        sql = "SELECT name || ' ' || upper(type) || iif(pk, ' PRIMARY KEY', '') FROM pragma_table_info(?) ORDER BY cid;",
-        encode = { table -> bindText(1, table) },
-        decode = rows { getText(0) },
+    /** Every table's columns, name then `name TYPE` in column order, primary key marked. */
+    val collectionColumns: Statement<Unit, Map<String, List<String>>> = Statement(
+        sql = """
+            SELECT m.name, p.name || ' ' || upper(p.type) || iif(p.pk, ' PRIMARY KEY', '')
+            FROM sqlite_schema AS m
+            JOIN pragma_table_info(m.name) AS p
+            WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite%'
+            ORDER BY m.name, p.cid
+        """.trimIndent(),
+        encode = {},
+        decode = { rowsGrouped() },
     )
 
-    /** The indexes nosqlite manages on the input table; others are left alone. */
-    val indexNames: Statement<String, List<String>> = Statement(
-        sql = "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = ? AND name GLOB '$INDEX_PREFIX*';",
-        encode = { table -> bindText(1, table) },
-        decode = rows { getText(0) },
-    )
-
-    /** The id index. Its name matches the id trigger: `nsq_<collection>_id`. */
-    fun createIdIndex(collection: Collection): Command<Unit> = command(
-        "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(idIndexName(collection))} " +
-            "ON ${collection.table} ($ID_VALUE);",
+    /** Every managed index name, by table. Indexes nosqlite does not name are left out. */
+    val managedIndexes: Statement<Unit, Map<String, List<String>>> = Statement(
+        sql = """
+            SELECT m.name, i.name
+            FROM sqlite_schema AS m
+            JOIN pragma_index_list(m.name) AS i
+            WHERE m.type = 'table' AND i.name GLOB '$INDEX_PREFIX*'
+            ORDER BY m.name, i.seq
+        """.trimIndent(),
+        encode = {},
+        decode = { rowsGrouped() },
     )
 
     fun idIndexName(collection: Collection): String = "$INDEX_PREFIX${collection.name}_id"
 
+    private fun idIndex(collection: Collection): String =
+        "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(idIndexName(collection))} " +
+            "ON ${collection.table} ($ID_VALUE);"
+
     fun createIndex(index: Index): Command<Unit> = command(
-        "CREATE ${if (index.isUnique) "UNIQUE " else ""}INDEX ${identifier(index.name)} " +
-            "ON ${index.collection.table} ${index.definition};",
+        "CREATE INDEX ${identifier(index.name)} ON ${index.collection.table} ${index.definition};",
     )
 
     fun dropIndex(name: String): Command<Unit> = command("DROP INDEX ${identifier(name)};")
@@ -109,14 +127,14 @@ internal object Queries {
      * be persistent. The tracking triggers stay temp, because a trigger in `main` cannot read the temp
      * `__tracking_state` table. `RAISE(ABORT)` undoes the statement and leaves the rest of the transaction in place.
      */
-    fun idTrigger(collection: Collection): String = """
-        CREATE TRIGGER IF NOT EXISTS main.${identifier("nsq_${collection.name}_id")}
+    private fun idTrigger(collection: Collection): Command<Unit> = command("""
+        CREATE TRIGGER IF NOT EXISTS main.${identifier("nsq_${collection.name}_id_immutable")}
         BEFORE UPDATE ON ${collection.table}
         WHEN OLD.data ->> '$.id' IS NOT NEW.data ->> '$.id'
         BEGIN
             SELECT RAISE(ABORT, 'id is immutable');
         END;
-    """.trimIndent()
+    """.trimIndent())
 
     fun insert(collection: Collection): Statement<String, Unit> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?));",
@@ -181,37 +199,37 @@ internal object Queries {
      * stored in main cannot read a temp table, and INSERT/UPDATE/DELETE inside a trigger reject database-qualified
      * names, so the body stays unqualified.
      */
-    fun trackingTriggers(collection: Collection): List<String> {
+    fun trackingTriggers(collection: Collection): List<Command<Unit>> {
         val table = "main.${collection.table}"
         val name = SqlValue.Text(collection.name).literal
         val guard = "WHEN NOT (SELECT untracked FROM $TRACKING_STATE)"
         val record = "INSERT INTO $PENDING_CHANGES (collection, before, after, timestamp) VALUES"
         val now = "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
         return listOf(
-            """
+            command("""
             CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_insert
             AFTER INSERT ON $table
             $guard
             BEGIN
                 $record ($name, NULL, NEW.data, $now);
             END;
-            """.trimIndent(),
-            """
+            """.trimIndent()),
+            command("""
             CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_update
             AFTER UPDATE ON $table
             $guard
             BEGIN
                 $record ($name, OLD.data, NEW.data, $now);
             END;
-            """.trimIndent(),
-            """
+            """.trimIndent()),
+            command("""
             CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_delete
             AFTER DELETE ON $table
             $guard
             BEGIN
                 $record ($name, OLD.data, NULL, $now);
             END;
-            """.trimIndent(),
+            """.trimIndent()),
         )
     }
 }
@@ -224,6 +242,12 @@ private fun where(condition: Where?): Fragment =
 
 // A row per document a write touched, counted as they come: androidx.sqlite has no changes().
 private const val RETURNING = " RETURNING 1;"
+
+private fun SQLiteStatement.rowsGrouped(): Map<String, List<String>> {
+    val grouped = mutableMapOf<String, MutableList<String>>()
+    while (step()) grouped.getOrPut(getText(0)) { mutableListOf() } += getText(1)
+    return grouped
+}
 
 private val countRows: SQLiteStatement.() -> Int = {
     var count = 0

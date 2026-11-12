@@ -14,6 +14,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
@@ -44,12 +45,12 @@ internal class StorageTest {
     object Adults : Collection("adults")
 
     private val ada = buildJsonObject {
-        put("id", uuid("ada"))
+        put("id", uuid("ada").toString())
         put("name", "Ada")
         put("age", 36)
     }
     private val alan = buildJsonObject {
-        put("id", uuid("alan"))
+        put("id", uuid("alan").toString())
         put("name", "Alan")
         put("age", 41)
     }
@@ -96,7 +97,7 @@ internal class StorageTest {
     @Test
     fun `list pages with limit and offset`() = runTest {
         val db = NoSqlite { +Users }
-        val people = (1..5).map { buildJsonObject { put("id", uuid("p$it")); put("age", it) } }
+        val people = (1..5).map { buildJsonObject { put("id", uuid("p$it").toString()); put("age", it) } }
         db.write { people.forEach { Users.insert(it) } }
 
         db.read {
@@ -123,7 +124,7 @@ internal class StorageTest {
     }
 
     @Serializable
-    data class User(val id: String, val name: String, val age: Int)
+    data class User(val id: Uuid, val name: String, val age: Int)
 
     @Test
     fun `a collection can be created without a subclass`() = runTest {

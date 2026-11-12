@@ -18,7 +18,7 @@ internal class LookupTest {
 
     @Serializable
     data class User(
-        val id: String,
+        val id: Uuid,
         val email: String,
         val name: Name,
         val age: Int,
@@ -55,8 +55,8 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(ada, Users.id(Uuid.parse(ada.id)).get<User>())
-            assertNull(Users.id(Uuid.parse(uuid("nobody"))).get<User>())
+            assertEquals(ada, Users.id(ada.id).get<User>())
+            assertNull(Users.id(uuid("nobody")).get<User>())
         }
     }
 
@@ -75,12 +75,12 @@ internal class LookupTest {
         val db = database()
 
         db.write {
-            assertTrue(Users.id(Uuid.parse(ada.id)).update(ada.copy(age = 37)))
-            assertFalse(Users.id(Uuid.parse(uuid("nobody"))).update(ada))
-            assertTrue(Users.id(Uuid.parse(alan.id)).replace(alan.copy(age = 42)))
-            assertFalse(Users.id(Uuid.parse(uuid("nobody"))).replace(ada))
-            assertTrue(Users.id(Uuid.parse(grace.id)).delete())
-            assertFalse(Users.id(Uuid.parse(grace.id)).delete())
+            assertTrue(Users.id(ada.id).update(ada.copy(age = 37)))
+            assertFalse(Users.id(uuid("nobody")).update(ada))
+            assertTrue(Users.id(alan.id).replace(alan.copy(age = 42)))
+            assertFalse(Users.id(uuid("nobody")).replace(ada))
+            assertTrue(Users.id(grace.id).delete())
+            assertFalse(Users.id(grace.id).delete())
         }
 
         assertEquals(listOf(ada.copy(age = 37), alan.copy(age = 42), byron), db.read { Users.list<User>() })
@@ -197,6 +197,6 @@ internal class LookupTest {
             "index users(name.last, name.first) = ['Lovelace', NULL]",
             Users.byName("Lovelace", null).toString(),
         )
-        assertEquals("users id ${ada.id}", Users.id(Uuid.parse(ada.id)).toString())
+        assertEquals("users id ${ada.id}", Users.id(ada.id).toString())
     }
 }

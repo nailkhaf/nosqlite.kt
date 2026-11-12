@@ -7,7 +7,6 @@ package io.github.nailkhaf.nosqlite
 public open class Index internal constructor(
     internal val collection: Collection,
     internal val paths: List<Path>,
-    internal val isUnique: Boolean,
     internal val where: Where?,
 ) {
     init {
@@ -19,12 +18,10 @@ public open class Index internal constructor(
         paths.joinToString(", ", prefix = "(", postfix = ")") { it.sql } +
             (where?.let { " WHERE ${it.render(inline = true).sql}" } ?: "")
 
-    internal val name: String =
-        "${INDEX_PREFIX}${collection.name}_${fnv1a64((if (isUnique) "UNIQUE " else "") + definition)}"
+    internal val name: String = "${INDEX_PREFIX}${collection.name}_${fnv1a64(definition)}"
 
     override fun toString(): String =
-        "${if (isUnique) "unique " else ""}index ${collection.name}(${paths.joinToString(", ")})" +
-            (where?.let { " where $it" } ?: "")
+        "index ${collection.name}(${paths.joinToString(", ")})" + (where?.let { " where $it" } ?: "")
 }
 
 internal const val INDEX_PREFIX = "nsq_"

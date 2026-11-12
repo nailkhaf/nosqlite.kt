@@ -21,7 +21,7 @@ internal class Query(val condition: Where?, val orderBy: List<Order>, val limit:
  *     offset(40)
  * }
  * ```
- * The order of documents with equal sort keys is unspecified, so add a unique field as the last sort key when a
+ * The order of documents with equal sort keys is unspecified, so add `id` as the last sort key when a
  * stable order or offset pagination matters.
  */
 @QueryDsl

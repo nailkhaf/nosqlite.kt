@@ -114,31 +114,35 @@ public suspend fun <R> NoSqlite.write(
 ): R = pool().write(onCommit = ::committed, untracked = untracked, block = block)
 
 // Creates the queue and the declared collections; safe to run again. Existing tables are never dropped.
+// One read of every table's columns and one of every managed index, then each collection is checked against that.
 context(_: Connection)
 internal suspend fun createSchema(tables: SchemaBuilder) {
     Queries.createPendingChanges.execute()
     Queries.createTrackingState.execute()
     Queries.seedTrackingState.execute()
-    tables.collections.forEach { createSchema(it) }
+    val columns = Queries.collectionColumns.execute()
+    val indexes = Queries.managedIndexes.execute()
+    tables.collections.forEach { createSchema(it, columns, indexes) }
 }
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
-// A tracked collection also gets its temp triggers on this connection.
+// A tracked collection also gets its temp triggers on this connection. The id index is not one of these:
+// [Queries.createTable] makes it, and this step only leaves its fixed name in place.
 context(_: Connection)
-internal suspend fun createSchema(collection: Collection) {
-    Queries.createTable(collection).execute()
-    command(Queries.idTrigger(collection)).execute()
-    mapErrors(collection) { Queries.createIdIndex(collection).execute() }
-    val columns = Queries.tableColumns.execute(collection.name)
-    if (columns != Queries.TableColumns) throw NoSqliteException.IncompatibleTable(collection.name, columns)
-    val current = Queries.indexNames.execute(collection.name)
+internal suspend fun createSchema(
+    collection: Collection,
+    columns: Map<String, List<String>>,
+    indexes: Map<String, List<String>>,
+) {
+    val found = columns[collection.name]
+    if (found != null && found != Queries.TableColumns) {
+        throw NoSqliteException.IncompatibleTable(collection.name, found)
+    }
+    Queries.createTable(collection)
+    val current = indexes[collection.name].orEmpty()
     val wanted = collection.indexes.associateBy { it.name }
     val idIndex = Queries.idIndexName(collection)
     current.filter { it != idIndex && it !in wanted }.forEach { Queries.dropIndex(it).execute() }
-    wanted.filterKeys { it !in current }.values.forEach { index ->
-        mapErrors(collection) { Queries.createIndex(index).execute() }
-    }
-    if (collection.tracked) {
-        Queries.trackingTriggers(collection).forEach { command(it).execute() }
-    }
+    wanted.filterKeys { it !in current }.values.forEach { Queries.createIndex(it).execute() }
+    if (collection.tracked) Queries.trackingTriggers(collection).forEach { it.execute() }
 }

@@ -36,7 +36,7 @@ public open class Collection(public val name: String, public val tracked: Boolea
 
     /** An index on [fields], in order; with [where] only matching documents are indexed. */
     protected fun index(vararg fields: String, where: (WhereScope.() -> Where)? = null): Index =
-        register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
+        register(Index(this, fields.map(::Path), where?.let(::where)))
 
     /** An index on property [fields], named by their property names. */
     protected fun index(vararg fields: Field<*, *>, where: (WhereScope.() -> Where)? = null): Index =
@@ -92,8 +92,8 @@ public suspend fun Collection.count(condition: (WhereScope.() -> Where)? = null)
     withConnection { Queries.count(this@count, condition?.let(::where)).execute() }
 
 /**
- * Applies [value] as a JSON merge patch to every document matching [condition], so match on a unique field to update
- * one: its fields replace theirs, a `null` removes one, and fields it doesn't have are kept. The result is how many
+ * Applies [value] as a JSON merge patch to every document matching [condition], so match on `id` to update one:
+ * its fields replace theirs, a `null` removes one, and fields it doesn't have are kept. The result is how many
  * documents were updated.
  */
 context(_: WriteScope)

@@ -24,7 +24,7 @@ internal class IndexTest {
     }
 
     @Serializable
-    data class Team(val id: String, val name: String, val lead: Name)
+    data class Team(val id: Uuid, val name: String, val lead: Name)
 
     private val ada = user("ada", 36)
     private val alan = user("alan", 41)
@@ -156,8 +156,8 @@ internal class IndexTest {
 
         db.read {
             assertEquals(listOf(ada), Users.list<User> { where { "email" eq ada.email.value } })
-            assertEquals(listOf(alan), Users.list<User> { where { "id" eq alan.id } })
-            assertEquals(emptyList(), Users.list<User> { where { "id" eq uuid("nobody") } })
+            assertEquals(listOf(alan), Users.list<User> { where { "id" eq alan.id.toString() } })
+            assertEquals(emptyList(), Users.list<User> { where { "id" eq uuid("nobody").toString() } })
         }
     }
 
@@ -166,7 +166,7 @@ internal class IndexTest {
         val db = NoSqlite { +Users }
         val sql = Queries.selectSql(
             Users,
-            Query(Users.id(Uuid.parse(ada.id)).condition, emptyList(), limit = 1, offset = 0),
+            Query(Users.id(ada.id).condition, emptyList(), limit = 1, offset = 0),
         ).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "'${ada.id}'")).joinToString { it.last()!! }
@@ -177,7 +177,7 @@ internal class IndexTest {
     @Test
     fun `a condition on id uses the id index`() = runTest {
         val db = NoSqlite { +Users }
-        val condition = where { "id" eq ada.id }.render(inline = true).sql
+        val condition = where { "id" eq ada.id.toString() }.render(inline = true).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM users WHERE $condition").joinToString {
             it.last()!!
