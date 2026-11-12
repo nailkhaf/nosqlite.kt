@@ -1,7 +1,5 @@
 package io.github.nailkhaf.nosqlite
 
-import androidx.sqlite.driver.bundled.BundledSQLiteDriver
-import androidx.sqlite.execSQL
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -267,26 +265,6 @@ internal class StorageTest {
             val reopened = NoSqlite(location) { +Users }
             assertEquals(0, reopened.read { Users.count() })
             reopened.close()
-        }
-    }
-
-    @Test
-    fun `table of another shape fails on open`() = runTest {
-        withTempFile { location ->
-            BundledSQLiteDriver().open(location.path).apply {
-                execSQL("CREATE TABLE users (id TEXT, data BLOB);")
-                close()
-            }
-            val db = NoSqlite(location) { +Users }
-
-            val error = assertFailsWith<NoSqliteException.IncompatibleTable> { db.read { } }
-
-            assertEquals(listOf("id TEXT", "data BLOB"), error.columns)
-            assertEquals(
-                "Table 'users' has columns (id TEXT, data BLOB), not a collection's (data BLOB)",
-                error.message,
-            )
-            db.close()
         }
     }
 

@@ -41,22 +41,6 @@ internal object Queries {
         """.trimIndent(),
     )
 
-    /** The columns [createTable] makes, as [collectionColumns] lists them. */
-    val TableColumns = listOf("data BLOB")
-
-    /** Every table's columns, name then `name TYPE` in column order, primary key marked. */
-    val collectionColumns: Statement<Unit, Map<String, List<String>>> = Statement(
-        sql = """
-            SELECT m.name, p.name || ' ' || upper(p.type) || iif(p.pk, ' PRIMARY KEY', '')
-            FROM sqlite_schema AS m
-            JOIN pragma_table_info(m.name) AS p
-            WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite%'
-            ORDER BY m.name, p.cid
-        """.trimIndent(),
-        encode = {},
-        decode = { rowsGrouped() },
-    )
-
     /** Every managed index name, by table. Indexes nosqlite does not name are left out. */
     val managedIndexes: Statement<Unit, Map<String, List<String>>> = Statement(
         sql = """
