@@ -107,7 +107,8 @@ with(db) {
 A collection is a name and its indexes. Create one directly, `Collection("notes")`, or extend `Collection` to
 declare indexes with `index(...)`. A database lists the collections it serves,
 `NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
-A collection's table is `nsq_` plus its name.
+A collection's table is `nsq_` plus its name. An index or trigger is `nsq_<collection>:` plus its suffix, so its
+name cannot be a collection table's: tables and indexes share one namespace, and a collection name cannot contain `:`.
 Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDeclared`.
 A collection's name is permanent. Opening a database without listing a collection leaves that collection's table
 and documents in place.
@@ -126,10 +127,11 @@ renamed with `@SerialName`. Keys are identifiers.
 ### Indexes
 
 `index("age")` takes one field or several, in order, and an optional `where` that makes the index partial:
-`index("nickname", where = { "active".isTrue() })`. Each index is named by a hash of its definition, so a changed
-index is dropped and created again when the database opens, and a removed one dropped.
+`index("nickname", where = { "active".isTrue() })`. Each index is named `nsq_<collection>:` plus a hash of its
+definition, so a changed index is dropped and created again when the database opens, and a removed one dropped.
 
-Every collection also has an index on `id`, which is not declared. Calling an index looks documents up by its values.
+Every collection also has an index on `id`, named `nsq_<collection>:id`, which is not declared.
+Calling an index looks documents up by its values.
 It takes its leading fields, `null` matching a null or missing field, and finds any number: `list<T> { }`, `count()`,
 `update(value)`, `replace(value)` and `delete()` return the documents or how many there were.
 

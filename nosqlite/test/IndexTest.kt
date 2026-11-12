@@ -56,8 +56,8 @@ internal class IndexTest {
 
     @Test
     fun `index names hash their definition`() {
-        assertTrue(Users.byEmail.name.matches(Regex("nsq_users_[0-9a-f]{16}")))
-        assertEquals("nsq_users_id", idIndexName(Users))
+        assertTrue(Users.byEmail.name.matches(Regex("nsq_users:[0-9a-f]{16}")))
+        assertEquals("nsq_users:id", idIndexName(Users))
         // Read through the base type: Kotlin/Native fails to link an internal member read through a test object.
         val collection: Collection = Users
         assertEquals(4, collection.indexes.map { it.name }.toSet().size)
@@ -206,6 +206,32 @@ internal class IndexTest {
 
         assertEquals(setOf(Teams.byLead.name, Teams.byLeadFirst.name, idIndexName(Teams)), db.indexNames())
         assertEquals(listOf(core), db.read { Teams.list<Team> { where { "lead.last" eq "Lovelace" } } })
+    }
+
+    @Test
+    fun `users and users_id both open`() = runTest {
+        val users = object : Collection("users") {
+            val byEmail = index("email")
+        }
+        val usersId = object : Collection("users_id") {
+            val byEmail = index("email")
+        }
+        val db = NoSqlite {
+            +users
+            +usersId
+        }
+
+        db.write {
+            users.insert(ada)
+            usersId.insert(ada)
+        }
+
+        assertEquals(listOf(ada), db.read { users.list<User>() })
+        assertEquals(listOf(ada), db.read { usersId.list<User>() })
+        assertEquals(
+            setOf(users.byEmail.name, usersId.byEmail.name, idIndexName(users), idIndexName(usersId)),
+            db.indexNames(),
+        )
     }
 
     @Test

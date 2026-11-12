@@ -26,8 +26,8 @@ internal const val TRACKING_STATE: String = "${PREFIX}_tracking_state"
 internal object Queries {
 
     /**
-     * The collection table, then its id index, then the immutable-id trigger, in that order.
-     * The caller runs them in its write transaction.
+     * The collection table, then its id index `nsq_<collection>:id`, then the trigger
+     * `nsq_<collection>:id_immutable`, in that order. The caller runs them in its write transaction.
      */
     fun createTable(collection: Collection): List<Command<Unit>> =
         listOf(table(collection), idIndex(collection), idTrigger(collection))
@@ -54,7 +54,7 @@ internal object Queries {
         decode = { rowsGrouped() },
     )
 
-    fun idIndexName(collection: Collection): String = "$PREFIX${collection.name}_id"
+    fun idIndexName(collection: Collection): String = objectName(collection.name, "id")
 
     private fun idIndex(collection: Collection): Command<Unit> = command(
         "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(idIndexName(collection))} " +
@@ -109,12 +109,13 @@ internal object Queries {
     )
 
     /**
-     * Rejects an update that changes `id`. Stored in `main` with the table: it reads only `OLD` and `NEW`, so it can
-     * be persistent. The tracking triggers stay temp, because a trigger in `main` cannot read the temp
-     * tracking-state table. `RAISE(ABORT)` undoes the statement and leaves the rest of the transaction in place.
+     * Rejects an update that changes `id`. Named `nsq_<collection>:id_immutable` and stored in `main` with the table:
+     * it reads only `OLD` and `NEW`, so it can be persistent. The tracking triggers stay temp, because a trigger in
+     * `main` cannot read the temp tracking-state table. `RAISE(ABORT)` undoes the statement and leaves the rest of
+     * the transaction in place.
      */
     private fun idTrigger(collection: Collection): Command<Unit> = command("""
-        CREATE TRIGGER IF NOT EXISTS main.${identifier("${PREFIX}${collection.name}_id_immutable")}
+        CREATE TRIGGER IF NOT EXISTS main.${identifier(objectName(collection.name, "id_immutable"))}
         BEFORE UPDATE ON ${collection.table}
         WHEN OLD.data ->> '$.$ID' IS NOT NEW.data ->> '$.$ID'
         BEGIN
@@ -130,7 +131,7 @@ internal object Queries {
 
     val createPendingChanges: Command<Unit> = command(
         """
-        CREATE TABLE IF NOT EXISTS $PENDING_CHANGES (
+        CREATE TABLE IF NOT EXISTS ${identifier(PENDING_CHANGES)} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             collection TEXT NOT NULL,
             before BLOB,
@@ -143,7 +144,7 @@ internal object Queries {
     val pendingChanges: Statement<Unit, List<PendingChange>> = Statement(
         sql = """
             SELECT id, collection, json(before), json(after), timestamp
-            FROM $PENDING_CHANGES ORDER BY id;
+            FROM ${identifier(PENDING_CHANGES)} ORDER BY id;
         """.trimIndent(),
         encode = {},
         decode = rows {
@@ -159,41 +160,41 @@ internal object Queries {
 
     /** Deletes the ids bound as one JSON array, such as `[1,2,3]`. */
     val deletePendingChanges: Statement<List<Long>, Unit> = Statement(
-        sql = "DELETE FROM $PENDING_CHANGES WHERE id IN (SELECT value FROM json_each(?));",
+        sql = "DELETE FROM ${identifier(PENDING_CHANGES)} WHERE id IN (SELECT value FROM json_each(?));",
         encode = { ids -> bindText(1, ids.joinToString(",", "[", "]")) },
         decode = { step() },
     )
 
     val createTrackingState: Command<Unit> = command(
         """
-        CREATE TEMP TABLE IF NOT EXISTS $TRACKING_STATE (
+        CREATE TEMP TABLE IF NOT EXISTS ${identifier(TRACKING_STATE)} (
             untracked INTEGER NOT NULL
         );
         """.trimIndent(),
     )
 
-    val seedTrackingState: Command<Unit> = command("INSERT INTO $TRACKING_STATE (untracked) VALUES (0);")
+    val seedTrackingState: Command<Unit> = command("INSERT INTO ${identifier(TRACKING_STATE)} (untracked) VALUES (0);")
 
     val setUntracked: Statement<Boolean, Unit> = Statement(
-        sql = "UPDATE $TRACKING_STATE SET untracked = ?;",
+        sql = "UPDATE ${identifier(TRACKING_STATE)} SET untracked = ?;",
         encode = { untracked -> bindLong(1, if (untracked) 1 else 0) },
         decode = { step() },
     )
 
     /**
-     * Three temp triggers per tracked table that append the change unless the untracked flag is set. A trigger
-     * stored in main cannot read a temp table, and INSERT/UPDATE/DELETE inside a trigger reject database-qualified
-     * names, so the body stays unqualified.
+     * Temp triggers `nsq_<collection>:insert`, `:update` and `:delete` that append the change unless the untracked
+     * flag is set. A trigger stored in main cannot read a temp table, and INSERT/UPDATE/DELETE inside a trigger
+     * reject database-qualified names, so the body stays unqualified.
      */
     fun trackingTriggers(collection: Collection): List<Command<Unit>> {
         val table = "main.${collection.table}"
         val name = SqlValue.Text(collection.name).literal
-        val guard = "WHEN NOT (SELECT untracked FROM $TRACKING_STATE)"
-        val record = "INSERT INTO $PENDING_CHANGES (collection, before, after, timestamp) VALUES"
+        val guard = "WHEN NOT (SELECT untracked FROM ${identifier(TRACKING_STATE)})"
+        val record = "INSERT INTO ${identifier(PENDING_CHANGES)} (collection, before, after, timestamp) VALUES"
         val now = "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
         return listOf(
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier("${PREFIX}${collection.name}_insert")}
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(objectName(collection.name, "insert"))}
             AFTER INSERT ON $table
             $guard
             BEGIN
@@ -201,7 +202,7 @@ internal object Queries {
             END;
             """.trimIndent()),
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier("${PREFIX}${collection.name}_update")}
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(objectName(collection.name, "update"))}
             AFTER UPDATE ON $table
             $guard
             BEGIN
@@ -209,7 +210,7 @@ internal object Queries {
             END;
             """.trimIndent()),
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier("${PREFIX}${collection.name}_delete")}
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(objectName(collection.name, "delete"))}
             AFTER DELETE ON $table
             $guard
             BEGIN
