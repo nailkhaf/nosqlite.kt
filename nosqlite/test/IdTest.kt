@@ -174,7 +174,7 @@ internal class IdTest {
 
             BundledSQLiteDriver().open(location.path).apply {
                 val error = assertFailsWith<SQLiteException> {
-                    execSQL("""UPDATE users SET data = jsonb('{"id":"$alanId","name":"Ada","age":36}')""")
+                    execSQL("""UPDATE nsq_users SET data = jsonb('{"id":"$alanId","name":"Ada","age":36}')""")
                 }
                 assertTrue("id is immutable" in error.message.orEmpty(), error.message)
                 close()

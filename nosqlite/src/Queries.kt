@@ -19,15 +19,15 @@ internal val CANONICAL_UUID_GLOB: String =
         "[0-9a-f]".repeat(4) + "-" +
         "[0-9a-f]".repeat(12)
 
-internal const val PENDING_CHANGES = "__pending_changes"
+internal const val PENDING_CHANGES: String = "${PREFIX}_pending_changes"
 
-internal const val TRACKING_STATE = "__tracking_state"
+internal const val TRACKING_STATE: String = "${PREFIX}_tracking_state"
 
 internal object Queries {
 
     /**
-     * The collection table, then its id index `nsq_<collection>_id`, then the trigger
-     * `nsq_<collection>_id_immutable`, in that order. The caller runs them in its write transaction.
+     * The collection table, then its id index, then the immutable-id trigger, in that order.
+     * The caller runs them in its write transaction.
      */
     fun createTable(collection: Collection): List<Command<Unit>> =
         listOf(table(collection), idIndex(collection), idTrigger(collection))
@@ -47,14 +47,14 @@ internal object Queries {
             SELECT m.name, i.name
             FROM sqlite_schema AS m
             JOIN pragma_index_list(m.name) AS i
-            WHERE m.type = 'table' AND i.name GLOB '$INDEX_PREFIX*'
+            WHERE m.type = 'table' AND i.name GLOB '${PREFIX}*'
             ORDER BY m.name, i.seq
         """.trimIndent(),
         encode = {},
         decode = { rowsGrouped() },
     )
 
-    fun idIndexName(collection: Collection): String = "$INDEX_PREFIX${collection.name}_id"
+    fun idIndexName(collection: Collection): String = "$PREFIX${collection.name}_id"
 
     private fun idIndex(collection: Collection): Command<Unit> = command(
         "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(idIndexName(collection))} " +
@@ -111,10 +111,10 @@ internal object Queries {
     /**
      * Rejects an update that changes `id`. Stored in `main` with the table: it reads only `OLD` and `NEW`, so it can
      * be persistent. The tracking triggers stay temp, because a trigger in `main` cannot read the temp
-     * `__tracking_state` table. `RAISE(ABORT)` undoes the statement and leaves the rest of the transaction in place.
+     * tracking-state table. `RAISE(ABORT)` undoes the statement and leaves the rest of the transaction in place.
      */
     private fun idTrigger(collection: Collection): Command<Unit> = command("""
-        CREATE TRIGGER IF NOT EXISTS main.${identifier("nsq_${collection.name}_id_immutable")}
+        CREATE TRIGGER IF NOT EXISTS main.${identifier("${PREFIX}${collection.name}_id_immutable")}
         BEFORE UPDATE ON ${collection.table}
         WHEN OLD.data ->> '$.$ID' IS NOT NEW.data ->> '$.$ID'
         BEGIN
@@ -193,7 +193,7 @@ internal object Queries {
         val now = "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
         return listOf(
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_insert
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier("${PREFIX}${collection.name}_insert")}
             AFTER INSERT ON $table
             $guard
             BEGIN
@@ -201,7 +201,7 @@ internal object Queries {
             END;
             """.trimIndent()),
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_update
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier("${PREFIX}${collection.name}_update")}
             AFTER UPDATE ON $table
             $guard
             BEGIN
@@ -209,7 +209,7 @@ internal object Queries {
             END;
             """.trimIndent()),
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS nsq_${collection.name}_delete
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier("${PREFIX}${collection.name}_delete")}
             AFTER DELETE ON $table
             $guard
             BEGIN

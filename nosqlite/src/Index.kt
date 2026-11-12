@@ -18,13 +18,14 @@ public open class Index internal constructor(
         paths.joinToString(", ", prefix = "(", postfix = ")") { it.sql } +
             (where?.let { " WHERE ${it.render(inline = true).sql}" } ?: "")
 
-    internal val name: String = "${INDEX_PREFIX}${collection.name}_${fnv1a64(definition)}"
+    internal val name: String = "$PREFIX${collection.name}_${fnv1a64(definition)}"
 
     override fun toString(): String =
         "index ${collection.name}(${paths.joinToString(", ")})" + (where?.let { " where $it" } ?: "")
 }
 
-internal const val INDEX_PREFIX = "nsq_"
+/** Prefix of every SQLite object nosqlite creates. */
+internal const val PREFIX: String = "nsq_"
 
 /** The 64-bit FNV-1a hash of [text] as 16 hex digits: short, and the same on every platform. */
 internal fun fnv1a64(text: String): String {

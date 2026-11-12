@@ -143,7 +143,7 @@ internal class StorageTest {
         assertEquals(listOf(User(uuid("ada"), "Ada", 36)), db.read { People.list<User> { limit(1) } })
         assertEquals(
             listOf(listOf("""{"id":"${uuid("ada")}","name":"Ada","age":36}""")),
-            db.querySql("SELECT json(data) FROM people"),
+            db.querySql("SELECT json(data) FROM nsq_people"),
         )
     }
 
@@ -167,16 +167,16 @@ internal class StorageTest {
             listOf(
                 listOf(
                     """
-                    CREATE TABLE "users" (
+                    CREATE TABLE "nsq_users" (
                         data BLOB NOT NULL,
                         CONSTRAINT document_id CHECK (json_type(data, '$.id') IS 'text' AND (data ->> '$.id') GLOB '$CANONICAL_UUID_GLOB')
                     ) STRICT
                     """.trimIndent(),
                 ),
             ),
-            db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'users'"),
+            db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'nsq_users'"),
         )
-        assertEquals(listOf(listOf("blob")), db.querySql("SELECT typeof(data) FROM users"))
+        assertEquals(listOf(listOf("blob")), db.querySql("SELECT typeof(data) FROM nsq_users"))
     }
 
     @Test
@@ -187,7 +187,7 @@ internal class StorageTest {
 
         assertEquals(
             listOf(listOf("""{"id":"${uuid("ada")}","name":"Ada","age":36}""")),
-            db.querySql("SELECT json(data) FROM users"),
+            db.querySql("SELECT json(data) FROM nsq_users"),
         )
     }
 
@@ -201,7 +201,7 @@ internal class StorageTest {
         db.read { }
 
         assertEquals(
-            listOf(listOf("__pending_changes"), listOf("notes"), listOf("users")),
+            listOf(listOf("nsq__pending_changes"), listOf("nsq_notes"), listOf("nsq_users")),
             // sqlite_sequence is SQLite's own AUTOINCREMENT table.
             db.querySql("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite%' ORDER BY 1"),
         )
@@ -224,7 +224,7 @@ internal class StorageTest {
 
         assertEquals(
             listOf(listOf("0", "0")),
-            db.querySql("SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM notes)"),
+            db.querySql("SELECT (SELECT count(*) FROM nsq_users), (SELECT count(*) FROM nsq_notes)"),
         )
     }
 
@@ -311,12 +311,12 @@ internal class StorageTest {
             val db = NoSqlite(location) { +Users }
 
             assertEquals(
-                listOf(listOf("__pending_changes"), listOf("notes"), listOf("users")),
+                listOf(listOf("nsq__pending_changes"), listOf("nsq_notes"), listOf("nsq_users")),
                 db.querySql("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite%' ORDER BY 1"),
             )
             assertEquals(
                 listOf(listOf("""{"id":"${uuid("ada")}","name":"Ada","age":36}""")),
-                db.querySql("SELECT json(data) FROM notes"),
+                db.querySql("SELECT json(data) FROM nsq_notes"),
             )
             db.close()
         }
@@ -343,7 +343,7 @@ internal class StorageTest {
         val db = NoSqlite { +People }
         db.write { People.insert(User(uuid("ada"), "ada", 36)) }
         db.pool().writeSql {
-            execute("""INSERT INTO people (data) VALUES (jsonb('{"id":"${uuid("x")}","name":1}'))""")
+            execute("""INSERT INTO nsq_people (data) VALUES (jsonb('{"id":"${uuid("x")}","name":1}'))""")
         }
 
         val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.list<User>() } }
@@ -357,7 +357,7 @@ internal class StorageTest {
         val db = NoSqlite { +People }
         db.write { People.insert(User(uuid("ada"), "ada", 36)) }
         db.pool().writeSql {
-            execute("""INSERT INTO people (data) VALUES (jsonb('{"id":"${uuid("x")}","name":1}'))""")
+            execute("""INSERT INTO nsq_people (data) VALUES (jsonb('{"id":"${uuid("x")}","name":1}'))""")
         }
         db.write { People.insert(User(uuid("alan"), "alan", 41)) }
         val seen = mutableListOf<String>()
@@ -371,7 +371,7 @@ internal class StorageTest {
     fun `document its class rejects names its collection`() = runTest {
         val db = NoSqlite { +Adults }
         db.pool().writeSql {
-            execute("""INSERT INTO adults (data) VALUES (jsonb('{"id":"${uuid("kid")}","age":17}'))""")
+            execute("""INSERT INTO nsq_adults (data) VALUES (jsonb('{"id":"${uuid("kid")}","age":17}'))""")
         }
 
         val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { Adults.list<Adult>() } }

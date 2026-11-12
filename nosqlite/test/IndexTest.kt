@@ -43,11 +43,11 @@ internal class IndexTest {
         val sql = db.querySql("SELECT sql FROM sqlite_schema WHERE type = 'index'").map { it.single() }.toSet()
         assertEquals(
             setOf(
-                """CREATE UNIQUE INDEX "${idIndexName(Users)}" ON "users" (data ->> '$.id')""",
-                """CREATE INDEX "${Users.byEmail.name}" ON "users" (data ->> '$.email')""",
-                """CREATE INDEX "${Users.byAge.name}" ON "users" (data ->> '$.age')""",
-                """CREATE INDEX "${Users.byName.name}" ON "users" (data ->> '$.name.last', data ->> '$.name.first')""",
-                """CREATE INDEX "${Users.activeNickname.name}" ON "users" (data ->> '$.nickname') """ +
+                """CREATE UNIQUE INDEX "${idIndexName(Users)}" ON "nsq_users" (data ->> '$.id')""",
+                """CREATE INDEX "${Users.byEmail.name}" ON "nsq_users" (data ->> '$.email')""",
+                """CREATE INDEX "${Users.byAge.name}" ON "nsq_users" (data ->> '$.age')""",
+                """CREATE INDEX "${Users.byName.name}" ON "nsq_users" (data ->> '$.name.last', data ->> '$.name.first')""",
+                """CREATE INDEX "${Users.activeNickname.name}" ON "nsq_users" (data ->> '$.nickname') """ +
                     "WHERE data ->> '$.active' = 1",
             ),
             sql,
@@ -114,7 +114,7 @@ internal class IndexTest {
     fun `reopening keeps indexes nosqlite does not manage`() = runTest {
         withTempFile { location ->
             val db = NoSqlite(location) { +Users }
-            db.pool().writeSql { execute("CREATE INDEX mine ON users (data ->> '$.score')") }
+            db.pool().writeSql { execute("CREATE INDEX mine ON nsq_users (data ->> '$.score')") }
             db.close()
 
             val reopened = NoSqlite(location) { +Users }
@@ -128,7 +128,7 @@ internal class IndexTest {
     fun `reopening drops an undeclared index whose name has a quote`() = runTest {
         withTempFile { location ->
             val db = NoSqlite(location) { +Users }
-            db.pool().writeSql { execute("CREATE INDEX \"nsq_users_\"\"x\" ON users (data ->> '$.score')") }
+            db.pool().writeSql { execute("CREATE INDEX \"nsq_users_\"\"x\" ON nsq_users (data ->> '$.score')") }
             db.close()
 
             val reopened = NoSqlite(location) { +Users }
@@ -145,7 +145,7 @@ internal class IndexTest {
         db.insert(ada)
         db.insert(alan.copy(age = ada.age))
 
-        assertEquals(listOf(listOf("2")), db.querySql("SELECT count(*) FROM users"))
+        assertEquals(listOf(listOf("2")), db.querySql("SELECT count(*) FROM nsq_users"))
     }
 
     @Test
@@ -179,7 +179,7 @@ internal class IndexTest {
         val db = NoSqlite { +Users }
         val condition = where { "id" eq ada.id.toString() }.render(inline = true).sql
 
-        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM users WHERE $condition").joinToString {
+        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM nsq_users WHERE $condition").joinToString {
             it.last()!!
         }
 
@@ -191,7 +191,7 @@ internal class IndexTest {
         val db = NoSqlite { +Users }
         val condition = where { ("nickname" eq "twin") and "active".isTrue() }.render(inline = true).sql
 
-        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM users WHERE $condition").joinToString {
+        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM nsq_users WHERE $condition").joinToString {
             it.last()!!
         }
 

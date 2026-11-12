@@ -169,7 +169,7 @@ internal class LookupTest {
         }
 
         assertEquals(listOf(ada.copy(age = 37), alan, grace, byron, carol), db.read { Users.list<User>() })
-        assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM users WHERE data ->> '$.id' = '${ada.id}'"))
+        assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM nsq_users WHERE data ->> '$.id' = '${ada.id}'"))
     }
 
     @Test

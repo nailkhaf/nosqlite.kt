@@ -107,6 +107,7 @@ with(db) {
 A collection is a name and its indexes. Create one directly, `Collection("notes")`, or extend `Collection` to
 declare indexes with `index(...)`. A database lists the collections it serves,
 `NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
+A collection's table is `nsq_` plus its name.
 Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDeclared`.
 A collection's name is permanent. Opening a database without listing a collection leaves that collection's table
 and documents in place.
@@ -243,7 +244,7 @@ the last one isn't emitted. Changes are tracked per collection.
 
 ### Change tracking
 
-`Collection("contacts", tracked = true)` records every insert, update and delete in `__pending_changes`, with
+`Collection("contacts", tracked = true)` records every insert, update and delete in `nsq__pending_changes`, with
 the document before and after the change. The document's id is its `id` field.
 
 ```kotlin

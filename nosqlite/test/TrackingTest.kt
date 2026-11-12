@@ -244,7 +244,7 @@ internal class TrackingTest {
             }
         }
 
-        assertEquals(listOf(listOf("0")), db.querySql("SELECT untracked FROM __tracking_state"))
+        assertEquals(listOf(listOf("0")), db.querySql("SELECT untracked FROM nsq__tracking_state"))
         db.write { Contacts.insert(grace) }
         assertEquals(
             listOf(recorded(1, null, ada.json()), recorded(2, null, grace.json())),
@@ -326,7 +326,7 @@ internal class TrackingTest {
         )
         val sql = db.tempTriggerSql().joinToString("\n")
         assertTrue("OLD.data" in sql && "NEW.data" in sql)
-        val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = '__pending_changes'").single().single()
+        val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'nsq__pending_changes'").single().single()
         assertTrue("AUTOINCREMENT" in table!!)
         assertEquals(listOf(recorded(1, null, ada.json())), changes(db))
     }
@@ -344,12 +344,12 @@ internal class TrackingTest {
         db.write { Notes.insert(note) }
 
         assertEquals(1, log.size, log.joinToString("\n"))
-        assertTrue("notes" in log.single())
-        assertTrue(log.none { "__tracking_state" in it || "__pending_changes" in it })
+        assertTrue("nsq_notes" in log.single())
+        assertTrue(log.none { "nsq__tracking_state" in it || "nsq__pending_changes" in it })
 
         log.clear()
         db.write(untracked = true) { Notes.insert(anotherNote) }
-        assertEquals(listOf("UPDATE __tracking_state SET untracked = ?;"), log)
+        assertEquals(listOf("UPDATE nsq__tracking_state SET untracked = ?;"), log)
     }
 
     @Test
