@@ -19,9 +19,9 @@ internal val CANONICAL_UUID_GLOB: String =
         "[0-9a-f]".repeat(4) + "-" +
         "[0-9a-f]".repeat(12)
 
-internal const val PENDING_CHANGES: String = "$PREFIX" + "_pending_changes"
+internal const val PENDING_CHANGES: String = "${PREFIX}_pending_changes"
 
-internal const val TRACKING_STATE: String = "$PREFIX" + "_tracking_state"
+internal const val TRACKING_STATE: String = "${PREFIX}_tracking_state"
 
 internal object Queries {
 
