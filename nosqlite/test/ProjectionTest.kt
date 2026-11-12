@@ -7,6 +7,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 
 /** Covers reading documents as different types, and typed updates keeping the fields their type doesn't declare. */
@@ -45,7 +46,7 @@ internal class ProjectionTest {
         return db
     }
 
-    private suspend fun NoSqlite.stored(): JsonObject = read { Profiles.id(ada).get<JsonObject>()!! }
+    private suspend fun NoSqlite.stored(): JsonObject = read { Profiles.id(Uuid.parse(ada)).get<JsonObject>()!! }
 
     @Test
     fun `one collection reads as any type its documents decode to`() = runTest {
@@ -56,18 +57,18 @@ internal class ProjectionTest {
             assertEquals(downloaded, Profiles.list<JsonObject>().single())
             assertEquals(
                 Profile(ada, Address("London"), mapOf("theme" to "dark", "lang" to "en"), "countess"),
-                Profiles.id(ada).get<Profile>(),
+                Profiles.id(Uuid.parse(ada)).get<Profile>(),
             )
         }
-        assertEquals(Summary(ada), with(db) { Profiles.id(ada).observe<Summary>().first() })
+        assertEquals(Summary(ada), with(db) { Profiles.id(Uuid.parse(ada)).observe<Summary>().first() })
     }
 
     @Test
     fun `a typed update keeps the fields its type does not declare`() = runTest {
         val db = seeded()
-        val profile = db.read { Profiles.id(ada).get<Profile>()!! }
+        val profile = db.read { Profiles.id(Uuid.parse(ada)).get<Profile>()!! }
 
-        db.write { Profiles.id(ada).update(profile.copy(address = Address("Paris"))) }
+        db.write { Profiles.id(Uuid.parse(ada)).update(profile.copy(address = Address("Paris"))) }
 
         val expected = json(
             """
@@ -96,7 +97,7 @@ internal class ProjectionTest {
     fun `a typed update merges a map field`() = runTest {
         val db = seeded()
 
-        db.write { Profiles.id(ada).update(Profile(ada, Address("London"), mapOf("theme" to "light"))) }
+        db.write { Profiles.id(Uuid.parse(ada)).update(Profile(ada, Address("London"), mapOf("theme" to "light"))) }
 
         assertEquals(json("""{"theme":"light","lang":"en"}"""), db.stored()["settings"])
     }
@@ -105,7 +106,7 @@ internal class ProjectionTest {
     fun `a replace drops the fields its type does not declare`() = runTest {
         val db = seeded()
 
-        db.write { Profiles.id(ada).replace(Profile(ada, Address("Rome"), mapOf("theme" to "light"))) }
+        db.write { Profiles.id(Uuid.parse(ada)).replace(Profile(ada, Address("Rome"), mapOf("theme" to "light"))) }
 
         val expected = json("""{"id":"$ada","address":{"city":"Rome"},"settings":{"theme":"light"},"nickname":null}""")
         assertEquals(expected, db.stored())

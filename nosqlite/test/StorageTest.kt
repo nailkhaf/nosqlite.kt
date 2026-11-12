@@ -169,7 +169,8 @@ internal class StorageTest {
                 listOf(
                     """
                     CREATE TABLE "users" (
-                        data BLOB NOT NULL
+                        data BLOB NOT NULL,
+                        CONSTRAINT document_id CHECK (json_type(data, '$.id') IS 'text' AND (data ->> '$.id') GLOB '$CANONICAL_UUID_GLOB')
                     ) STRICT
                     """.trimIndent(),
                 ),
@@ -362,7 +363,9 @@ internal class StorageTest {
     fun `document that does not decode names its collection and row`() = runTest {
         val db = NoSqlite { +People }
         db.write { People.insert(User(uuid("ada"), "ada", 36)) }
-        db.pool().writeSql { execute("""INSERT INTO people (data) VALUES (jsonb('{"name":1}'))""") }
+        db.pool().writeSql {
+            execute("""INSERT INTO people (data) VALUES (jsonb('{"id":"${uuid("x")}","name":1}'))""")
+        }
 
         val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.list<User>() } }
 
@@ -374,7 +377,9 @@ internal class StorageTest {
     fun `forEach stops at a document that does not decode`() = runTest {
         val db = NoSqlite { +People }
         db.write { People.insert(User(uuid("ada"), "ada", 36)) }
-        db.pool().writeSql { execute("""INSERT INTO people (data) VALUES (jsonb('{"name":1}'))""") }
+        db.pool().writeSql {
+            execute("""INSERT INTO people (data) VALUES (jsonb('{"id":"${uuid("x")}","name":1}'))""")
+        }
         db.write { People.insert(User(uuid("alan"), "alan", 41)) }
         val seen = mutableListOf<String>()
 
@@ -386,7 +391,9 @@ internal class StorageTest {
     @Test
     fun `document its class rejects names its collection`() = runTest {
         val db = NoSqlite { +Adults }
-        db.pool().writeSql { execute("""INSERT INTO adults (data) VALUES (jsonb('{"age":17}'))""") }
+        db.pool().writeSql {
+            execute("""INSERT INTO adults (data) VALUES (jsonb('{"id":"${uuid("kid")}","age":17}'))""")
+        }
 
         val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { Adults.list<Adult>() } }
 

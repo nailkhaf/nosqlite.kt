@@ -16,6 +16,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 /** Covers change tracking: triggers, the pending queue, and untracked writes. */
 internal class TrackingTest {
@@ -109,9 +110,9 @@ internal class TrackingTest {
         val replaced = updated.copy(age = 37)
 
         db.write { Contacts.insert(ada) }
-        db.write { Contacts.id(ada.id).update(updated) }
-        db.write { Contacts.id(ada.id).replace(replaced) }
-        assertEquals(true, db.write { Contacts.id(ada.id).delete() })
+        db.write { Contacts.id(Uuid.parse(ada.id)).update(updated) }
+        db.write { Contacts.id(Uuid.parse(ada.id)).replace(replaced) }
+        assertEquals(true, db.write { Contacts.id(Uuid.parse(ada.id)).delete() })
 
         assertEquals(
             listOf(
@@ -194,7 +195,7 @@ internal class TrackingTest {
             assertEquals(0, Contacts.update(ada.copy(age = 1)) { "id" eq uuid("nobody") })
             assertEquals(0, Contacts.replace(ada) { "id" eq uuid("nobody") })
             assertEquals(0, Contacts.delete { "id" eq uuid("nobody") })
-            assertEquals(false, Contacts.id(uuid("nobody")).delete())
+            assertEquals(false, Contacts.id(Uuid.parse(uuid("nobody"))).delete())
             assertEquals(0, Contacts.byAge(1).delete())
         }
 
@@ -208,7 +209,7 @@ internal class TrackingTest {
 
         db.write { Contacts.insert(ada) }
         db.write(untracked = true) { Contacts.insert(alan) }
-        db.write { Contacts.id(ada.id).update(older) }
+        db.write { Contacts.id(Uuid.parse(ada.id)).update(older) }
 
         assertEquals(
             listOf(recorded(1, null, ada.json()), recorded(2, ada.json(), older.json())),
@@ -260,7 +261,7 @@ internal class TrackingTest {
 
         db.write { Contacts.insert(ada) }
         db.write { Contacts.insert(alan) }
-        db.write { Contacts.id(ada.id).delete() }
+        db.write { Contacts.id(Uuid.parse(ada.id)).delete() }
 
         val after = Clock.System.now()
         val rows = db.read { pendingChanges() }
@@ -289,17 +290,17 @@ internal class TrackingTest {
     }
 
     @Test
-    fun `a plain collection has no triggers and no pending changes`() = runTest {
+    fun `a plain collection keeps its id trigger and records nothing`() = runTest {
         val db = NoSqlite { +Notes }
 
         db.write { Notes.insert(note) }
 
         assertEquals(emptyList(), db.read { pendingChanges() })
-        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger'"))
         assertEquals(
             listOf(listOf("nsq_notes_id")),
-            db.querySql("SELECT name FROM sqlite_temp_schema WHERE type = 'trigger'"),
+            db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger'"),
         )
+        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_temp_schema WHERE type = 'trigger'"))
     }
 
     @Test
@@ -314,14 +315,15 @@ internal class TrackingTest {
         assertEquals(
             listOf(
                 "nsq_contacts_delete",
-                "nsq_contacts_id",
                 "nsq_contacts_insert",
                 "nsq_contacts_update",
-                "nsq_notes_id",
             ),
             db.tempTriggers(),
         )
-        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger'"))
+        assertEquals(
+            listOf(listOf("nsq_contacts_id"), listOf("nsq_notes_id")),
+            db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger' ORDER BY name"),
+        )
         val sql = db.tempTriggerSql().joinToString("\n")
         assertTrue("OLD.data" in sql && "NEW.data" in sql)
         val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = '__pending_changes'").single().single()
@@ -379,7 +381,7 @@ internal class TrackingTest {
             first.close()
 
             val second = NoSqlite(location) { +Contacts }
-            second.write { Contacts.id(ada.id).update(ada.copy(age = 37)) }
+            second.write { Contacts.id(Uuid.parse(ada.id)).update(ada.copy(age = 37)) }
 
             assertEquals(
                 listOf(
@@ -389,7 +391,7 @@ internal class TrackingTest {
                 changes(second),
             )
             assertEquals(
-                listOf("nsq_contacts_delete", "nsq_contacts_id", "nsq_contacts_insert", "nsq_contacts_update"),
+                listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_update"),
                 second.tempTriggers(),
             )
             second.close()

@@ -14,6 +14,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
@@ -64,7 +65,7 @@ internal class ObserveTest {
         db.write { Users.insert(ada) }
         db.write { Users.upsert(alan) }
         db.write { Users.update(alan.copy(age = 42)) { "id" eq alan.id } }
-        db.write { Users.id(ada.id).delete() }
+        db.write { Users.id(Uuid.parse(ada.id)).delete() }
 
         assertEquals(
             listOf(
@@ -108,11 +109,11 @@ internal class ObserveTest {
     @Test
     fun `observe one document by id`() = runTest {
         val db = database()
-        val found = collect(with(db) { Users.id(alan.id).observe<User>() })
+        val found = collect(with(db) { Users.id(Uuid.parse(alan.id)).observe<User>() })
 
         db.write { Users.insert(alan) }
-        db.write { Users.id(alan.id).update(alan.copy(age = 42)) }
-        db.write { Users.id(alan.id).delete() }
+        db.write { Users.id(Uuid.parse(alan.id)).update(alan.copy(age = 42)) }
+        db.write { Users.id(Uuid.parse(alan.id)).delete() }
 
         assertEquals(listOf(null, alan, alan.copy(age = 42), null), found)
     }
@@ -202,7 +203,7 @@ internal class ObserveTest {
         }
         db.write { Users.delete { "age" gt 100 } }
         db.write { Users.update(User(uuid("x"), 1)) { "id" eq uuid("nobody") } }
-        db.write { Users.id(uuid("nobody")).delete() }
+        db.write { Users.id(Uuid.parse(uuid("nobody"))).delete() }
 
         assertEquals(mapOf("users" to 1L), db.versions.value)
     }

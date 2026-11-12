@@ -127,6 +127,7 @@ internal suspend fun createSchema(tables: SchemaBuilder) {
 context(_: Connection)
 internal suspend fun createSchema(collection: Collection) {
     Queries.createTable(collection).execute()
+    command(Queries.idTrigger(collection)).execute()
     val columns = Queries.tableColumns.execute(collection.name)
     if (columns != Queries.TableColumns) throw NoSqliteException.IncompatibleTable(collection.name, columns)
     val current = Queries.indexNames.execute(collection.name)
@@ -135,7 +136,6 @@ internal suspend fun createSchema(collection: Collection) {
     wanted.filterKeys { it !in current }.values.forEach { index ->
         mapErrors(collection) { Queries.createIndex(index).execute() }
     }
-    command(Queries.idTrigger(collection)).execute()
     if (collection.tracked) {
         Queries.trackingTriggers(collection).forEach { command(it).execute() }
     }

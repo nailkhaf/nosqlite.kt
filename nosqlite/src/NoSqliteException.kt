@@ -15,6 +15,10 @@ public sealed class NoSqliteException(message: String, cause: Throwable? = null)
     public class ImmutableId internal constructor(public val collection: String, cause: Throwable) :
         NoSqliteException("Id of a document in '$collection' is immutable", cause)
 
+    /** A document of [collection] has no id or one that isn't a lowercase canonical UUID string. */
+    public class InvalidId internal constructor(public val collection: String, cause: Throwable) :
+        NoSqliteException("A document of '$collection' must have a UUID string id", cause)
+
     /** A document of [collection] can't be decoded into the requested type. */
     public class DecodingFailed internal constructor(public val collection: String, cause: Throwable) :
         NoSqliteException("Can't decode a document of '$collection': ${cause.message}", cause)

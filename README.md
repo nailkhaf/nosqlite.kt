@@ -68,13 +68,13 @@ object Users : Collection("users") {
 
 val db = NoSqlite("app.db") { +Users }
 
-val adaId = Uuid.random().toString()
-val alanId = Uuid.random().toString()
+val adaId = Uuid.random()
+val alanId = Uuid.random()
 
 db.write {
-    Users.insert(User(adaId, "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
-    Users.upsert(User(alanId, "alan@example.com", Name("Alan", "Turing"), 41))
-    Users.id(alanId).update(User(alanId, "alan@example.com", Name("Alan", "Turing"), 42))
+    Users.insert(User(adaId.toString(), "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
+    Users.upsert(User(alanId.toString(), "alan@example.com", Name("Alan", "Turing"), 41))
+    Users.id(alanId).update(User(alanId.toString(), "alan@example.com", Name("Alan", "Turing"), 42))
     Users.delete { User::age lt 18 }
 }
 
@@ -134,19 +134,18 @@ It takes its leading fields, `null` matching a null or missing field, and finds 
 
 ### Ids
 
-Every document has an `id` field, and its value is a `kotlin.uuid.Uuid` string, the 36-character form `Uuid.toString()`
-returns. `insert`, `replace` and `upsert` reject a document whose id is missing or not that string.
-`id(value)` addresses the one document with that id: `get<T>()` returns it or `null`, and `update(value)`,
-`replace(value)` and `delete()` report whether there was one. `observe` on it emits that document, or `null` while
-there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
-An id never changes: a write that would change it throws `NoSqliteException.ImmutableId`. A second document with the
-same id throws `NoSqliteException.DuplicateId`.
+Every document needs an `id`: a `kotlin.uuid.Uuid` string, stored as `Uuid.toString()`. SQLite checks it on every
+write. `id(value)` takes that `Uuid` and addresses the one document: `get<T>()` returns it or `null`, and
+`update(value)`, `replace(value)` and `delete()` report whether there was one. `observe` on it emits that document,
+or `null` while there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
+An id never changes: a write that would change it throws `NoSqliteException.ImmutableId`. A missing or non-UUID id
+throws `NoSqliteException.InvalidId`. A second document with the same id throws `NoSqliteException.DuplicateId`.
 
 ### Writes
 
 Inside `db.write { }`:
 
-- `insert(value)` adds a document. It must encode to a JSON object with a UUID string `id`.
+- `insert(value)` adds a document. It must encode to a JSON object whose `id` is `Uuid.toString()`.
 - `update(value) { condition }` applies the value to every match as a JSON merge patch: its fields replace theirs,
   a `null` removes one, and fields it doesn't have are kept.
 - `replace(value) { condition }` stores the value as the whole document of every match. The value must carry each
@@ -184,8 +183,8 @@ it doesn't know yet:
 
 ```kotlin
 db.write { Users.insert(downloaded) } // a JsonObject with a "plan" field User doesn't have
-db.write { Users.id(ada.id).update(ada.copy(age = 37)) } // "plan" is still there
-val upload: JsonObject? = db.read { Users.id(ada.id).get<JsonObject>() }
+db.write { Users.id(Uuid.parse(ada.id)).update(ada.copy(age = 37)) } // "plan" is still there
+val upload: JsonObject? = db.read { Users.id(Uuid.parse(ada.id)).get<JsonObject>() }
 ```
 
 A merge patch replaces lists and merges maps like any object, so it never removes a field the value leaves out.

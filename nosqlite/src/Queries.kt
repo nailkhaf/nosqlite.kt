@@ -5,6 +5,14 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Instant
 
+/** Lowercase canonical UUID text, the form [kotlin.uuid.Uuid.toString] returns, as a SQLite `GLOB`. */
+internal val CANONICAL_UUID_GLOB: String =
+    "[0-9a-f]".repeat(8) + "-" +
+        "[0-9a-f]".repeat(4) + "-" +
+        "[0-9a-f]".repeat(4) + "-" +
+        "[0-9a-f]".repeat(4) + "-" +
+        "[0-9a-f]".repeat(12)
+
 internal const val PENDING_CHANGES = "__pending_changes"
 
 internal const val TRACKING_STATE = "__tracking_state"
@@ -14,7 +22,8 @@ internal object Queries {
     fun createTable(collection: Collection): Command<Unit> = command(
         """
             CREATE TABLE IF NOT EXISTS ${collection.table} (
-                data BLOB NOT NULL
+                data BLOB NOT NULL,
+                CONSTRAINT document_id CHECK (json_type(data, '$.id') IS 'text' AND (data ->> '$.id') GLOB '$CANONICAL_UUID_GLOB')
             ) STRICT;
         """.trimIndent(),
     )
@@ -85,12 +94,13 @@ internal object Queries {
     )
 
     /**
-     * Rejects an update that changes `id`. Temp, like the tracking triggers, so it is created again whenever the
-     * writer opens. `RAISE(ABORT)` undoes the statement and leaves the rest of the transaction in place.
+     * Rejects an update that changes `id`. Stored in `main` with the table: it reads only `OLD` and `NEW`, so it can
+     * be persistent. The tracking triggers stay temp, because a trigger in `main` cannot read the temp
+     * `__tracking_state` table. `RAISE(ABORT)` undoes the statement and leaves the rest of the transaction in place.
      */
     fun idTrigger(collection: Collection): String = """
-        CREATE TEMP TRIGGER IF NOT EXISTS ${identifier("nsq_${collection.name}_id")}
-        BEFORE UPDATE ON main.${collection.table}
+        CREATE TRIGGER IF NOT EXISTS main.${identifier("nsq_${collection.name}_id")}
+        BEFORE UPDATE ON ${collection.table}
         WHEN OLD.data ->> '$.id' IS NOT NEW.data ->> '$.id'
         BEGIN
             SELECT RAISE(ABORT, 'id is immutable');

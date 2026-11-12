@@ -3,17 +3,14 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.serializer
 import kotlin.reflect.KProperty1
-import kotlin.uuid.Uuid
 
 /**
  * A named set of JSON object documents, stored in its own table. The documents are the JSON itself: each read decodes
  * them into the type it asks for, and a typed write changes only the fields its type declares, so fields the app
  * doesn't know yet survive. Create one directly, or extend it to declare indexes, and list it in `NoSqlite { }`.
- * Every document has an `id`, a [kotlin.uuid.Uuid] string: required, unique and immutable. Pass `tracked = true` to
+ * Every document has an `id`, stored as [kotlin.uuid.Uuid.toString]: required, unique and immutable. Pass `tracked = true` to
  * record every insert, update and delete.
  * ```
  * val Notes = Collection("notes")
@@ -75,7 +72,6 @@ public suspend inline fun <reified T> Collection.insert(value: T): Unit = insert
 context(_: WriteScope)
 public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
     val json = encode(serializer, value)
-    requireDocumentId(json)
     withConnection { Queries.insert(this@insert).execute(json) }
     changed()
 }
@@ -127,7 +123,6 @@ public suspend fun <T> Collection.replace(
     condition: WhereScope.() -> Where,
 ): Int {
     val json = encode(serializer, value)
-    requireDocumentId(json)
     val replaced = withConnection { Queries.replace(this@replace, json, where(condition)).execute() }
     if (replaced > 0) changed()
     return replaced
@@ -154,34 +149,6 @@ internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String
 internal const val ID: String = "id"
 
 /**
- * [id] is a canonical [Uuid] string, the form [Uuid.toString] returns: 36 lowercase hex characters with hyphens.
- * [Uuid.parse] also accepts other spellings, and those are rejected.
- */
-internal fun requireUuid(id: String) {
-    val parsed = try {
-        Uuid.parse(id)
-    } catch (e: IllegalArgumentException) {
-        throw IllegalArgumentException("Id must be a UUID string, not '$id'", e)
-    }
-    require(parsed.toString() == id) { "Id must be a UUID string, not '$id'" }
-}
-
-/** [json] is an object whose [ID] is a canonical UUID string. */
-internal fun Collection.requireDocumentId(json: String) {
-    val element = (NoSqlite.Json.parseToJsonElement(json) as? JsonObject)?.get(ID)
-        ?: throw IllegalArgumentException("A document of '$name' must have an id")
-    if (element !is JsonPrimitive || !element.isString) {
-        throw IllegalArgumentException("A document of '$name' must have a UUID string id, not $element")
-    }
-    val id = element.content
-    try {
-        requireUuid(id)
-    } catch (e: IllegalArgumentException) {
-        throw IllegalArgumentException("A document of '$name' must have a UUID string id, not '$id'", e)
-    }
-}
-
-/**
  * The document in the current row of a [Queries.selectSql] statement, as [serializer] reads it.
  * Custom serializers and init blocks fail with any exception, not only SerializationException.
  */
@@ -205,9 +172,10 @@ private val BusyCodes = setOf(5, 6)
 
 /**
  * Runs [block], making SQLite's errors typed: a locked database for any statement, and for one about [collection]
- * its missing table, a duplicate id and an id change. Only declared collections have a table, so SQLite not knowing
- * this collection's table means it wasn't declared. A unique constraint is a duplicate id only when it names the id
- * index; any other unique index is left as the driver's exception. IdTest pins the message text for the bundled driver.
+ * its missing table, an id that is not a lowercase canonical UUID, a duplicate id and an id change. Only declared
+ * collections have a table, so SQLite not knowing this collection's table means it wasn't declared. A unique
+ * constraint is a duplicate id only when it names the id index; any other unique index is left as the driver's
+ * exception. IdTest pins the message text for the bundled driver.
  */
 internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R): R = try {
     block()
@@ -221,6 +189,9 @@ internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R
 
         "no such table: ${collection.name}" in message ->
             throw NoSqliteException.CollectionNotDeclared(collection.name, e)
+
+        "CHECK constraint failed: document_id" in message ->
+            throw NoSqliteException.InvalidId(collection.name, e)
 
         "UNIQUE constraint failed" in message -> {
             val index = IndexName.find(message)?.groupValues?.get(1)
