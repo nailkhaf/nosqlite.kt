@@ -8,9 +8,6 @@ import kotlin.jvm.JvmName
 /** A filter on documents, built in [WhereScope]. */
 public sealed class Where {
     internal class Compare(val path: Path, val comparison: Comparison, val value: SqlValue) : Where()
-
-    /** [ID_VALUE] equals [value]. An id lookup, so it matches the id index. */
-    internal class IdEquals(val value: SqlValue) : Where()
     internal class In(val path: Path, val values: List<SqlValue>) : Where()
     internal class IsNull(val path: Path) : Where()
     internal class IsNotNull(val path: Path) : Where()
@@ -158,8 +155,6 @@ internal fun Where.render(inline: Boolean = false): Fragment {
 
     return when (this) {
         is Where.Compare -> Fragment("${path.sql} ${comparison.sql} ") + value(value)
-
-        is Where.IdEquals -> Fragment("$ID_VALUE = ") + value(value)
 
         is Where.In ->
             when {

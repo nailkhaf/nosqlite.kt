@@ -5,8 +5,11 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Instant
 
-/** The SQL expression of a document's id. The id index covers it, and an id lookup compares it. */
-internal const val ID_VALUE: String = "data ->> '$.id'"
+/** The JSON key of the id every document carries. */
+internal const val ID: String = "id"
+
+/** The SQL expression of [ID]. The id index covers it, and an id lookup compares [Path.sql] for the same key. */
+internal val ID_VALUE: String = Path(ID).sql
 
 /** Lowercase canonical UUID text, the form [kotlin.uuid.Uuid.toString] returns, as a SQLite `GLOB`. */
 internal val CANONICAL_UUID_GLOB: String =
@@ -23,22 +26,20 @@ internal const val TRACKING_STATE = "__tracking_state"
 internal object Queries {
 
     /**
-     * Creates the collection table, then its id index `nsq_<collection>_id`, then the trigger
-     * `nsq_<collection>_id_immutable`. The three statements run in the caller's write transaction, in that order.
+     * The collection table, then its id index `nsq_<collection>_id`, then the trigger
+     * `nsq_<collection>_id_immutable`, in that order. The caller runs them in its write transaction.
      */
-    context(_: Connection)
-    suspend fun createTable(collection: Collection) {
-        command(table(collection)).execute()
-        command(idIndex(collection)).execute()
-        idTrigger(collection).execute()
-    }
+    fun createTable(collection: Collection): List<Command<Unit>> =
+        listOf(table(collection), idIndex(collection), idTrigger(collection))
 
-    private fun table(collection: Collection): String = """
+    private fun table(collection: Collection): Command<Unit> = command(
+        """
         CREATE TABLE IF NOT EXISTS ${collection.table} (
             data BLOB NOT NULL,
-            CONSTRAINT document_id CHECK (json_type(data, '$.id') IS 'text' AND (data ->> '$.id') GLOB '$CANONICAL_UUID_GLOB')
+            CONSTRAINT document_id CHECK (json_type(data, '$.$ID') IS 'text' AND ($ID_VALUE) GLOB '$CANONICAL_UUID_GLOB')
         ) STRICT;
-    """.trimIndent()
+        """.trimIndent(),
+    )
 
     /** The columns [createTable] makes, as [collectionColumns] lists them. */
     val TableColumns = listOf("data BLOB")
@@ -71,9 +72,10 @@ internal object Queries {
 
     fun idIndexName(collection: Collection): String = "$INDEX_PREFIX${collection.name}_id"
 
-    private fun idIndex(collection: Collection): String =
+    private fun idIndex(collection: Collection): Command<Unit> = command(
         "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(idIndexName(collection))} " +
-            "ON ${collection.table} ($ID_VALUE);"
+            "ON ${collection.table} ($ID_VALUE);",
+    )
 
     fun createIndex(index: Index): Command<Unit> = command(
         "CREATE INDEX ${identifier(index.name)} ON ${index.collection.table} ${index.definition};",
@@ -130,7 +132,7 @@ internal object Queries {
     private fun idTrigger(collection: Collection): Command<Unit> = command("""
         CREATE TRIGGER IF NOT EXISTS main.${identifier("nsq_${collection.name}_id_immutable")}
         BEFORE UPDATE ON ${collection.table}
-        WHEN OLD.data ->> '$.id' IS NOT NEW.data ->> '$.id'
+        WHEN OLD.data ->> '$.$ID' IS NOT NEW.data ->> '$.$ID'
         BEGIN
             SELECT RAISE(ABORT, 'id is immutable');
         END;

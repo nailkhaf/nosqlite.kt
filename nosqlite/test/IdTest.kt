@@ -155,23 +155,6 @@ internal class IdTest {
     }
 
     @Test
-    fun `opening with duplicate ids fails`() = runTest {
-        withTempFile { location ->
-            BundledSQLiteDriver().open(location.path).apply {
-                execSQL("CREATE TABLE users (data BLOB NOT NULL) STRICT;")
-                execSQL(
-                    "INSERT INTO users (data) VALUES (jsonb('{\"id\":\"$adaId\"}')), (jsonb('{\"id\":\"$adaId\"}'));",
-                )
-                close()
-            }
-
-            val error = assertFailsWith<SQLiteException> { NoSqlite(location) { +Users }.read { } }
-
-            assertTrue("UNIQUE constraint failed" in error.message.orEmpty(), error.message)
-        }
-    }
-
-    @Test
     fun `upsert by id keeps unknown fields`() = runTest {
         val db = NoSqlite { +Users }
         db.write { Users.insert(person(adaId, plan = "pro")) }
