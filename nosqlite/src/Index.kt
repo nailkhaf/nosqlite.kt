@@ -37,6 +37,9 @@ internal const val SEPARATOR: String = ":"
 /** [PREFIX], the collection name, [SEPARATOR], then [suffix]. Quote the result with [identifier] in SQL. */
 internal fun objectName(collection: String, suffix: String): String = "$PREFIX$collection$SEPARATOR$suffix"
 
+/** [PREFIX] plus the collection name: the table, unquoted. */
+internal fun tableName(collection: String): String = "$PREFIX$collection"
+
 /** The 64-bit FNV-1a hash of [text] as 16 hex digits: short, and the same on every platform. */
 internal fun fnv1a64(text: String): String {
     var hash = 0xcbf29ce484222325uL

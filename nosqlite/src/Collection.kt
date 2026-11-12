@@ -59,7 +59,7 @@ private val CollectionName = Regex("[A-Za-z_][A-Za-z0-9_]*")
 internal fun requireCollectionName(name: String) {
     require(name.matches(CollectionName)) { "Invalid collection name: '$name'" }
     require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
-    require("$PREFIX$name" != PENDING_CHANGES && "$PREFIX$name" != TRACKING_STATE) {
+    require(tableName(name) != PENDING_CHANGES && tableName(name) != TRACKING_STATE) {
         "Collection name is reserved: '$name'"
     }
 }
@@ -136,7 +136,7 @@ public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
 }
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
-internal val Collection.table: String get() = identifier("$PREFIX$name")
+internal val Collection.table: String get() = identifier(tableName(name))
 
 internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String {
     val json = NoSqlite.Json.encodeToString(serializer, value)
@@ -180,7 +180,7 @@ internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R
 
         collection == null -> throw e
 
-        "no such table: $PREFIX${collection.name}" in message ->
+        "no such table: ${tableName(collection.name)}" in message ->
             throw NoSqliteException.CollectionNotDeclared(collection.name, e)
 
         "CHECK constraint failed: document_id" in message ->

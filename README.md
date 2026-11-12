@@ -107,8 +107,7 @@ with(db) {
 A collection is a name and its indexes. Create one directly, `Collection("notes")`, or extend `Collection` to
 declare indexes with `index(...)`. A database lists the collections it serves,
 `NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
-A collection's table is `nsq_` plus its name. An index or trigger is `nsq_<collection>:` plus its suffix, so its
-name cannot be a collection table's: tables and indexes share one namespace, and a collection name cannot contain `:`.
+A collection's table is `nsq_<collection>`, and its indexes and triggers are `nsq_<collection>:` plus a suffix.
 Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDeclared`.
 A collection's name is permanent. Opening a database without listing a collection leaves that collection's table
 and documents in place.

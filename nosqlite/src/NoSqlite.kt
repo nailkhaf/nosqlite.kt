@@ -133,7 +133,7 @@ internal suspend fun createSchema(
     indexes: Map<String, List<String>>,
 ) {
     Queries.createTable(collection).forEach { it.execute() }
-    val current = indexes["$PREFIX${collection.name}"].orEmpty()
+    val current = indexes[tableName(collection.name)].orEmpty()
     val wanted = collection.indexes.associateBy { it.name }
     val idIndex = Queries.idIndexName(collection)
     current.filter { it != idIndex && it !in wanted }.forEach { Queries.dropIndex(it).execute() }
