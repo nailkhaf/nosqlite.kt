@@ -362,10 +362,13 @@ internal class TrackingTest {
 
         log.clear()
         db.write(untracked = true) { Notes.insert(anotherNote) }
+        val notes: Collection = Notes
         assertEquals(
             listOf(
                 "UPDATE __tracking_state SET untracked = ?;",
-                "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?;",
+                // The table statement was prepared when the schema was created. The id index is new here.
+                "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(notes.idIndex.name)} " +
+                    "ON ${notes.table} ${notes.idIndex.definition};",
             ),
             log,
         )

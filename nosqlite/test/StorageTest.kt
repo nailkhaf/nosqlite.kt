@@ -390,6 +390,24 @@ internal class StorageTest {
     }
 
     @Test
+    fun `a failed id index is created when the untracked write tries again`() = runTest {
+        val notes: Collection = Notes
+        val indexSql = "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(notes.idIndex.name)} " +
+            "ON ${notes.table} ${notes.idIndex.definition};"
+        val driver = FailingDriver(indexSql, times = 1)
+        val db = NoSqlite(driver = driver) { }
+        val note = buildJsonObject { put("id", uuid("note")); put("text", "hi") }
+
+        db.write(untracked = true) {
+            assertFails { Notes.insert(note) }
+            Notes.insert(note)
+        }
+
+        assertEquals(listOf(listOf(notes.idIndex.name)), db.querySql("SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'notes'"))
+        assertEquals(1L, db.read { Notes.count() })
+    }
+
+    @Test
     fun `collection declared twice is rejected`() {
         val error = assertFailsWith<IllegalArgumentException> {
             NoSqlite {

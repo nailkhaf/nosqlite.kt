@@ -29,12 +29,6 @@ internal object Queries {
         decode = rows { getText(0) },
     )
 
-    val tableExists: Statement<String, Boolean> = Statement(
-        sql = "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?;",
-        encode = { table -> bindText(1, table) },
-        decode = { step() },
-    )
-
     /** The indexes nosqlite manages on the input table; others are left alone. */
     val indexNames: Statement<String, List<String>> = Statement(
         sql = "SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = ? AND name GLOB '$INDEX_PREFIX*';",
@@ -45,6 +39,12 @@ internal object Queries {
     fun createIndex(index: Index): Command<Unit> = command(
         "CREATE ${if (index.isUnique) "UNIQUE " else ""}INDEX ${identifier(index.name)} " +
             "ON ${index.collection.table} ${index.definition};",
+    )
+
+    /** The id index, safe to run again. Used when an untracked write may already have the table. */
+    fun createIdIndex(collection: Collection): Command<Unit> = command(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(collection.idIndex.name)} " +
+            "ON ${collection.table} ${collection.idIndex.definition};",
     )
 
     fun dropIndex(name: String): Command<Unit> = command("DROP INDEX ${identifier(name)};")

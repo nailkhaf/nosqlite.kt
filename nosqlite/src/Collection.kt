@@ -208,19 +208,16 @@ internal suspend fun <R> Collection.withWriteConnection(block: suspend context(C
     withConnection(untracked = scope.untracked, block)
 
 /**
- * An untracked write creates a missing collection the first time it touches it: the standard table and the id index,
- * and no triggers. The name is remembered only after that succeeds, so a failed create is tried again. Later writes
- * in the same [WriteScope] reuse the lookup.
+ * An untracked write ensures the collection's table and id index the first time it touches it, with no triggers.
+ * Both statements are safe to repeat, and the name is remembered only after both succeed, so a failed index is
+ * created on the next try. Later writes in the same [WriteScope] skip the lookup.
  */
 context(scope: WriteScope)
 internal suspend fun Collection.ensureTable() {
     if (!scope.untracked || name in scope.ensured) return
-    val exists = context(connection()) { Queries.tableExists.execute(name) }
-    if (!exists) {
-        context(connection()) {
-            Queries.createTable(this@ensureTable).execute()
-            Queries.createIndex(idIndex).execute()
-        }
+    context(connection()) {
+        Queries.createTable(this@ensureTable).execute()
+        Queries.createIdIndex(this@ensureTable).execute()
     }
     scope.ensured += name
 }
