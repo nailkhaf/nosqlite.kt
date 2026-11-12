@@ -155,16 +155,17 @@ internal class IdTest {
     }
 
     @Test
-    fun `a unique constraint on another index is not a duplicate id`() = runTest {
+    fun `a unique constraint on another index is a duplicate id`() = runTest {
         val db = NoSqlite { +Users }
         db.pool().writeSql { execute("CREATE UNIQUE INDEX mine ON users (data ->> '$.email')") }
         val first = buildJsonObject { put("id", adaId); put("email", "a@x.com") }
         val second = buildJsonObject { put("id", alanId); put("email", "a@x.com") }
         db.write { Users.insert(first) }
 
-        val error = assertFailsWith<SQLiteException> { db.write { Users.insert(second) } }
+        val error = assertFailsWith<NoSqliteException.DuplicateId> { db.write { Users.insert(second) } }
 
-        assertTrue("UNIQUE constraint failed" in error.message.orEmpty(), error.message)
+        assertEquals("users", error.collection)
+        assertEquals("Duplicate id in 'users'", error.message)
         assertEquals(first, db.read { Users.id(Uuid.parse(adaId)).get<JsonObject>() })
     }
 

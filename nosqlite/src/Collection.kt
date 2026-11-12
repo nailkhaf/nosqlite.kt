@@ -31,9 +31,6 @@ public open class Collection(public val name: String, public val tracked: Boolea
         requireCollectionName(name)
     }
 
-    /** The unique index on [ID]. It is not declared with the collection's indexes; schema setup always keeps it. */
-    internal val idIndex: Index = Index(this, listOf(Path(ID)), isUnique = true, where = null)
-
     internal val indexes: List<Index>
         field = mutableListOf()
 
@@ -145,9 +142,6 @@ internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String
     return json
 }
 
-/** The JSON key of the id every document carries. */
-internal const val ID: String = "id"
-
 /**
  * The document in the current row of a [Queries.selectSql] statement, as [serializer] reads it.
  * Custom serializers and init blocks fail with any exception, not only SerializationException.
@@ -163,8 +157,6 @@ context(_: ReadScope)
 internal suspend fun <R> Collection.withConnection(block: suspend context(Connection) () -> R): R =
     mapErrors(this) { context(connection()) { block() } }
 
-private val IndexName = Regex("index '([^']+)'")
-
 private val ErrorCode = Regex("^Error code: (\\d+)")
 
 // SQLITE_BUSY and SQLITE_LOCKED, with their extended codes, which keep the primary code in the low byte.
@@ -174,8 +166,7 @@ private val BusyCodes = setOf(5, 6)
  * Runs [block], making SQLite's errors typed: a locked database for any statement, and for one about [collection]
  * its missing table, an id that is not a lowercase canonical UUID, a duplicate id and an id change. Only declared
  * collections have a table, so SQLite not knowing this collection's table means it wasn't declared. A unique
- * constraint is a duplicate id only when it names the id index; any other unique index is left as the driver's
- * exception. IdTest pins the message text for the bundled driver.
+ * constraint is a duplicate id. IdTest pins the message text for the bundled driver.
  */
 internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R): R = try {
     block()
@@ -193,11 +184,7 @@ internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R
         "CHECK constraint failed: document_id" in message ->
             throw NoSqliteException.InvalidId(collection.name, e)
 
-        "UNIQUE constraint failed" in message -> {
-            val index = IndexName.find(message)?.groupValues?.get(1)
-            if (index == collection.idIndex.name) throw NoSqliteException.DuplicateId(collection.name, e)
-            throw e
-        }
+        "UNIQUE constraint failed" in message -> throw NoSqliteException.DuplicateId(collection.name, e)
 
         "id is immutable" in message -> throw NoSqliteException.ImmutableId(collection.name, e)
 

@@ -128,11 +128,13 @@ context(_: Connection)
 internal suspend fun createSchema(collection: Collection) {
     Queries.createTable(collection).execute()
     command(Queries.idTrigger(collection)).execute()
+    mapErrors(collection) { Queries.createIdIndex(collection).execute() }
     val columns = Queries.tableColumns.execute(collection.name)
     if (columns != Queries.TableColumns) throw NoSqliteException.IncompatibleTable(collection.name, columns)
     val current = Queries.indexNames.execute(collection.name)
-    val wanted = collection.indexes.associateBy { it.name } + (collection.idIndex.name to collection.idIndex)
-    current.filter { it !in wanted }.forEach { Queries.dropIndex(it).execute() }
+    val wanted = collection.indexes.associateBy { it.name }
+    val idIndex = Queries.idIndexName(collection)
+    current.filter { it != idIndex && it !in wanted }.forEach { Queries.dropIndex(it).execute() }
     wanted.filterKeys { it !in current }.values.forEach { index ->
         mapErrors(collection) { Queries.createIndex(index).execute() }
     }

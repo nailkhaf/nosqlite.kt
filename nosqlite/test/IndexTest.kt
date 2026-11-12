@@ -3,6 +3,7 @@ package io.github.nailkhaf.nosqlite
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
@@ -56,7 +57,7 @@ internal class IndexTest {
     @Test
     fun `index names hash their definition`() {
         assertTrue(Users.byEmail.name.matches(Regex("nsq_users_[0-9a-f]{16}")))
-        assertTrue(idIndexName(Users).matches(Regex("nsq_users_[0-9a-f]{16}")))
+        assertEquals("nsq_users_id", idIndexName(Users))
         // Read through the base type: Kotlin/Native fails to link an internal member read through a test object.
         val collection: Collection = Users
         assertEquals(4, collection.indexes.map { it.name }.toSet().size)
@@ -161,6 +162,19 @@ internal class IndexTest {
     }
 
     @Test
+    fun `getting a document by id uses the id index`() = runTest {
+        val db = NoSqlite { +Users }
+        val sql = Queries.selectSql(
+            Users,
+            Query(Users.id(Uuid.parse(ada.id)).condition, emptyList(), limit = 1, offset = 0),
+        ).sql
+
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "'${ada.id}'")).joinToString { it.last()!! }
+
+        assertTrue(idIndexName(Users) in plan, plan)
+    }
+
+    @Test
     fun `a condition on id uses the id index`() = runTest {
         val db = NoSqlite { +Users }
         val condition = where { "id" eq ada.id }.render(inline = true).sql
@@ -208,4 +222,4 @@ internal class IndexTest {
 }
 
 /** Kotlin/Native cannot link an internal member read through a test object. */
-private fun idIndexName(collection: Collection): String = collection.idIndex.name
+private fun idIndexName(collection: Collection): String = Queries.idIndexName(collection)

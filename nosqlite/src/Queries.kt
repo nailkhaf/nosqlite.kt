@@ -5,6 +5,9 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Instant
 
+/** The SQL expression of a document's id. The id index covers it, and an id lookup compares it. */
+internal const val ID_VALUE: String = "data ->> '$.id'"
+
 /** Lowercase canonical UUID text, the form [kotlin.uuid.Uuid.toString] returns, as a SQLite `GLOB`. */
 internal val CANONICAL_UUID_GLOB: String =
     "[0-9a-f]".repeat(8) + "-" +
@@ -44,6 +47,14 @@ internal object Queries {
         encode = { table -> bindText(1, table) },
         decode = rows { getText(0) },
     )
+
+    /** The id index. Its name matches the id trigger: `nsq_<collection>_id`. */
+    fun createIdIndex(collection: Collection): Command<Unit> = command(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(idIndexName(collection))} " +
+            "ON ${collection.table} ($ID_VALUE);",
+    )
+
+    fun idIndexName(collection: Collection): String = "$INDEX_PREFIX${collection.name}_id"
 
     fun createIndex(index: Index): Command<Unit> = command(
         "CREATE ${if (index.isUnique) "UNIQUE " else ""}INDEX ${identifier(index.name)} " +
@@ -88,7 +99,7 @@ internal object Queries {
     /** Inserts the input JSON, or applies it as a merge patch to the document with the same id. */
     fun upsert(collection: Collection): Statement<String, Unit> = Statement(
         sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?1)) " +
-            "ON CONFLICT ${collection.idIndex.definition} DO UPDATE SET data = jsonb_patch(data, ?1);",
+            "ON CONFLICT ($ID_VALUE) DO UPDATE SET data = jsonb_patch(data, ?1);",
         encode = { json -> bindText(1, json) },
         decode = { step() },
     )

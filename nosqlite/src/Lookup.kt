@@ -104,7 +104,7 @@ public suspend fun Lookup.Many.delete(): Int = index.collection.delete { conditi
  * ```
  */
 public class Id internal constructor(internal val collection: Collection, public val value: Uuid) {
-    internal val condition: Where = Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
+    internal val condition: Where = Where.IdEquals(SqlValue.Text(value.toString()))
 
     override fun toString(): String = "${collection.name} id $value"
 }
