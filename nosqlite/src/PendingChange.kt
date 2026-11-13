@@ -16,14 +16,10 @@ public data class PendingChange(
     public val id: Long,
     public val uid: String,
     public val collection: String,
-    public val action: Action,
     public val before: JsonObject?,
     public val after: JsonObject?,
     public val timestamp: Instant,
-) {
-    /** What happened to [documentId]. */
-    public enum class Action { Insert, Update, Delete }
-}
+)
 
 /** The document's `id`, taken from [PendingChange.after], or from [PendingChange.before] when that is null. */
 public val PendingChange.documentId: Uuid

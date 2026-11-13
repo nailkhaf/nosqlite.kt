@@ -49,20 +49,16 @@ internal class TrackingTest {
 
     private fun recorded(
         id: Long,
-        action: PendingChange.Action,
         before: JsonObject?,
         after: JsonObject?,
         collection: String = Contacts.name,
-    ) = PendingChange(id, "", collection, action, before, after, Instant.fromEpochMilliseconds(0))
+    ) = PendingChange(id, "", collection, before, after, Instant.fromEpochMilliseconds(0))
 
-    private fun inserted(id: Long, contact: Contact) =
-        recorded(id, PendingChange.Action.Insert, null, contact.json())
+    private fun inserted(id: Long, contact: Contact) = recorded(id, null, contact.json())
 
-    private fun updated(id: Long, before: Contact, after: Contact) =
-        recorded(id, PendingChange.Action.Update, before.json(), after.json())
+    private fun updated(id: Long, before: Contact, after: Contact) = recorded(id, before.json(), after.json())
 
-    private fun deleted(id: Long, contact: Contact) =
-        recorded(id, PendingChange.Action.Delete, contact.json(), null)
+    private fun deleted(id: Long, contact: Contact) = recorded(id, contact.json(), null)
 
     private suspend fun changes(db: NoSqlite): List<PendingChange> = db.read { pendingChanges() }.withoutTime()
 
@@ -72,7 +68,6 @@ internal class TrackingTest {
 
     private data class Recorded(
         val documentId: Uuid,
-        val action: PendingChange.Action,
         val before: JsonObject?,
         val after: JsonObject?,
     )
@@ -81,7 +76,7 @@ internal class TrackingTest {
     private fun List<PendingChange>.bodies(): Set<Recorded> {
         assertEquals((1L..size).toList(), map { it.id })
         assertTrue(all { it.collection == Contacts.name })
-        return map { Recorded(it.documentId, it.action, it.before, it.after) }.toSet().also { assertEquals(size, it.size) }
+        return map { Recorded(it.documentId, it.before, it.after) }.toSet().also { assertEquals(size, it.size) }
     }
 
     private suspend fun NoSqlite.contacts(): List<Contact> = read { Contacts.list { orderBy { "id".asc } } }
@@ -167,13 +162,13 @@ internal class TrackingTest {
 
         assertEquals(
             setOf(
-                Recorded(ada.id, PendingChange.Action.Insert, null, ada.json()),
-                Recorded(grace.id, PendingChange.Action.Insert, null, grace.json()),
-                Recorded(ada.id, PendingChange.Action.Update, ada.json(), agedAda.json()),
-                Recorded(grace.id, PendingChange.Action.Update, grace.json(), agedGrace.json()),
-                Recorded(ada.id, PendingChange.Action.Update, agedAda.json(), replaced.json()),
-                Recorded(ada.id, PendingChange.Action.Delete, replaced.json(), null),
-                Recorded(grace.id, PendingChange.Action.Delete, agedGrace.json(), null),
+                Recorded(ada.id, null, ada.json()),
+                Recorded(grace.id, null, grace.json()),
+                Recorded(ada.id, ada.json(), agedAda.json()),
+                Recorded(grace.id, grace.json(), agedGrace.json()),
+                Recorded(ada.id, agedAda.json(), replaced.json()),
+                Recorded(ada.id, replaced.json(), null),
+                Recorded(grace.id, agedGrace.json(), null),
             ),
             changes(db).bodies(),
         )
@@ -195,14 +190,14 @@ internal class TrackingTest {
 
         assertEquals(
             setOf(
-                Recorded(ada.id, PendingChange.Action.Insert, null, ada.json()),
-                Recorded(alan.id, PendingChange.Action.Insert, null, alan.json()),
-                Recorded(grace.id, PendingChange.Action.Insert, null, grace.json()),
-                Recorded(ada.id, PendingChange.Action.Update, ada.json(), ada.copy(age = 99).json()),
-                Recorded(grace.id, PendingChange.Action.Update, grace.json(), grace.copy(age = 99).json()),
-                Recorded(alan.id, PendingChange.Action.Update, alan.json(), renamed.json()),
-                Recorded(ada.id, PendingChange.Action.Delete, ada.copy(age = 99).json(), null),
-                Recorded(grace.id, PendingChange.Action.Delete, grace.copy(age = 99).json(), null),
+                Recorded(ada.id, null, ada.json()),
+                Recorded(alan.id, null, alan.json()),
+                Recorded(grace.id, null, grace.json()),
+                Recorded(ada.id, ada.json(), ada.copy(age = 99).json()),
+                Recorded(grace.id, grace.json(), grace.copy(age = 99).json()),
+                Recorded(alan.id, alan.json(), renamed.json()),
+                Recorded(ada.id, ada.copy(age = 99).json(), null),
+                Recorded(grace.id, grace.copy(age = 99).json(), null),
             ),
             changes(db).bodies(),
         )
@@ -445,7 +440,6 @@ internal class TrackingTest {
                 id,
                 "",
                 Contacts.name,
-                PendingChange.Action.Delete,
                 null,
                 null,
                 Instant.fromEpochMilliseconds(0),
