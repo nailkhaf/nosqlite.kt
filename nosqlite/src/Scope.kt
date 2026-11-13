@@ -22,9 +22,6 @@ public class WriteScope internal constructor(
 ) : ReadScope(connection, pool) {
     // The collections this transaction changed: a savepoint hands its own to the enclosing write when it releases.
     internal val changed: MutableSet<String> = mutableSetOf()
-
-    /** Collections whose table this untracked write has already looked up. */
-    internal val ensured: MutableSet<String> = mutableSetOf()
 }
 
 /** Records that the current write changed this collection. */
@@ -63,13 +60,19 @@ internal suspend fun <R> ConnectionPool.write(
     }
     return withWriter { connection ->
         val scope = WriteScope(connection, this, untracked)
-        connection.transaction(Boundary.Write) {
-            // Set only for an untracked write. A throw skips the reset: rolling back restores the temp row to 0.
-            if (untracked) connection.setUntracked(true)
-            withScope(scope, block).also {
-                if (untracked) connection.setUntracked(false)
-            }
-        }.also { onCommit(scope.changed.toSet()) }
+        val known = schema.collections.size
+        try {
+            connection.transaction(Boundary.Write) {
+                // Set only for an untracked write. A throw skips the reset: rolling back restores the temp row to 0.
+                if (untracked) connection.setUntracked(true)
+                withScope(scope, block).also {
+                    if (untracked) connection.setUntracked(false)
+                }
+            }.also { onCommit(scope.changed.toSet()) }
+        } catch (e: Throwable) {
+            schema.rollback(known)
+            throw e
+        }
     }
 }
 

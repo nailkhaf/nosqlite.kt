@@ -33,7 +33,7 @@ public class NoSqlite(
 
     private val tables = SchemaBuilder().apply(schema)
 
-    private val connections = ConnectionPool(location, driver, dispatcher) { connection ->
+    private val connections = ConnectionPool(location, driver, dispatcher, tables) { connection ->
         connection.transaction(Boundary.Write) { context(connection) { createSchema(tables) } }
     }
 
@@ -88,6 +88,19 @@ public class SchemaBuilder internal constructor() {
     public operator fun Collection.unaryPlus() {
         require(collections.none { it.name == name }) { "Collection '$name' is declared more than once" }
         collections += this
+    }
+
+    /** True when [collection] was declared, or an untracked write already created its table. */
+    internal operator fun contains(collection: Collection): Boolean = collections.any { it.name == collection.name }
+
+    /** Records [collection] after an untracked write created its table. */
+    internal fun register(collection: Collection) {
+        if (collection !in this) collections += collection
+    }
+
+    /** Drops collections [register] added after [kept], when the write that created them rolls back. */
+    internal fun rollback(kept: Int) {
+        while (collections.size > kept) collections.removeAt(collections.lastIndex)
     }
 }
 
