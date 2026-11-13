@@ -64,15 +64,15 @@ internal object Queries {
     )
 
     fun createIndex(index: Index): Command<Unit> = command(
-        "CREATE INDEX ${identifier(index.name)} ON ${index.collection.table} ${index.definition};",
+        "CREATE INDEX ${identifier(index.name)} ON ${table(index.collection.name)} ${index.definition};",
     )
 
     fun dropIndex(name: String): Command<Unit> = command("DROP INDEX ${identifier(name)};")
 
-    fun <T> select(collection: Collection, serializer: KSerializer<T>, query: Query): Statement<Unit, List<T>> =
-        selectSql(collection, query).statement(rows { collection.decode(serializer, this) })
+    fun <T> select(collection: String, serializer: KSerializer<T>, query: Query): Statement<Unit, List<T>> =
+        selectSql(collection, query).statement(rows { decode(collection, serializer, this) })
 
-    fun selectSql(collection: Collection, query: Query): Fragment {
+    fun selectSql(collection: String, query: Query): Fragment {
         // No implicit rowid: a descending key must be able to walk its index backwards.
         val order = query.orderBy
             .takeIf { it.isNotEmpty() }
@@ -82,19 +82,19 @@ internal object Queries {
             "$order LIMIT ? OFFSET ?;",
             listOf(SqlValue.Integer(query.limit.toLong()), SqlValue.Integer(query.offset.toLong())),
         )
-        return Fragment("SELECT json(data) FROM ${collection.table}") + where(query.condition) + page
+        return Fragment("SELECT json(data) FROM ${table(collection)}") + where(query.condition) + page
     }
 
-    fun count(collection: Collection, condition: Where?): Statement<Unit, Long> =
-        (Fragment("SELECT count(*) FROM ${collection.table}") + where(condition) + ";").statement {
+    fun count(collection: String, condition: Where?): Statement<Unit, Long> =
+        (Fragment("SELECT count(*) FROM ${table(collection)}") + where(condition) + ";").statement {
             check(step()) { "count(*) returned no row" }
             getLong(0)
         }
 
     /** Applies the JSON as a merge patch to every match when [merge], or stores it as each whole document. */
-    fun update(collection: Collection, json: String, merge: Boolean, condition: Where): Statement<Unit, Int> {
+    fun update(collection: String, json: String, merge: Boolean, condition: Where): Statement<Unit, Int> {
         val value = if (merge) "jsonb_patch(data, ?)" else "jsonb(?)"
-        return (Fragment("UPDATE ${collection.table} SET data = $value WHERE ", listOf(SqlValue.Text(json))) +
+        return (Fragment("UPDATE ${table(collection)} SET data = $value WHERE ", listOf(SqlValue.Text(json))) +
             condition.render() + RETURNING).statement(countRows)
     }
 
@@ -128,8 +128,8 @@ internal object Queries {
         END;
     """.trimIndent())
 
-    fun insert(collection: Collection): Statement<String, Unit> = Statement(
-        sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?));",
+    fun insert(collection: String): Statement<String, Unit> = Statement(
+        sql = "INSERT INTO ${table(collection)} (data) VALUES (jsonb(?));",
         encode = { json -> bindText(1, json) },
         decode = { step() },
     )
@@ -192,15 +192,15 @@ internal object Queries {
      * reject database-qualified names, so the body stays unqualified. An update whose JSONB did not change records
      * nothing.
      */
-    fun trackingTriggers(collection: Collection): List<Command<Unit>> {
-        val table = "main.${collection.table}"
-        val name = SqlValue.Text(collection.name).literal
+    fun trackingTriggers(collection: String): List<Command<Unit>> {
+        val table = "main.${table(collection)}"
+        val name = SqlValue.Text(collection).literal
         val guard = "WHEN NOT (SELECT untracked FROM ${identifier(TRACKING_STATE)})"
         val record = "INSERT INTO ${identifier(PENDING_CHANGES)} (collection, before, after, timestamp) VALUES"
         val now = "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
         return listOf(
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(triggerName(collection.name, "insert"))}
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(triggerName(collection, "insert"))}
             AFTER INSERT ON $table
             $guard
             BEGIN
@@ -208,7 +208,7 @@ internal object Queries {
             END;
             """.trimIndent()),
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(triggerName(collection.name, "update"))}
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(triggerName(collection, "update"))}
             AFTER UPDATE ON $table
             $guard AND OLD.data IS NOT NEW.data
             BEGIN
@@ -216,7 +216,7 @@ internal object Queries {
             END;
             """.trimIndent()),
             command("""
-            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(triggerName(collection.name, "delete"))}
+            CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(triggerName(collection, "delete"))}
             AFTER DELETE ON $table
             $guard
             BEGIN

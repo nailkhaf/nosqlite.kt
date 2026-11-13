@@ -151,7 +151,7 @@ internal class LookupTest {
     fun `a lookup reads through its index`() = runTest {
         val db = database()
         val lookup = Users.byName("Lovelace")
-        val sql = Queries.selectSql(Users, Query(lookup.condition, emptyList(), limit = 1, offset = 0)).sql
+        val sql = Queries.selectSql(Users.name, Query(lookup.condition, emptyList(), limit = 1, offset = 0)).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "'x'")).joinToString { it.last()!! }
 
