@@ -2,6 +2,7 @@ package io.github.nailkhaf.nosqlite
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.serializer
+import kotlin.uuid.Uuid
 
 /**
  * Documents of an index with the given values for its fields, made by calling the index. A [Many] one is any number
@@ -94,25 +95,22 @@ context(_: WriteScope)
 public suspend fun Lookup.Many.delete(): Int = index.collection.delete { condition }
 
 /**
- * The document of a collection whose id is [value], a [kotlin.uuid.Uuid] string. There is at most one.
+ * The document of a collection whose id is [value]. There is at most one.
+ * The document's `id` field stores [Uuid.toString].
  * ```
  * Users.id(ada).get<User>()
  * Users.id(ada).update(ada.copy(age = 37))
  * Users.upsert(ada)
  * ```
  */
-public class Id internal constructor(internal val collection: Collection, public val value: String) {
-    init {
-        requireUuid(value)
-    }
-
-    internal val condition: Where = Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value))
+public class Id internal constructor(internal val collection: Collection, public val value: Uuid) {
+    internal val condition: Where = Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
 
     override fun toString(): String = "${collection.name} id $value"
 }
 
 /** The document of this collection with [value] as its id. */
-public fun Collection.id(value: String): Id = Id(this, value)
+public fun Collection.id(value: Uuid): Id = Id(this, value)
 
 /** The document as [T], `null` when there is none. */
 context(_: ReadScope)
@@ -153,7 +151,6 @@ context(_: WriteScope)
 public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T) {
     ensureTable()
     val json = encode(serializer, value)
-    requireDocumentId(json)
     withWriteConnection { Queries.upsert(this@upsert).execute(json) }
     changed()
 }

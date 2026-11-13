@@ -29,12 +29,6 @@ toolchain has no device or instrumented test runner yet. The same common tests r
 The jobs cache the toolchain and its dependencies, and restore the build output of the latest `main` run so pull
 requests compile incrementally; only `main` saves it.
 
-## Documents
-
-Every document has an `id` field whose value is a `kotlin.uuid.Uuid` string, the form `Uuid.toString()` returns.
-Insert, replace and upsert reject a document without one, and an id never changes. Tests that insert a document set
-that id. A collection's table is never dropped.
-
 ## Releasing
 
 Pushing a tag `v*` runs [`release.yml`](.github/workflows/release.yml). The tag must be `v` plus

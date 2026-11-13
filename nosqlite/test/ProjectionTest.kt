@@ -7,6 +7,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 
 /** Covers reading documents as different types, and typed updates keeping the fields their type doesn't declare. */
@@ -17,14 +18,14 @@ internal class ProjectionTest {
 
     @Serializable
     data class Profile(
-        val id: String,
+        val id: Uuid,
         val address: Address,
         val settings: Map<String, String> = emptyMap(),
         val nickname: String? = null,
     )
 
     @Serializable
-    data class Summary(val id: String)
+    data class Summary(val id: Uuid)
 
     object Profiles : Collection("profiles")
 
@@ -82,7 +83,7 @@ internal class ProjectionTest {
     fun `a typed update removes a declared field set to null`() = runTest {
         val db = seeded()
 
-        db.write { Profiles.update(Profile(ada, Address("London"), nickname = null)) { "id" eq ada } }
+        db.write { Profiles.update(Profile(ada, Address("London"), nickname = null)) { "id" eq ada.toString() } }
 
         val expected = json(
             """

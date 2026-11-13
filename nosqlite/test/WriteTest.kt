@@ -37,7 +37,7 @@ internal class WriteTest {
         val db = seeded()
         val replacement = ann.copy(age = 18, tags = emptyList())
 
-        val updated = db.write { Users.update(replacement) { "id" eq ann.id } }
+        val updated = db.write { Users.update(replacement) { "id" eq ann.id.toString() } }
 
         assertEquals(1, updated)
         assertEquals(listOf(replacement, bob, cid), db.users())
@@ -47,11 +47,11 @@ internal class WriteTest {
     fun `update writes the value into every match`() = runTest {
         val db = NoSqlite { +Raw }
         val done = buildJsonObject { put("done", true) }
-        val a = buildJsonObject { put("id", uuid("a")); put("done", true) }
-        val b = buildJsonObject { put("id", uuid("b")); put("done", true) }
+        val a = buildJsonObject { put("id", uuid("a").toString()); put("done", true) }
+        val b = buildJsonObject { put("id", uuid("b").toString()); put("done", true) }
         db.write {
-            Raw.insert(buildJsonObject { put("id", uuid("a")); put("done", false) })
-            Raw.insert(buildJsonObject { put("id", uuid("b")); put("done", false) })
+            Raw.insert(buildJsonObject { put("id", uuid("a").toString()); put("done", false) })
+            Raw.insert(buildJsonObject { put("id", uuid("b").toString()); put("done", false) })
         }
 
         val updated = db.write { Raw.update(done) { "done".isFalse() } }
@@ -64,10 +64,10 @@ internal class WriteTest {
     fun `replace stores the value as the whole document`() = runTest {
         val db = NoSqlite { +Raw }
         val id = uuid("a")
-        db.write { Raw.insert(buildJsonObject { put("id", id); put("age", 30); put("nickname", "x") }) }
-        val replacement = buildJsonObject { put("id", id); put("age", 31) }
+        db.write { Raw.insert(buildJsonObject { put("id", id.toString()); put("age", 30); put("nickname", "x") }) }
+        val replacement = buildJsonObject { put("id", id.toString()); put("age", 31) }
 
-        val replaced = db.write { Raw.replace(replacement) { "id" eq id } }
+        val replaced = db.write { Raw.replace(replacement) { "id" eq id.toString() } }
 
         assertEquals(1, replaced)
         assertEquals(listOf(replacement), db.read { Raw.list<JsonObject>() })
@@ -88,9 +88,9 @@ internal class WriteTest {
         val db = seeded()
 
         db.write {
-            assertEquals(0, Users.update(ann) { "id" eq uuid("nobody") })
-            assertEquals(0, Users.replace(ann) { "id" eq uuid("nobody") })
-            assertEquals(0, Users.delete { "id" eq uuid("nobody") })
+            assertEquals(0, Users.update(ann) { "id" eq uuid("nobody").toString() })
+            assertEquals(0, Users.replace(ann) { "id" eq uuid("nobody").toString() })
+            assertEquals(0, Users.delete { "id" eq uuid("nobody").toString() })
         }
 
         assertEquals(listOf(ann, bob, cid), db.users())
@@ -102,19 +102,19 @@ internal class WriteTest {
         db.write {
             val a = uuid("a")
             val b = uuid("b")
-            Raw.insert(buildJsonObject { put("id", a); put("age", 30); put("nickname", "x") })
-            Raw.insert(buildJsonObject { put("id", b); put("age", 40) })
+            Raw.insert(buildJsonObject { put("id", a.toString()); put("age", 30); put("nickname", "x") })
+            Raw.insert(buildJsonObject { put("id", b.toString()); put("age", 40) })
         }
         val patch = buildJsonObject {
             put("age", 31)
             put("nickname", JsonNull)
         }
 
-        val patched = db.write { Raw.update(patch) { "id" eq uuid("a") } }
+        val patched = db.write { Raw.update(patch) { "id" eq uuid("a").toString() } }
 
-        val expected = buildJsonObject { put("id", uuid("a")); put("age", 31) }
+        val expected = buildJsonObject { put("id", uuid("a").toString()); put("age", 31) }
         assertEquals(1, patched)
-        val untouched = buildJsonObject { put("id", uuid("b")); put("age", 40) }
+        val untouched = buildJsonObject { put("id", uuid("b").toString()); put("age", 40) }
         assertEquals(listOf(expected, untouched), db.read { Raw.list<JsonObject>() })
     }
 

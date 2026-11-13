@@ -4,11 +4,13 @@ import androidx.sqlite.SQLiteException
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import androidx.sqlite.execSQL
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
@@ -22,50 +24,70 @@ internal class IdTest {
     private val adaId = uuid("ada")
     private val alanId = uuid("alan")
 
-    private fun person(id: String, name: String = "Ada", age: Int = 36, plan: String? = null): JsonObject =
+    private fun person(id: Uuid, name: String = "Ada", age: Int = 36, plan: String? = null): JsonObject =
         buildJsonObject {
-            put("id", id)
+            put("id", id.toString())
             put("name", name)
             put("age", age)
             if (plan != null) put("plan", plan)
         }
 
     @Test
-    fun `insert rejects a missing id`() = runTest {
+    fun `insert and upsert reject an id that is not a lowercase uuid`() = runTest {
         val db = NoSqlite { +Users }
+        val canonical = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 
-        val error = assertFailsWith<IllegalArgumentException> {
-            db.write { Users.insert(buildJsonObject { put("name", "Ada") }) }
+        for (value in badIds()) {
+            val inserted = assertFailsWith<NoSqliteException.InvalidId> { db.write { Users.insert(value) } }
+            val upserted = assertFailsWith<NoSqliteException.InvalidId> { db.write { Users.upsert(value) } }
+            assertEquals("users", inserted.collection)
+            assertEquals("users", upserted.collection)
+            assertEquals("A document of 'users' must have a UUID string id", inserted.message)
+            assertEquals(inserted.message, upserted.message)
         }
-
-        assertEquals("A document of 'users' must have an id", error.message)
         assertEquals(0, db.read { Users.count() })
+
+        db.write { Users.insert(buildJsonObject { put("id", canonical); put("name", "Ada") }) }
+        val stored = db.read { Users.id(Uuid.parse(canonical)).get<JsonObject>() }!!
+            .getValue("id").jsonPrimitive.content
+
+        assertEquals(canonical, stored)
+        assertEquals(1, db.read { Users.count() })
     }
 
     @Test
-    fun `an id has to be a UUID string`() = runTest {
+    fun `replacing a document with a bad id is rejected`() = runTest {
         val db = NoSqlite { +Users }
-        val canonical = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
-        val upper = canonical.uppercase()
-        val cases = listOf(
-            buildJsonObject { put("id", "ada") } to "A document of 'users' must have a UUID string id, not 'ada'",
-            buildJsonObject { put("id", 36) } to "A document of 'users' must have a UUID string id, not 36",
-            buildJsonObject { put("id", upper) } to "A document of 'users' must have a UUID string id, not '$upper'",
-            buildJsonObject { put("id", canonical.replace("-", "")) } to
-                "A document of 'users' must have a UUID string id, not '${canonical.replace("-", "")}'",
-        )
+        val ada = person(adaId)
+        db.write { Users.insert(ada) }
 
-        for ((value, message) in cases) {
-            val error = assertFailsWith<IllegalArgumentException> { db.write { Users.insert(value) } }
-            assertEquals(message, error.message)
+        for (value in badIds()) {
+            val error = assertFailsWith<NoSqliteException.ImmutableId> {
+                db.write { Users.replace(value) { "id" eq adaId.toString() } }
+            }
+            assertEquals("users", error.collection)
+            assertEquals("Id of a document in 'users' is immutable", error.message)
         }
-        db.write { Users.insert(buildJsonObject { put("id", canonical); put("name", "Ada") }) }
-        val stored = db.read { Users.id(canonical).get<JsonObject>() }!!.getValue("id").jsonPrimitive.content
-        val lookup = assertFailsWith<IllegalArgumentException> { Users.id("ada") }
 
-        assertEquals(canonical, stored)
-        assertEquals("Id must be a UUID string, not 'ada'", lookup.message)
-        assertEquals(1, db.read { Users.count() })
+        assertEquals(ada, db.read { Users.id(adaId).get<JsonObject>() })
+    }
+
+    @Test
+    fun `an update that sets the id to null or a non uuid is rejected`() = runTest {
+        val db = NoSqlite { +Users }
+        val ada = person(adaId)
+        db.write { Users.insert(ada) }
+
+        val cleared = assertFailsWith<NoSqliteException.ImmutableId> {
+            db.write { Users.id(adaId).update(buildJsonObject { put("id", JsonNull) }) }
+        }
+        val rewritten = assertFailsWith<NoSqliteException.ImmutableId> {
+            db.write { Users.id(adaId).update(buildJsonObject { put("id", "ada") }) }
+        }
+
+        assertEquals("users", cleared.collection)
+        assertEquals("users", rewritten.collection)
+        assertEquals(ada, db.read { Users.id(adaId).get<JsonObject>() })
     }
 
     @Test
@@ -75,7 +97,7 @@ internal class IdTest {
         db.write { Users.insert(ada) }
 
         val update = assertFailsWith<NoSqliteException.ImmutableId> {
-            db.write { Users.id(adaId).update(buildJsonObject { put("id", alanId) }) }
+            db.write { Users.id(adaId).update(buildJsonObject { put("id", alanId.toString()) }) }
         }
         val replace = assertFailsWith<NoSqliteException.ImmutableId> {
             db.write { Users.id(adaId).replace(person(alanId)) }
@@ -94,13 +116,13 @@ internal class IdTest {
         db.write {
             Users.insert(person(adaId))
             assertFailsWith<NoSqliteException.ImmutableId> {
-                Users.id(adaId).update(buildJsonObject { put("id", alanId) })
+                Users.id(adaId).update(buildJsonObject { put("id", alanId.toString()) })
             }
             Users.insert(person(alanId))
         }
 
         val ids = db.read { Users.list<JsonObject>() }.map { it.getValue("id").jsonPrimitive.content }
-        assertEquals(setOf(adaId, alanId), ids.toSet())
+        assertEquals(setOf(adaId.toString(), alanId.toString()), ids.toSet())
     }
 
     @Test
@@ -133,43 +155,50 @@ internal class IdTest {
     }
 
     @Test
-    fun `a unique constraint on another index is not a duplicate id`() = runTest {
-        val db = NoSqlite { +Users }
-        db.pool().writeSql { execute("CREATE UNIQUE INDEX mine ON users (data ->> '$.email')") }
-        val first = buildJsonObject { put("id", adaId); put("email", "a@x.com") }
-        val second = buildJsonObject { put("id", alanId); put("email", "a@x.com") }
-        db.write { Users.insert(first) }
-
-        val error = assertFailsWith<SQLiteException> { db.write { Users.insert(second) } }
-
-        assertTrue("UNIQUE constraint failed" in error.message.orEmpty(), error.message)
-        assertEquals(first, db.read { Users.id(adaId).get<JsonObject>() })
-    }
-
-    @Test
-    fun `opening with duplicate ids fails`() = runTest {
-        withTempFile { location ->
-            BundledSQLiteDriver().open(location.path).apply {
-                execSQL("CREATE TABLE users (data BLOB NOT NULL) STRICT;")
-                execSQL(
-                    "INSERT INTO users (data) VALUES (jsonb('{\"id\":\"$adaId\"}')), (jsonb('{\"id\":\"$adaId\"}'));",
-                )
-                close()
-            }
-
-            val error = assertFailsWith<NoSqliteException.DuplicateId> { NoSqlite(location) { +Users }.read { } }
-
-            assertEquals("users", error.collection)
-        }
-    }
-
-    @Test
     fun `upsert by id keeps unknown fields`() = runTest {
         val db = NoSqlite { +Users }
         db.write { Users.insert(person(adaId, plan = "pro")) }
 
-        db.write { Users.upsert(buildJsonObject { put("id", adaId); put("name", "Augusta") }) }
+        db.write { Users.upsert(buildJsonObject { put("id", adaId.toString()); put("name", "Augusta") }) }
 
         assertEquals(person(adaId, name = "Augusta", plan = "pro"), db.read { Users.id(adaId).get<JsonObject>() })
+    }
+
+    @Test
+    fun `the id trigger is stored with the table and rejects a change from another connection`() = runTest {
+        withTempFile { location ->
+            val db = NoSqlite(location) { +Users }
+            val ada = person(adaId)
+            db.write { Users.insert(ada) }
+            db.close()
+
+            BundledSQLiteDriver().open(location.path).apply {
+                val error = assertFailsWith<SQLiteException> {
+                    execSQL("""UPDATE nsq_users SET data = jsonb('{"id":"$alanId","name":"Ada","age":36}')""")
+                }
+                assertTrue("id is immutable" in error.message.orEmpty(), error.message)
+                close()
+            }
+
+            val reopened = NoSqlite(location) { +Users }
+            val update = assertFailsWith<NoSqliteException.ImmutableId> {
+                reopened.write { Users.id(adaId).update(buildJsonObject { put("id", alanId.toString()) }) }
+            }
+            assertEquals("users", update.collection)
+            assertEquals(ada, reopened.read { Users.id(adaId).get<JsonObject>() })
+            reopened.close()
+        }
+    }
+
+    /** A missing id, a null id, a number, an uppercase UUID and a UUID with the hyphens removed. */
+    private fun badIds(): List<JsonObject> {
+        val canonical = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        return listOf(
+            buildJsonObject { put("name", "Ada") },
+            buildJsonObject { put("id", JsonNull); put("name", "Ada") },
+            buildJsonObject { put("id", 36) },
+            buildJsonObject { put("id", canonical.uppercase()) },
+            buildJsonObject { put("id", canonical.replace("-", "")) },
+        )
     }
 }

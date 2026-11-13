@@ -1,8 +1,9 @@
 # AGENTS.md
 
 nosqlite is a Kotlin Multiplatform document store on SQLite JSONB with kotlinx.serialization, published as
-`io.github.nailkhaf:nosqlite`. It is an early 0.0.x library: the API and on-disk format may change. This file is the
-entry point for coding agents. README.md is the user guide, CONTRIBUTING.md covers build, CI and releasing.
+`io.github.nailkhaf:nosqlite`. It is an early 0.0.x library: the API and on-disk format may change. Every SQLite
+object it creates is named with the prefix `nsq_`. This file is the entry point for coding agents. README.md is the
+user guide, CONTRIBUTING.md covers build, CI and releasing.
 
 ## Layout
 
