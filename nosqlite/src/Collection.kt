@@ -11,11 +11,11 @@ import kotlin.uuid.Uuid
 /**
  * A named set of JSON object documents, stored in its own table. The documents are the JSON itself: each read decodes
  * them into the type it asks for, and a typed write changes only the fields its type declares, so fields the app
- * doesn't know yet survive. Create one directly, or extend it to declare indexes, and list it in `NoSqlite { }`.
+ * doesn't know yet survive. Declare each collection once, as an object extending it, and list it in `NoSqlite { }`.
  * Every document has an `id`, stored as [kotlin.uuid.Uuid.toString]: required, unique and immutable. Pass `tracked = true` to
  * record every insert, update and delete.
  * ```
- * val Notes = Collection("notes")
+ * object Notes : Collection("notes")
  *
  * object Users : Collection("users") {
  *     val byAge = index(User::age)
@@ -28,7 +28,7 @@ import kotlin.uuid.Uuid
  * }
  * ```
  */
-public open class Collection(public val name: String, public val tracked: Boolean = false) {
+public abstract class Collection(public val name: String, public val tracked: Boolean = false) {
     init {
         requireCollectionName(name)
     }
@@ -67,22 +67,23 @@ internal fun requireCollectionName(name: String) {
 }
 
 /**
- * Inserts [document] into [collection], or stores it as the whole document with its id, as [Collection.put] does:
- * fields the stored document has and [document] lacks are removed, and `null` fields are kept. Meant for applying documents from elsewhere, such as a sync server, usually
- * in `write(untracked = true)` so a tracked collection does not record them. A name the schema does not have gets its table, id index and id trigger, and the schema
- * keeps that name once the write commits. [document] must be a JSON object whose `id` is a UUID.
+ * [Collection.upsert] addressed by the collection's name, for code that has only the name, such as a replicator,
+ * usually inside `write(untracked = true)` so a tracked collection does not record it. With [merge] = false the
+ * document replaces the stored one whole, so fields it leaves out are removed and `null` fields are kept. A name the
+ * schema does not have gets its table, id index and id trigger, and the schema keeps that name once the write
+ * commits. [document] must be a JSON object whose `id` is a UUID.
  */
 context(_: WriteScope)
-public suspend fun put(collection: String, document: JsonObject) {
+public suspend fun upsert(collection: String, document: JsonObject, merge: Boolean = true) {
     requireCollectionName(collection)
     ensureTable(collection)
     val json = NoSqlite.Json.encodeToString(serializer<JsonObject>(), document)
-    withWriteConnection(collection) { Queries.put(collection).execute(json) }
+    withWriteConnection(collection) { Queries.upsert(collection, merge).execute(json) }
     changed(collection)
 }
 
 /**
- * Deletes the document [id] from [collection], as [Id.delete] does.
+ * [Id.delete] addressed by the collection's name: deletes the document [id] from [collection].
  * A collection without a table is left untouched. The result is whether a document was deleted.
  */
 context(_: WriteScope)

@@ -126,16 +126,6 @@ internal class StorageTest {
     data class User(val id: Uuid, val name: String, val age: Int)
 
     @Test
-    fun `a collection can be created without a subclass`() = runTest {
-        val notes = Collection("notes")
-        val db = NoSqlite { +notes }
-
-        db.write { notes.insert(ada) }
-
-        assertEquals(listOf(ada), db.read { notes.list<JsonObject> { limit(1) } })
-    }
-
-    @Test
     fun `a serializable value is stored as its JSON`() = runTest {
         val db = NoSqlite { +People }
 
@@ -290,7 +280,7 @@ internal class StorageTest {
     }
 
     @Test
-    fun `a by-name put creates the table and the next one replaces the document`() = runTest {
+    fun `a by-name upsert creates the table and without merge replaces the document`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
         val other = buildJsonObject { put("id", uuid("note-2").toString()); put("text", "yo") }
@@ -301,10 +291,10 @@ internal class StorageTest {
         }
 
         db.write(untracked = true) {
-            put("notes", note)
-            put("notes", other)
+            upsert("notes", note)
+            upsert("notes", other)
         }
-        db.write(untracked = true) { put("notes", replacement) }
+        db.write(untracked = true) { upsert("notes", replacement, merge = false) }
 
         assertEquals(
             listOf(
@@ -341,7 +331,7 @@ internal class StorageTest {
     }
 
     @Test
-    fun `a batch of by-name puts creates the table once`() = runTest {
+    fun `a batch of by-name upserts creates the table once`() = runTest {
         var creates = 0
         val driver = SteppingDriver(notesTableSql) { creates += 1 }
         val db = NoSqlite(driver = driver) { }
@@ -352,8 +342,8 @@ internal class StorageTest {
         val rolledBack = buildJsonObject { put("id", uuid("rolled").toString()); put("text", "no") }
 
         db.write(untracked = true) {
-            put("notes", first)
-            put("notes", second)
+            upsert("notes", first)
+            upsert("notes", second)
             assertEquals(1, creates)
             assertFails {
                 db.write {
@@ -361,8 +351,8 @@ internal class StorageTest {
                     error("rollback")
                 }
             }
-            put("notes", third)
-            put("notes", patch)
+            upsert("notes", third)
+            upsert("notes", patch, merge = false)
             assertTrue(delete("notes", uuid("note-2")))
             assertEquals(1, creates)
         }
@@ -387,20 +377,20 @@ internal class StorageTest {
     }
 
     @Test
-    fun `a rolled back put does not register the name`() = runTest {
+    fun `a rolled back upsert does not register the name`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
         assertFails {
             db.write(untracked = true) {
-                put("notes", note)
+                upsert("notes", note)
                 error("rollback")
             }
         }
 
         assertFalse("notes" in db.pool().schema)
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
-        db.write(untracked = true) { put("notes", note) }
+        db.write(untracked = true) { upsert("notes", note) }
         assertEquals(listOf(listOf("nsq_notes")), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
         assertEquals(1L, db.read { Notes.count() })
         assertTrue("notes" in db.pool().schema)
@@ -422,7 +412,7 @@ internal class StorageTest {
         withTempFile { location ->
             val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
             val first = NoSqlite(location) { }
-            first.write(untracked = true) { put("notes", note) }
+            first.write(untracked = true) { upsert("notes", note) }
             first.close()
 
             val second = NoSqlite(location) { }
@@ -446,10 +436,10 @@ internal class StorageTest {
         )
 
         for ((name, message) in invalid) {
-            val putError = assertFailsWith<IllegalArgumentException> {
-                db.write(untracked = true) { put(name, note) }
+            val upsertError = assertFailsWith<IllegalArgumentException> {
+                db.write(untracked = true) { upsert(name, note) }
             }
-            assertEquals(message, putError.message)
+            assertEquals(message, upsertError.message)
             val deleteError = assertFailsWith<IllegalArgumentException> {
                 db.write(untracked = true) { delete(name, uuid("note")) }
             }
@@ -458,12 +448,12 @@ internal class StorageTest {
     }
 
     @Test
-    fun `a by-name put in a nested write registers the name once the outer write commits`() = runTest {
+    fun `a by-name upsert in a nested write registers the name once the outer write commits`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
         db.write {
-            db.write { put("notes", note) }
+            db.write { upsert("notes", note) }
             assertFalse("notes" in db.pool().schema)
         }
 
@@ -502,8 +492,8 @@ internal class StorageTest {
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
         db.write(untracked = true) {
-            assertFails { put("notes", note) }
-            put("notes", note)
+            assertFails { upsert("notes", note) }
+            upsert("notes", note)
         }
 
         assertEquals(1L, db.read { Notes.count() })
@@ -519,8 +509,8 @@ internal class StorageTest {
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
         db.write(untracked = true) {
-            assertFails { put("notes", note) }
-            put("notes", note)
+            assertFails { upsert("notes", note) }
+            upsert("notes", note)
         }
 
         assertEquals(
