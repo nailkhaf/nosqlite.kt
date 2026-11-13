@@ -247,9 +247,9 @@ the last one isn't emitted. Changes are tracked per collection.
 ### Change tracking
 
 `Collection("contacts", tracked = true)` records every insert, update and delete in `nsq__pending_changes`.
-Each row has an action (`Insert`, `Update` or `Delete`), the document before the change, and the document after it.
-An insert has no before. A delete has no after. An update has both. `documentId` is the `id` of after, or of before
-when after is null, as a `Uuid`. An update that does not change the stored document records nothing.
+Each row stores the document before the change and the document after it. An insert has no before. A delete has no
+after. An update has both. `documentId` is the `id` of after, or of before when after is null, as a `Uuid`. An update
+that does not change the stored document records nothing.
 
 ```kotlin
 object Contacts : Collection("contacts", tracked = true)
