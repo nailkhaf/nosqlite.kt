@@ -139,8 +139,7 @@ internal object Queries {
     val createPendingChanges: Command<Unit> = command(
         """
         CREATE TABLE IF NOT EXISTS ${identifier(PENDING_CHANGES)} (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            uid TEXT NOT NULL DEFAULT $NEW_PENDING_UID,
+            id TEXT NOT NULL UNIQUE DEFAULT $NEW_PENDING_ID,
             collection TEXT NOT NULL,
             before BLOB,
             after BLOB,
@@ -151,26 +150,25 @@ internal object Queries {
 
     val pendingChanges: Statement<Unit, List<PendingChange>> = Statement(
         sql = """
-            SELECT id, uid, collection, json(before), json(after), timestamp
-            FROM ${identifier(PENDING_CHANGES)} ORDER BY id;
+            SELECT id, collection, json(before), json(after), timestamp
+            FROM ${identifier(PENDING_CHANGES)} ORDER BY rowid;
         """.trimIndent(),
         encode = {},
         decode = rows {
             PendingChange(
-                id = getLong(0),
-                uid = Uuid.parse(getText(1)),
-                collection = getText(2),
-                before = jsonObjectOrNull(3),
-                after = jsonObjectOrNull(4),
-                timestamp = Instant.fromEpochMilliseconds(getLong(5)),
+                id = Uuid.parse(getText(0)),
+                collection = getText(1),
+                before = jsonObjectOrNull(2),
+                after = jsonObjectOrNull(3),
+                timestamp = Instant.fromEpochMilliseconds(getLong(4)),
             )
         },
     )
 
-    /** Deletes the ids bound as one JSON array, such as `[1,2,3]`. */
-    val deletePendingChanges: Statement<List<Long>, Unit> = Statement(
+    /** Deletes the ids bound as one JSON array of strings, such as `["…","…"]`. */
+    val deletePendingChanges: Statement<List<Uuid>, Unit> = Statement(
         sql = "DELETE FROM ${identifier(PENDING_CHANGES)} WHERE id IN (SELECT value FROM json_each(?));",
-        encode = { ids -> bindText(1, ids.joinToString(",", "[", "]")) },
+        encode = { ids -> bindText(1, ids.joinToString(",", "[", "]") { "\"$it\"" }) },
         decode = { step() },
     )
 
@@ -254,9 +252,9 @@ private fun SQLiteStatement.jsonObjectOrNull(index: Int): JsonObject? {
 /**
  * One RFC 4122 version-4 UUID, lowercase, in the same 8-4-4-4-12 form as `Uuid.toString()`.
  * Version nibble `4`, variant nibble `8`, `9`, `a` or `b` from the low two bits of `random()`. A column default may
- * not contain a subquery, so each group comes from its own `randomblob`. The tracking triggers omit `uid`, so this
+ * not contain a subquery, so each group comes from its own `randomblob`. The tracking triggers omit `id`, so this
  * runs exactly once, on insert.
  */
-private const val NEW_PENDING_UID =
+private const val NEW_PENDING_ID =
     "(lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-'||'4'||substr(hex(randomblob(2)),2)||'-'||" +
         "substr('89ab',(random()&3)+1,1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))))"

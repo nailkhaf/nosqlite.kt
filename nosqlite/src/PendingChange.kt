@@ -7,14 +7,13 @@ import kotlin.uuid.Uuid
 
 /**
  * One recorded insert, update or delete of a tracked collection, in the order it was committed.
- * [uid] is a random UUID assigned when the row is inserted and never changed, so a sync layer can use it as the remote
- * document id and a retried upload writes the same document. [id] is only the local queue position.
+ * [id] is a random UUID assigned when the change is recorded and never changed, so a sync layer can use it as the
+ * remote id of the change and a retried upload writes the same remote document.
  * [before] is the document before the change, null for an insert. [after] is the document after the change, null
  * for a delete. An update stores both. An update whose stored JSON did not change is not recorded.
  */
 public data class PendingChange(
-    public val id: Long,
-    public val uid: Uuid,
+    public val id: Uuid,
     public val collection: String,
     public val before: JsonObject?,
     public val after: JsonObject?,

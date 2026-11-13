@@ -48,23 +48,22 @@ internal class TrackingTest {
         NoSqlite.Json.parseToJsonElement(NoSqlite.Json.encodeToString(this)) as JsonObject
 
     private fun recorded(
-        id: Long,
         before: JsonObject?,
         after: JsonObject?,
         collection: String = Contacts.name,
-    ) = PendingChange(id, Uuid.NIL, collection, before, after, Instant.fromEpochMilliseconds(0))
+    ) = PendingChange(Uuid.NIL, collection, before, after, Instant.fromEpochMilliseconds(0))
 
-    private fun inserted(id: Long, contact: Contact) = recorded(id, null, contact.json())
+    private fun inserted(contact: Contact) = recorded(null, contact.json())
 
-    private fun updated(id: Long, before: Contact, after: Contact) = recorded(id, before.json(), after.json())
+    private fun updated(before: Contact, after: Contact) = recorded(before.json(), after.json())
 
-    private fun deleted(id: Long, contact: Contact) = recorded(id, contact.json(), null)
+    private fun deleted(contact: Contact) = recorded(contact.json(), null)
 
     private suspend fun changes(db: NoSqlite): List<PendingChange> = db.read { pendingChanges() }.withoutTime()
 
-    /** Drops the clock and the random uid so an assertion can name the change itself. */
+    /** Drops the clock and the random id so an assertion can name the change itself. */
     private fun List<PendingChange>.withoutTime() =
-        map { it.copy(timestamp = Instant.fromEpochMilliseconds(0), uid = Uuid.NIL) }
+        map { it.copy(id = Uuid.NIL, timestamp = Instant.fromEpochMilliseconds(0)) }
 
     private data class Recorded(
         val documentId: Uuid,
@@ -72,9 +71,9 @@ internal class TrackingTest {
         val after: JsonObject?,
     )
 
-    /** Each change, with queue ids 1..n in order and no duplicate record. */
+    /** Each change, with distinct ids and no duplicate record. */
     private fun List<PendingChange>.bodies(): Set<Recorded> {
-        assertEquals((1L..size).toList(), map { it.id })
+        assertEquals(size, map { it.id }.toSet().size)
         assertTrue(all { it.collection == Contacts.name })
         return map { Recorded(it.documentId, it.before, it.after) }.toSet().also { assertEquals(size, it.size) }
     }
@@ -99,7 +98,7 @@ internal class TrackingTest {
 
         db.write { Contacts.insert(ada) }
 
-        assertEquals(listOf(inserted(1, ada)), changes(db))
+        assertEquals(listOf(inserted(ada)), changes(db))
     }
 
     @Test
@@ -114,9 +113,9 @@ internal class TrackingTest {
 
         assertEquals(
             listOf(
-                inserted(1, ada),
-                updated(2, ada, older),
-                updated(3, older, renamed),
+                inserted(ada),
+                updated(ada, older),
+                updated(older, renamed),
             ),
             changes(db),
         )
@@ -135,10 +134,10 @@ internal class TrackingTest {
 
         assertEquals(
             listOf(
-                inserted(1, ada),
-                updated(2, ada, renamed),
-                updated(3, renamed, replaced),
-                deleted(4, replaced),
+                inserted(ada),
+                updated(ada, renamed),
+                updated(renamed, replaced),
+                deleted(replaced),
             ),
             changes(db),
         )
@@ -216,7 +215,7 @@ internal class TrackingTest {
             assertEquals(0, Contacts.byAge(1).delete())
         }
 
-        assertEquals(listOf(inserted(1, ada)), changes(db))
+        assertEquals(listOf(inserted(ada)), changes(db))
     }
 
     @Test
@@ -230,7 +229,7 @@ internal class TrackingTest {
             assertTrue(delete("contacts", ada.id))
         }
 
-        assertEquals(listOf(inserted(1, ada), updated(2, ada, older), deleted(3, older)), changes(db))
+        assertEquals(listOf(inserted(ada), updated(ada, older), deleted(older)), changes(db))
     }
 
     @Test
@@ -244,7 +243,7 @@ internal class TrackingTest {
             upsert("fresh", note)
         }
 
-        assertEquals(listOf(inserted(1, ada)), changes(db))
+        assertEquals(listOf(inserted(ada)), changes(db))
         assertEquals(listOf(alan), db.contacts())
         assertEquals(listOf(note), db.read { Fresh.list<JsonObject>() })
     }
@@ -259,7 +258,7 @@ internal class TrackingTest {
         db.write { Contacts.id(ada.id).update(older) }
 
         assertEquals(
-            listOf(inserted(1, ada), updated(2, ada, older)),
+            listOf(inserted(ada), updated(ada, older)),
             changes(db),
         )
         assertEquals(listOf(older, alan), db.contacts())
@@ -275,7 +274,7 @@ internal class TrackingTest {
         }
 
         assertEquals("Untracked write cannot nest inside another write", error.message)
-        assertEquals(listOf(inserted(1, ada)), changes(db))
+        assertEquals(listOf(inserted(ada)), changes(db))
         assertEquals(listOf(ada), db.contacts())
     }
 
@@ -294,14 +293,14 @@ internal class TrackingTest {
         assertEquals(listOf(listOf("0")), db.querySql("SELECT untracked FROM nsq__tracking_state"))
         db.write { Contacts.insert(grace) }
         assertEquals(
-            listOf(inserted(1, ada), inserted(2, grace)),
+            listOf(inserted(ada), inserted(grace)),
             changes(db),
         )
         assertEquals(listOf(ada, grace), db.contacts())
     }
 
     @Test
-    fun `timestamps fall in the write window and rows stay ordered by id`() = runTest {
+    fun `timestamps fall in the write window and rows stay in recorded order`() = runTest {
         val db = database()
         // Changes record whole milliseconds, so the window starts at the current one.
         val before = Instant.fromEpochMilliseconds(Clock.System.now().toEpochMilliseconds())
@@ -312,9 +311,9 @@ internal class TrackingTest {
 
         val after = Clock.System.now()
         val rows = db.read { pendingChanges() }
-        assertEquals(listOf(1L, 2L, 3L), rows.map { it.id })
+        assertEquals(3, rows.map { it.id }.toSet().size)
         assertEquals(
-            listOf(inserted(1, ada), inserted(2, alan), deleted(3, ada)),
+            listOf(inserted(ada), inserted(alan), deleted(ada)),
             rows.withoutTime(),
         )
         assertTrue(rows.all { it.timestamp in before..after })
@@ -332,7 +331,7 @@ internal class TrackingTest {
             removePendingChanges(early)
         }
 
-        assertEquals(listOf(inserted(2, alan)), changes(db))
+        assertEquals(listOf(inserted(alan)), changes(db))
         assertEquals(listOf(ada, alan), db.contacts())
     }
 
@@ -374,8 +373,8 @@ internal class TrackingTest {
         val sql = db.tempTriggerSql().joinToString("\n")
         assertTrue("OLD.data" in sql && "NEW.data" in sql)
         val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'nsq__pending_changes'").single().single()
-        assertTrue("AUTOINCREMENT" in table!!)
-        assertEquals(listOf(inserted(1, ada)), changes(db))
+        assertTrue("id TEXT NOT NULL UNIQUE" in table!!)
+        assertEquals(listOf(inserted(ada)), changes(db))
     }
 
     @Test
@@ -429,7 +428,7 @@ internal class TrackingTest {
             db.write { Contacts.insert(grace) }
 
             assertTrue(driver.connections.first().closed)
-            assertEquals(listOf(inserted(1, ada), inserted(2, grace)), changes(db))
+            assertEquals(listOf(inserted(ada), inserted(grace)), changes(db))
             db.close()
         }
     }
@@ -446,8 +445,8 @@ internal class TrackingTest {
 
             assertEquals(
                 listOf(
-                    inserted(1, ada),
-                    updated(2, ada, ada.copy(age = 37)),
+                    inserted(ada),
+                    updated(ada, ada.copy(age = 37)),
                 ),
                 changes(second),
             )
@@ -465,10 +464,9 @@ internal class TrackingTest {
         db.write { Contacts.insert(ada) }
         val first = db.read { pendingChanges() }.single()
         db.write { Contacts.insert(alan) }
-        val extra = (3L..32_768L).map { id ->
+        val extra = (3..32_768).map {
             PendingChange(
-                id,
-                Uuid.NIL,
+                Uuid.random(),
                 Contacts.name,
                 null,
                 null,
@@ -478,7 +476,7 @@ internal class TrackingTest {
 
         db.write { removePendingChanges(listOf(first) + extra) }
 
-        assertEquals(listOf(inserted(2, alan)), changes(db))
+        assertEquals(listOf(inserted(alan)), changes(db))
         assertEquals(listOf(ada, alan), db.contacts())
     }
 
@@ -489,7 +487,7 @@ internal class TrackingTest {
         db.write { Contacts.id(ada.id).delete() }
 
         val rows = changes(db)
-        assertEquals(listOf(inserted(1, ada), deleted(2, ada)), rows)
+        assertEquals(listOf(inserted(ada), deleted(ada)), rows)
         assertEquals(ada.id, rows[0].documentId)
         assertEquals(null, rows[0].before)
         assertEquals(ada.json(), rows[0].after)
@@ -505,12 +503,12 @@ internal class TrackingTest {
         db.write { Contacts.update(buildJsonObject { put("age", ada.age) }) { "id" eq ada.id.toString() } }
         db.write { Contacts.upsert(ada) }
 
-        assertEquals(listOf(inserted(1, ada)), changes(db))
+        assertEquals(listOf(inserted(ada)), changes(db))
         assertEquals(listOf(ada), db.contacts())
     }
 
     @Test
-    fun `every queued change has a unique uuid uid`() = runTest {
+    fun `every queued change has a unique uuid id`() = runTest {
         val db = database()
         val first = contact("p0", 1)
         db.write {
@@ -524,32 +522,32 @@ internal class TrackingTest {
         val sameDocument = rows.filter { it.documentId == first.id }
         assertEquals(4, sameDocument.size)
         assertTrue(rows.size > sameDocument.size)
-        assertEquals(rows.size, rows.map { it.uid }.toSet().size)
+        assertEquals(rows.size, rows.map { it.id }.toSet().size)
         for (row in rows) {
-            val text = row.uid.toString()
+            val text = row.id.toString()
             assertEquals('4', text[14], text)
             assertTrue(text[19] in "89ab", text)
         }
     }
 
     @Test
-    fun `a pending change uid stays the same until the row is removed`() = runTest {
+    fun `a pending change id stays the same until the row is removed`() = runTest {
         withTempFile { location ->
             val db = NoSqlite(location) { +Contacts }
             db.write { Contacts.insert(ada) }
             val written = db.read { pendingChanges() }.single()
-            assertEquals(written.uid, db.read { pendingChanges() }.single().uid)
+            assertEquals(written.id, db.read { pendingChanges() }.single().id)
             db.write { Contacts.id(ada.id).update(ada.copy(age = 37)) }
             val both = db.read { pendingChanges() }
-            assertEquals(written.uid, both.first().uid)
+            assertEquals(written.id, both.first().id)
             db.close()
 
             val reopened = NoSqlite(location) { +Contacts }
             val kept = reopened.read { pendingChanges() }
-            assertEquals(written.uid, kept.first().uid)
-            assertEquals(both.map { it.uid }, kept.map { it.uid })
+            assertEquals(written.id, kept.first().id)
+            assertEquals(both.map { it.id }, kept.map { it.id })
             reopened.write { removePendingChanges(listOf(kept.first())) }
-            assertEquals(listOf(kept.last().uid), reopened.read { pendingChanges() }.map { it.uid })
+            assertEquals(listOf(kept.last().id), reopened.read { pendingChanges() }.map { it.id })
             reopened.write { removePendingChanges(reopened.read { pendingChanges() }) }
             assertEquals(emptyList(), reopened.read { pendingChanges() })
             reopened.close()

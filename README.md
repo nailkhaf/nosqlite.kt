@@ -249,8 +249,8 @@ the last one isn't emitted. Changes are tracked per collection.
 ### Change tracking
 
 `Collection("contacts", tracked = true)` records every insert, update and delete in `nsq__pending_changes`.
-Each row has a `uid`, the document before the change, and the document after it. `uid` is a random UUID assigned when
-the row is inserted and never changed, so a retried upload writes the same remote document. An insert has no before.
+Each row has an `id`, the document before the change, and the document after it. `id` is a random `Uuid` assigned
+when the change is recorded and never changed, so a retried upload writes the same remote document. An insert has no before.
 A delete has no after. An update has both. `documentId` is the `id` of after, or of before when after is null, as a
 `Uuid`. An update that does not change the stored document records nothing.
 
@@ -269,7 +269,7 @@ db.write(untracked = true) {
 }
 ```
 
-`pendingChanges()` returns the queue ordered by its row id. Read it whenever sync
+`pendingChanges()` returns the queue in the order the changes were recorded. Read it whenever sync
 runs, for example after `observe` on a tracked collection emits. `removePendingChanges` deletes exactly the given
 rows, so a change written after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
 `write(untracked = true)` records nothing and does not nest inside another write. `upsert(name, document, merge)` and

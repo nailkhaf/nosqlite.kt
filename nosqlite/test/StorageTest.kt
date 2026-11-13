@@ -193,7 +193,6 @@ internal class StorageTest {
 
         assertEquals(
             listOf(listOf("nsq__pending_changes"), listOf("nsq_notes"), listOf("nsq_users")),
-            // sqlite_sequence is SQLite's own AUTOINCREMENT table.
             db.querySql("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite%' ORDER BY 1"),
         )
     }
