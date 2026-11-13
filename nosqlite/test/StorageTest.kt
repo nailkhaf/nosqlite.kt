@@ -289,7 +289,7 @@ internal class StorageTest {
     }
 
     @Test
-    fun `an untracked write creates a missing table and its id index`() = runTest {
+    fun `an untracked write creates a missing table, its id index, and its id trigger`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
         val other = buildJsonObject { put("id", uuid("note-2").toString()); put("text", "yo") }
@@ -318,7 +318,7 @@ internal class StorageTest {
             db.querySql("SELECT sql FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'nsq_notes'"),
         )
         assertEquals(
-            emptyList(),
+            listOf(listOf(triggerName(notes.name, "id_immutable"))),
             db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger' AND tbl_name = 'nsq_notes'"),
         )
         assertEquals(
@@ -326,6 +326,26 @@ internal class StorageTest {
             db.querySql("SELECT name FROM sqlite_temp_schema WHERE type = 'trigger' AND tbl_name = 'nsq_notes'"),
         )
         assertEquals(2L, db.read { Notes.count() })
+        assertTrue(Notes in db.pool().schema)
+    }
+
+    @Test
+    fun `a rolled back untracked write does not register the collection`() = runTest {
+        val db = NoSqlite { }
+        val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
+
+        assertFails {
+            db.write(untracked = true) {
+                Notes.insert(note)
+                error("rollback")
+            }
+        }
+
+        assertFalse(Notes in db.pool().schema)
+        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
+        db.write(untracked = true) { Notes.insert(note) }
+        assertEquals(1L, db.read { Notes.count() })
+        assertTrue(Notes in db.pool().schema)
     }
 
     @Test

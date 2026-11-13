@@ -169,17 +169,17 @@ internal suspend fun <R> Collection.withWriteConnection(block: suspend context(C
     mapErrors(this, untracked = scope.untracked) { context(connection()) { block() } }
 
 /**
- * An untracked write ensures the collection's table and id index the first time it touches it, with no triggers.
- * Both statements are safe to repeat, and the name is remembered only after both succeed, so a failed index is
- * created on the next try. Later writes in the same [WriteScope] skip the lookup.
+ * An untracked write creates this collection's table, id index, and id trigger when the schema does not have it,
+ * then registers it there. A declared collection is created when the writer opens. The statements are safe to repeat.
  */
 context(scope: WriteScope)
 internal suspend fun Collection.ensureTable() {
-    if (!scope.untracked || name in scope.ensured) return
+    val schema = scope.pool.schema
+    if (!scope.untracked || this in schema) return
     context(connection()) {
-        Queries.createTableAndIdIndex(this@ensureTable).forEach { it.execute() }
+        Queries.createTable(this@ensureTable).forEach { it.execute() }
     }
-    scope.ensured += name
+    schema.register(this)
 }
 
 private val ErrorCode = Regex("^Error code: (\\d+)")

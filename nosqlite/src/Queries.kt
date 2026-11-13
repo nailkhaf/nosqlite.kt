@@ -32,10 +32,6 @@ internal object Queries {
     fun createTable(collection: Collection): List<Command<Unit>> =
         listOf(table(collection), idIndex(collection), idTrigger(collection))
 
-    /** The table and its id index, both safe to run again, and no trigger. An untracked write uses this. */
-    fun createTableAndIdIndex(collection: Collection): List<Command<Unit>> =
-        listOf(table(collection), idIndex(collection))
-
     private fun table(collection: Collection): Command<Unit> = command(
         """
         CREATE TABLE IF NOT EXISTS ${collection.table} (
