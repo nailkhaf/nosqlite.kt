@@ -23,7 +23,7 @@ internal value class Email(val value: String)
 
 @Serializable
 internal data class User(
-    val id: String,
+    val id: Uuid,
     val email: Email,
     val name: Name,
     val age: Int,
@@ -35,10 +35,10 @@ internal data class User(
 )
 
 /**
- * A canonical [Uuid] string for [label]. Labels tests sort against each other have a fixed order:
+ * A canonical [Uuid] for [label]. Labels tests sort against each other have a fixed order:
  * ada < alan < byron < grace < cid. Any other label hashes to its own UUID.
  */
-internal fun uuid(label: String): String {
+internal fun uuid(label: String): Uuid {
     val text = LABEL_IDS[label]?.let { n ->
         "00000000-0000-4000-8000-" + n.toString(16).padStart(12, '0')
     } ?: run {
@@ -49,8 +49,7 @@ internal fun uuid(label: String): String {
             "8" + hex.substring(17, 20) + "-" +
             hex.substring(20, 32)
     }
-    check(Uuid.parse(text).toString() == text) { "Not a canonical UUID: $text" }
-    return text
+    return Uuid.parse(text)
 }
 
 // Fixed so tests that order by id keep the order they were written for.

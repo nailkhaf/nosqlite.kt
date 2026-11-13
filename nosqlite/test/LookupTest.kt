@@ -3,6 +3,7 @@ package io.github.nailkhaf.nosqlite
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -17,7 +18,7 @@ internal class LookupTest {
 
     @Serializable
     data class User(
-        val id: String,
+        val id: Uuid,
         val email: String,
         val name: Name,
         val age: Int,
@@ -168,7 +169,7 @@ internal class LookupTest {
         }
 
         assertEquals(listOf(ada.copy(age = 37), alan, grace, byron, carol), db.read { Users.list<User>() })
-        assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM users WHERE data ->> '$.id' = '${ada.id}'"))
+        assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM nsq_users WHERE data ->> '$.id' = '${ada.id}'"))
     }
 
     @Test

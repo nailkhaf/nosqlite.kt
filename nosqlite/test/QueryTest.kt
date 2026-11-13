@@ -3,6 +3,7 @@ package io.github.nailkhaf.nosqlite
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -15,7 +16,7 @@ internal class QueryTest {
     data class Name(val first: String, val last: String)
 
     @Serializable
-    data class User(val id: String, val name: Name, val age: Int? = null)
+    data class User(val id: Uuid, val name: Name, val age: Int? = null)
 
     object Users : Collection("users") {
         val byAge = index("age")

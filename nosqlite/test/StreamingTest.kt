@@ -5,6 +5,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
@@ -12,7 +13,7 @@ import kotlin.test.assertFailsWith
 internal class StreamingTest {
 
     @Serializable
-    data class User(val id: String, val age: Int? = null, val score: Double? = null)
+    data class User(val id: Uuid, val age: Int? = null, val score: Double? = null)
 
     object Users : Collection("users")
 
@@ -69,7 +70,7 @@ internal class StreamingTest {
     @Test
     fun `forEach's action can run other queries and the same one too`() = runTest {
         val db = database()
-        val pairs = mutableListOf<Pair<String, Int>>()
+        val pairs = mutableListOf<Pair<Uuid, Int>>()
 
         db.read {
             Users.forEach<User> { outer ->

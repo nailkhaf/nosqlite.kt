@@ -3,6 +3,7 @@ package io.github.nailkhaf.nosqlite
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
@@ -23,7 +24,7 @@ internal class IndexTest {
     }
 
     @Serializable
-    data class Team(val id: String, val name: String, val lead: Name)
+    data class Team(val id: Uuid, val name: String, val lead: Name)
 
     private val ada = user("ada", 36)
     private val alan = user("alan", 41)
@@ -42,11 +43,11 @@ internal class IndexTest {
         val sql = db.querySql("SELECT sql FROM sqlite_schema WHERE type = 'index'").map { it.single() }.toSet()
         assertEquals(
             setOf(
-                """CREATE UNIQUE INDEX "${idIndexName(Users)}" ON "users" (data ->> '$.id')""",
-                """CREATE INDEX "${Users.byEmail.name}" ON "users" (data ->> '$.email')""",
-                """CREATE INDEX "${Users.byAge.name}" ON "users" (data ->> '$.age')""",
-                """CREATE INDEX "${Users.byName.name}" ON "users" (data ->> '$.name.last', data ->> '$.name.first')""",
-                """CREATE INDEX "${Users.activeNickname.name}" ON "users" (data ->> '$.nickname') """ +
+                """CREATE UNIQUE INDEX "${idIndexName(Users)}" ON "nsq_users" (data ->> '$.id')""",
+                """CREATE INDEX "${Users.byEmail.name}" ON "nsq_users" (data ->> '$.email')""",
+                """CREATE INDEX "${Users.byAge.name}" ON "nsq_users" (data ->> '$.age')""",
+                """CREATE INDEX "${Users.byName.name}" ON "nsq_users" (data ->> '$.name.last', data ->> '$.name.first')""",
+                """CREATE INDEX "${Users.activeNickname.name}" ON "nsq_users" (data ->> '$.nickname') """ +
                     "WHERE data ->> '$.active' = 1",
             ),
             sql,
@@ -55,8 +56,8 @@ internal class IndexTest {
 
     @Test
     fun `index names hash their definition`() {
-        assertTrue(Users.byEmail.name.matches(Regex("nsq_users_[0-9a-f]{16}")))
-        assertTrue(idIndexName(Users).matches(Regex("nsq_users_[0-9a-f]{16}")))
+        assertTrue(Users.byEmail.name.matches(Regex("nsq_idx_users_[0-9a-f]{16}")))
+        assertEquals("nsq_idx_users_id", idIndexName(Users))
         // Read through the base type: Kotlin/Native fails to link an internal member read through a test object.
         val collection: Collection = Users
         assertEquals(4, collection.indexes.map { it.name }.toSet().size)
@@ -113,7 +114,7 @@ internal class IndexTest {
     fun `reopening keeps indexes nosqlite does not manage`() = runTest {
         withTempFile { location ->
             val db = NoSqlite(location) { +Users }
-            db.pool().writeSql { execute("CREATE INDEX mine ON users (data ->> '$.score')") }
+            db.pool().writeSql { execute("CREATE INDEX mine ON nsq_users (data ->> '$.score')") }
             db.close()
 
             val reopened = NoSqlite(location) { +Users }
@@ -127,12 +128,12 @@ internal class IndexTest {
     fun `reopening drops an undeclared index whose name has a quote`() = runTest {
         withTempFile { location ->
             val db = NoSqlite(location) { +Users }
-            db.pool().writeSql { execute("CREATE INDEX \"nsq_users_\"\"x\" ON users (data ->> '$.score')") }
+            db.pool().writeSql { execute("CREATE INDEX \"nsq_idx_users_\"\"x\" ON nsq_users (data ->> '$.score')") }
             db.close()
 
             val reopened = NoSqlite(location) { +Users }
 
-            assertTrue("nsq_users_\"x" !in reopened.indexNames())
+            assertTrue("nsq_idx_users_\"x" !in reopened.indexNames())
             reopened.close()
         }
     }
@@ -144,7 +145,7 @@ internal class IndexTest {
         db.insert(ada)
         db.insert(alan.copy(age = ada.age))
 
-        assertEquals(listOf(listOf("2")), db.querySql("SELECT count(*) FROM users"))
+        assertEquals(listOf(listOf("2")), db.querySql("SELECT count(*) FROM nsq_users"))
     }
 
     @Test
@@ -155,17 +156,30 @@ internal class IndexTest {
 
         db.read {
             assertEquals(listOf(ada), Users.list<User> { where { "email" eq ada.email.value } })
-            assertEquals(listOf(alan), Users.list<User> { where { "id" eq alan.id } })
-            assertEquals(emptyList(), Users.list<User> { where { "id" eq uuid("nobody") } })
+            assertEquals(listOf(alan), Users.list<User> { where { "id" eq alan.id.toString() } })
+            assertEquals(emptyList(), Users.list<User> { where { "id" eq uuid("nobody").toString() } })
         }
+    }
+
+    @Test
+    fun `getting a document by id uses the id index`() = runTest {
+        val db = NoSqlite { +Users }
+        val sql = Queries.selectSql(
+            Users,
+            Query(Users.id(ada.id).condition, emptyList(), limit = 1, offset = 0),
+        ).sql
+
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "'${ada.id}'")).joinToString { it.last()!! }
+
+        assertTrue(idIndexName(Users) in plan, plan)
     }
 
     @Test
     fun `a condition on id uses the id index`() = runTest {
         val db = NoSqlite { +Users }
-        val condition = where { "id" eq ada.id }.render(inline = true).sql
+        val condition = where { "id" eq ada.id.toString() }.render(inline = true).sql
 
-        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM users WHERE $condition").joinToString {
+        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM nsq_users WHERE $condition").joinToString {
             it.last()!!
         }
 
@@ -177,7 +191,7 @@ internal class IndexTest {
         val db = NoSqlite { +Users }
         val condition = where { ("nickname" eq "twin") and "active".isTrue() }.render(inline = true).sql
 
-        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM users WHERE $condition").joinToString {
+        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM nsq_users WHERE $condition").joinToString {
             it.last()!!
         }
 
@@ -195,6 +209,46 @@ internal class IndexTest {
     }
 
     @Test
+    fun `users and users_id both open`() = runTest {
+        val users = object : Collection("users") {
+            val byEmail = index("email")
+        }
+        val usersId = object : Collection("users_id") {
+            val byEmail = index("email")
+        }
+        val db = NoSqlite {
+            +users
+            +usersId
+        }
+
+        db.write {
+            users.insert(ada)
+            usersId.insert(ada)
+        }
+
+        assertEquals(listOf(ada), db.read { users.list<User>() })
+        assertEquals(listOf(ada), db.read { usersId.list<User>() })
+        assertEquals(
+            setOf(users.byEmail.name, usersId.byEmail.name, idIndexName(users), idIndexName(usersId)),
+            db.indexNames(),
+        )
+    }
+
+    @Test
+    fun `stored index names use the idx prefix and no colon`() = runTest {
+        val db = NoSqlite { +Users }
+        db.read { }
+
+        val names = db.querySql(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite%'",
+        ).map { it.single()!! }
+        val collection: Collection = Users
+
+        assertEquals(setOf(idIndexName(Users)) + collection.indexes.map { it.name }, names.toSet())
+        assertTrue(names.all { it.startsWith("nsq_idx_users_") && ':' !in it })
+    }
+
+    @Test
     fun `same index declared twice is rejected`() {
         val error = assertFailsWith<IllegalArgumentException> {
             object : Collection("twice") {
@@ -208,4 +262,4 @@ internal class IndexTest {
 }
 
 /** Kotlin/Native cannot link an internal member read through a test object. */
-private fun idIndexName(collection: Collection): String = collection.idIndex.name
+private fun idIndexName(collection: Collection): String = Queries.idIndexName(collection)

@@ -3,17 +3,14 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.serializer
 import kotlin.reflect.KProperty1
-import kotlin.uuid.Uuid
 
 /**
  * A named set of JSON object documents, stored in its own table. The documents are the JSON itself: each read decodes
  * them into the type it asks for, and a typed write changes only the fields its type declares, so fields the app
  * doesn't know yet survive. Create one directly, or extend it to declare indexes, and list it in `NoSqlite { }`.
- * Every document has an `id`, a [kotlin.uuid.Uuid] string: required, unique and immutable. Pass `tracked = true` to
+ * Every document has an `id`, stored as [kotlin.uuid.Uuid.toString]: required, unique and immutable. Pass `tracked = true` to
  * record every insert, update and delete.
  * ```
  * val Notes = Collection("notes")
@@ -34,15 +31,12 @@ public open class Collection(public val name: String, public val tracked: Boolea
         requireCollectionName(name)
     }
 
-    /** The unique index on [ID]. It is not declared with the collection's indexes; schema setup always keeps it. */
-    internal val idIndex: Index = Index(this, listOf(Path(ID)), isUnique = true, where = null)
-
     internal val indexes: List<Index>
         field = mutableListOf()
 
     /** An index on [fields], in order; with [where] only matching documents are indexed. */
     protected fun index(vararg fields: String, where: (WhereScope.() -> Where)? = null): Index =
-        register(Index(this, fields.map(::Path), isUnique = false, where?.let(::where)))
+        register(Index(this, fields.map(::Path), where?.let(::where)))
 
     /** An index on property [fields], named by their property names. */
     protected fun index(vararg fields: Field<*, *>, where: (WhereScope.() -> Where)? = null): Index =
@@ -63,9 +57,11 @@ public open class Collection(public val name: String, public val tracked: Boolea
 private val CollectionName = Regex("[A-Za-z_][A-Za-z0-9_]*")
 
 internal fun requireCollectionName(name: String) {
-    require(name.matches(CollectionName)) { "Invalid collection name: '$name'" }
+    require(name.matches(CollectionName) && !name.startsWith("idx")) { "Invalid collection name: '$name'" }
     require(!name.startsWith("sqlite_", ignoreCase = true)) { "Collection name is reserved by SQLite: '$name'" }
-    require(name != PENDING_CHANGES && name != TRACKING_STATE) { "Collection name is reserved: '$name'" }
+    require(tableName(name) != PENDING_CHANGES && tableName(name) != TRACKING_STATE) {
+        "Collection name is reserved: '$name'"
+    }
 }
 
 /** Inserts [value] as a new document; it must encode to a JSON object. */
@@ -75,7 +71,6 @@ public suspend inline fun <reified T> Collection.insert(value: T): Unit = insert
 context(_: WriteScope)
 public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
     val json = encode(serializer, value)
-    requireDocumentId(json)
     withConnection { Queries.insert(this@insert).execute(json) }
     changed()
 }
@@ -99,8 +94,8 @@ public suspend fun Collection.count(condition: (WhereScope.() -> Where)? = null)
     withConnection { Queries.count(this@count, condition?.let(::where)).execute() }
 
 /**
- * Applies [value] as a JSON merge patch to every document matching [condition], so match on a unique field to update
- * one: its fields replace theirs, a `null` removes one, and fields it doesn't have are kept. The result is how many
+ * Applies [value] as a JSON merge patch to every document matching [condition], so match on `id` to update one:
+ * its fields replace theirs, a `null` removes one, and fields it doesn't have are kept. The result is how many
  * documents were updated.
  */
 context(_: WriteScope)
@@ -127,7 +122,6 @@ public suspend fun <T> Collection.replace(
     condition: WhereScope.() -> Where,
 ): Int {
     val json = encode(serializer, value)
-    requireDocumentId(json)
     val replaced = withConnection { Queries.replace(this@replace, json, where(condition)).execute() }
     if (replaced > 0) changed()
     return replaced
@@ -142,43 +136,12 @@ public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
 }
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
-internal val Collection.table: String get() = identifier(name)
+internal val Collection.table: String get() = identifier(tableName(name))
 
 internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String {
     val json = NoSqlite.Json.encodeToString(serializer, value)
     require(json.startsWith('{')) { "A document of '$name' must be a JSON object, not $json" }
     return json
-}
-
-/** The JSON key of the id every document carries. */
-internal const val ID: String = "id"
-
-/**
- * [id] is a canonical [Uuid] string, the form [Uuid.toString] returns: 36 lowercase hex characters with hyphens.
- * [Uuid.parse] also accepts other spellings, and those are rejected.
- */
-internal fun requireUuid(id: String) {
-    val parsed = try {
-        Uuid.parse(id)
-    } catch (e: IllegalArgumentException) {
-        throw IllegalArgumentException("Id must be a UUID string, not '$id'", e)
-    }
-    require(parsed.toString() == id) { "Id must be a UUID string, not '$id'" }
-}
-
-/** [json] is an object whose [ID] is a canonical UUID string. */
-internal fun Collection.requireDocumentId(json: String) {
-    val element = (NoSqlite.Json.parseToJsonElement(json) as? JsonObject)?.get(ID)
-        ?: throw IllegalArgumentException("A document of '$name' must have an id")
-    if (element !is JsonPrimitive || !element.isString) {
-        throw IllegalArgumentException("A document of '$name' must have a UUID string id, not $element")
-    }
-    val id = element.content
-    try {
-        requireUuid(id)
-    } catch (e: IllegalArgumentException) {
-        throw IllegalArgumentException("A document of '$name' must have a UUID string id, not '$id'", e)
-    }
 }
 
 /**
@@ -196,8 +159,6 @@ context(_: ReadScope)
 internal suspend fun <R> Collection.withConnection(block: suspend context(Connection) () -> R): R =
     mapErrors(this) { context(connection()) { block() } }
 
-private val IndexName = Regex("index '([^']+)'")
-
 private val ErrorCode = Regex("^Error code: (\\d+)")
 
 // SQLITE_BUSY and SQLITE_LOCKED, with their extended codes, which keep the primary code in the low byte.
@@ -205,9 +166,9 @@ private val BusyCodes = setOf(5, 6)
 
 /**
  * Runs [block], making SQLite's errors typed: a locked database for any statement, and for one about [collection]
- * its missing table, a duplicate id and an id change. Only declared collections have a table, so SQLite not knowing
- * this collection's table means it wasn't declared. A unique constraint is a duplicate id only when it names the id
- * index; any other unique index is left as the driver's exception. IdTest pins the message text for the bundled driver.
+ * its missing table, an id that is not a lowercase canonical UUID, a duplicate id and an id change. Only declared
+ * collections have a table, so SQLite not knowing this collection's table means it wasn't declared. A unique
+ * constraint is a duplicate id. IdTest pins the message text for the bundled driver.
  */
 internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R): R = try {
     block()
@@ -219,14 +180,13 @@ internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R
 
         collection == null -> throw e
 
-        "no such table: ${collection.name}" in message ->
+        "no such table: ${tableName(collection.name)}" in message ->
             throw NoSqliteException.CollectionNotDeclared(collection.name, e)
 
-        "UNIQUE constraint failed" in message -> {
-            val index = IndexName.find(message)?.groupValues?.get(1)
-            if (index == collection.idIndex.name) throw NoSqliteException.DuplicateId(collection.name, e)
-            throw e
-        }
+        "CHECK constraint failed: document_id" in message ->
+            throw NoSqliteException.InvalidId(collection.name, e)
+
+        "UNIQUE constraint failed" in message -> throw NoSqliteException.DuplicateId(collection.name, e)
 
         "id is immutable" in message -> throw NoSqliteException.ImmutableId(collection.name, e)
 

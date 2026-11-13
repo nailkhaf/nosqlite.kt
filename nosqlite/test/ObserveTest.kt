@@ -14,6 +14,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
@@ -23,7 +24,7 @@ import kotlin.test.assertTrue
 internal class ObserveTest {
 
     @Serializable
-    data class User(val id: String, val age: Int)
+    data class User(val id: Uuid, val age: Int)
 
     object Users : Collection("users") {
         val byAge = index("age")
@@ -34,7 +35,7 @@ internal class ObserveTest {
     private val ada = User(uuid("ada"), 36)
     private val alan = User(uuid("alan"), 41)
     private val cid = User(uuid("cid"), 36)
-    private val note = buildJsonObject { put("id", uuid("note")); put("text", "hi") }
+    private val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
     private fun TestScope.database() = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
         +Users
@@ -63,7 +64,7 @@ internal class ObserveTest {
 
         db.write { Users.insert(ada) }
         db.write { Users.upsert(alan) }
-        db.write { Users.update(alan.copy(age = 42)) { "id" eq alan.id } }
+        db.write { Users.update(alan.copy(age = 42)) { "id" eq alan.id.toString() } }
         db.write { Users.id(ada.id).delete() }
 
         assertEquals(
@@ -182,7 +183,7 @@ internal class ObserveTest {
 
         db.write { Users.insert(ada) }
         repeat(100) { i ->
-            db.write { Notes.insert(buildJsonObject { put("id", uuid("note-$i")); put("text", "hi") }) }
+            db.write { Notes.insert(buildJsonObject { put("id", uuid("note-$i").toString()); put("text", "hi") }) }
         }
         runCurrent()
 
@@ -201,7 +202,7 @@ internal class ObserveTest {
             }
         }
         db.write { Users.delete { "age" gt 100 } }
-        db.write { Users.update(User(uuid("x"), 1)) { "id" eq uuid("nobody") } }
+        db.write { Users.update(User(uuid("x"), 1)) { "id" eq uuid("nobody").toString() } }
         db.write { Users.id(uuid("nobody")).delete() }
 
         assertEquals(mapOf("users" to 1L), db.versions.value)

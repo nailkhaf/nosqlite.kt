@@ -19,12 +19,13 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 /** Covers change tracking: triggers, the pending queue, and untracked writes. */
 internal class TrackingTest {
 
     @Serializable
-    data class Contact(val id: String, val email: String, val name: String, val age: Int)
+    data class Contact(val id: Uuid, val email: String, val name: String, val age: Int)
 
     object Contacts : Collection("contacts", tracked = true) {
         val byAge = index("age")
@@ -37,8 +38,8 @@ internal class TrackingTest {
     private val ada = contact("ada", 36)
     private val alan = contact("alan", 41)
     private val grace = contact("grace", 36)
-    private val note = buildJsonObject { put("id", uuid("note")); put("text", "hi") }
-    private val anotherNote = buildJsonObject { put("id", uuid("note-2")); put("text", "hi") }
+    private val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
+    private val anotherNote = buildJsonObject { put("id", uuid("note-2").toString()); put("text", "hi") }
 
     private fun contact(id: String, age: Int, name: String = id.replaceFirstChar { it.uppercase() }) =
         Contact(uuid(id), "$id@x.com", name, age)
@@ -53,18 +54,18 @@ internal class TrackingTest {
 
     private fun recorded(
         id: Long,
-        documentId: String,
+        documentId: Uuid,
         action: PendingChange.Action,
         changeSet: JsonObject,
         collection: String = Contacts.name,
-    ) = PendingChange(id, collection, documentId, action, changeSet, Instant.fromEpochMilliseconds(0))
+    ) = PendingChange(id, collection, documentId.toString(), action, changeSet, Instant.fromEpochMilliseconds(0))
 
     private fun inserted(id: Long, contact: Contact) = recorded(id, contact.id, PendingChange.Action.Insert, contact.json())
 
-    private fun updated(id: Long, documentId: String, changeSet: JsonObject) =
+    private fun updated(id: Long, documentId: Uuid, changeSet: JsonObject) =
         recorded(id, documentId, PendingChange.Action.Update, changeSet)
 
-    private fun deleted(id: Long, documentId: String) =
+    private fun deleted(id: Long, documentId: Uuid) =
         recorded(id, documentId, PendingChange.Action.Delete, buildJsonObject { })
 
     private suspend fun changes(db: NoSqlite): List<PendingChange> = db.read { pendingChanges() }.withoutTime()
@@ -154,18 +155,18 @@ internal class TrackingTest {
             Contacts.insert(grace)
         }
         assertEquals(2, db.write { Contacts.update(buildJsonObject { put("age", 99) }) { "age" eq 36 } })
-        assertEquals(1, db.write { Contacts.replace(replaced) { "id" eq ada.id } })
+        assertEquals(1, db.write { Contacts.replace(replaced) { "id" eq ada.id.toString() } })
         assertEquals(2, db.write { Contacts.delete { "age" gte 36 } })
 
         assertEquals(
             setOf(
-                Triple(ada.id, PendingChange.Action.Insert, ada.json()),
-                Triple(grace.id, PendingChange.Action.Insert, grace.json()),
-                Triple(ada.id, PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
-                Triple(grace.id, PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
-                Triple(ada.id, PendingChange.Action.Update, buildJsonObject { put("name", "Augusta") }),
-                Triple(ada.id, PendingChange.Action.Delete, buildJsonObject { }),
-                Triple(grace.id, PendingChange.Action.Delete, buildJsonObject { }),
+                Triple(ada.id.toString(), PendingChange.Action.Insert, ada.json()),
+                Triple(grace.id.toString(), PendingChange.Action.Insert, grace.json()),
+                Triple(ada.id.toString(), PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
+                Triple(grace.id.toString(), PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
+                Triple(ada.id.toString(), PendingChange.Action.Update, buildJsonObject { put("name", "Augusta") }),
+                Triple(ada.id.toString(), PendingChange.Action.Delete, buildJsonObject { }),
+                Triple(grace.id.toString(), PendingChange.Action.Delete, buildJsonObject { }),
             ),
             changes(db).bodies(),
         )
@@ -187,14 +188,14 @@ internal class TrackingTest {
 
         assertEquals(
             setOf(
-                Triple(ada.id, PendingChange.Action.Insert, ada.json()),
-                Triple(alan.id, PendingChange.Action.Insert, alan.json()),
-                Triple(grace.id, PendingChange.Action.Insert, grace.json()),
-                Triple(ada.id, PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
-                Triple(grace.id, PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
-                Triple(alan.id, PendingChange.Action.Update, buildJsonObject { put("name", "Alan Turing") }),
-                Triple(ada.id, PendingChange.Action.Delete, buildJsonObject { }),
-                Triple(grace.id, PendingChange.Action.Delete, buildJsonObject { }),
+                Triple(ada.id.toString(), PendingChange.Action.Insert, ada.json()),
+                Triple(alan.id.toString(), PendingChange.Action.Insert, alan.json()),
+                Triple(grace.id.toString(), PendingChange.Action.Insert, grace.json()),
+                Triple(ada.id.toString(), PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
+                Triple(grace.id.toString(), PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
+                Triple(alan.id.toString(), PendingChange.Action.Update, buildJsonObject { put("name", "Alan Turing") }),
+                Triple(ada.id.toString(), PendingChange.Action.Delete, buildJsonObject { }),
+                Triple(grace.id.toString(), PendingChange.Action.Delete, buildJsonObject { }),
             ),
             changes(db).bodies(),
         )
@@ -206,9 +207,9 @@ internal class TrackingTest {
         db.write { Contacts.insert(ada) }
 
         db.write {
-            assertEquals(0, Contacts.update(ada.copy(age = 1)) { "id" eq uuid("nobody") })
-            assertEquals(0, Contacts.replace(ada) { "id" eq uuid("nobody") })
-            assertEquals(0, Contacts.delete { "id" eq uuid("nobody") })
+            assertEquals(0, Contacts.update(ada.copy(age = 1)) { "id" eq uuid("nobody").toString() })
+            assertEquals(0, Contacts.replace(ada) { "id" eq uuid("nobody").toString() })
+            assertEquals(0, Contacts.delete { "id" eq uuid("nobody").toString() })
             assertEquals(false, Contacts.id(uuid("nobody")).delete())
             assertEquals(0, Contacts.byAge(1).delete())
         }
@@ -258,7 +259,7 @@ internal class TrackingTest {
             }
         }
 
-        assertEquals(listOf(listOf("0")), db.querySql("SELECT untracked FROM __tracking_state"))
+        assertEquals(listOf(listOf("0")), db.querySql("SELECT untracked FROM nsq__tracking_state"))
         db.write { Contacts.insert(grace) }
         assertEquals(
             listOf(inserted(1, ada), inserted(2, grace)),
@@ -304,17 +305,17 @@ internal class TrackingTest {
     }
 
     @Test
-    fun `a plain collection has no triggers and no pending changes`() = runTest {
+    fun `a plain collection keeps its id trigger and records nothing`() = runTest {
         val db = NoSqlite { +Notes }
 
         db.write { Notes.insert(note) }
 
         assertEquals(emptyList(), db.read { pendingChanges() })
-        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger'"))
         assertEquals(
-            listOf(listOf("nsq_notes_id")),
-            db.querySql("SELECT name FROM sqlite_temp_schema WHERE type = 'trigger'"),
+            listOf(listOf("nsq_notes_id_immutable")),
+            db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger'"),
         )
+        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_temp_schema WHERE type = 'trigger'"))
     }
 
     @Test
@@ -329,19 +330,34 @@ internal class TrackingTest {
         assertEquals(
             listOf(
                 "nsq_contacts_delete",
-                "nsq_contacts_id",
                 "nsq_contacts_insert",
                 "nsq_contacts_update",
-                "nsq_notes_id",
             ),
             db.tempTriggers(),
         )
-        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger'"))
+        assertEquals(
+            listOf(listOf("nsq_contacts_id_immutable"), listOf("nsq_notes_id_immutable")),
+            db.querySql("SELECT name FROM sqlite_schema WHERE type = 'trigger' ORDER BY name"),
+        )
         val sql = db.tempTriggerSql().joinToString("\n")
         assertTrue("OLD.data" in sql && "NEW.data" in sql)
-        val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = '__pending_changes'").single().single()
+        val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'nsq__pending_changes'").single().single()
         assertTrue("AUTOINCREMENT" in table!!)
         assertEquals(listOf(inserted(1, ada)), changes(db))
+    }
+
+    @Test
+    fun `stored trigger names use an underscore suffix and no colon`() = runTest {
+        val db = database()
+        db.read { }
+
+        val main = db.querySql("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name")
+            .map { it.single()!! }
+        val temp = db.tempTriggers()
+
+        assertEquals(listOf("nsq_contacts_id_immutable", "nsq_notes_id_immutable"), main)
+        assertEquals(listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_update"), temp)
+        assertTrue((main + temp).all { ':' !in it })
     }
 
     @Test
@@ -357,12 +373,12 @@ internal class TrackingTest {
         db.write { Notes.insert(note) }
 
         assertEquals(1, log.size, log.joinToString("\n"))
-        assertTrue("notes" in log.single())
-        assertTrue(log.none { "__tracking_state" in it || "__pending_changes" in it })
+        assertTrue("nsq_notes" in log.single())
+        assertTrue(log.none { "nsq__tracking_state" in it || "nsq__pending_changes" in it })
 
         log.clear()
         db.write(untracked = true) { Notes.insert(anotherNote) }
-        assertEquals(listOf("UPDATE __tracking_state SET untracked = ?;"), log)
+        assertEquals(listOf("""UPDATE "nsq__tracking_state" SET untracked = ?;"""), log)
     }
 
     @Test
@@ -404,7 +420,7 @@ internal class TrackingTest {
                 changes(second),
             )
             assertEquals(
-                listOf("nsq_contacts_delete", "nsq_contacts_id", "nsq_contacts_insert", "nsq_contacts_update"),
+                listOf("nsq_contacts_delete", "nsq_contacts_insert", "nsq_contacts_update"),
                 second.tempTriggers(),
             )
             second.close()
@@ -421,7 +437,7 @@ internal class TrackingTest {
             PendingChange(
                 id,
                 Contacts.name,
-                ada.id,
+                ada.id.toString(),
                 PendingChange.Action.Delete,
                 buildJsonObject { },
                 Instant.fromEpochMilliseconds(0),
@@ -441,7 +457,7 @@ internal class TrackingTest {
         val original = nested(id, "Lovelace", listOf("a", "b"))
         db.write { People.insert(original) }
 
-        db.write { People.replace(nested(id, "Byron", listOf("a", "b"))) { "id" eq id } }
+        db.write { People.replace(nested(id, "Byron", listOf("a", "b"))) { "id" eq id.toString() } }
 
         assertEquals(
             listOf(
@@ -464,13 +480,13 @@ internal class TrackingTest {
         val id = uuid("ada")
         db.write { People.insert(nested(id, "Lovelace", listOf("a", "b"))) }
         val removed = buildJsonObject {
-            put("id", id)
+            put("id", id.toString())
             put("name", buildJsonObject { put("first", "Ada") })
             put("age", 36)
             put("tags", buildJsonArray { add(JsonPrimitive("a")); add(JsonPrimitive("b")) })
         }
 
-        db.write { People.replace(removed) { "id" eq id } }
+        db.write { People.replace(removed) { "id" eq id.toString() } }
 
         assertEquals(
             buildJsonObject { put("name", buildJsonObject { put("last", JsonNull) }) },
@@ -484,7 +500,7 @@ internal class TrackingTest {
         val id = uuid("ada")
         db.write { People.insert(nested(id, "Lovelace", listOf("a", "b"))) }
 
-        db.write { People.replace(nested(id, "Lovelace", listOf("a", "c"))) { "id" eq id } }
+        db.write { People.replace(nested(id, "Lovelace", listOf("a", "c"))) { "id" eq id.toString() } }
 
         assertEquals(
             buildJsonObject { put("tags", buildJsonArray { add(JsonPrimitive("a")); add(JsonPrimitive("c")) }) },
@@ -509,7 +525,7 @@ internal class TrackingTest {
         val db = database()
         db.write { Contacts.insert(ada) }
 
-        db.write { Contacts.update(buildJsonObject { put("age", ada.age) }) { "id" eq ada.id } }
+        db.write { Contacts.update(buildJsonObject { put("age", ada.age) }) { "id" eq ada.id.toString() } }
         db.write { Contacts.upsert(ada) }
 
         assertEquals(listOf(inserted(1, ada)), changes(db))
@@ -520,9 +536,9 @@ internal class TrackingTest {
     fun `a boolean change stays a boolean`() = runTest {
         val db = NoSqlite { +People }
         val id = uuid("ada")
-        db.write { People.insert(buildJsonObject { put("id", id); put("done", false) }) }
+        db.write { People.insert(buildJsonObject { put("id", id.toString()); put("done", false) }) }
 
-        db.write { People.replace(buildJsonObject { put("id", id); put("done", true) }) { "id" eq id } }
+        db.write { People.replace(buildJsonObject { put("id", id.toString()); put("done", true) }) { "id" eq id.toString() } }
 
         assertEquals(buildJsonObject { put("done", true) }, db.read { pendingChanges() }.last().changeSet)
     }
@@ -531,9 +547,9 @@ internal class TrackingTest {
     fun `a number changed to a boolean is recorded`() = runTest {
         val db = NoSqlite { +People }
         val id = uuid("ada")
-        db.write { People.insert(buildJsonObject { put("id", id); put("done", 1) }) }
+        db.write { People.insert(buildJsonObject { put("id", id.toString()); put("done", 1) }) }
 
-        db.write { People.replace(buildJsonObject { put("id", id); put("done", true) }) { "id" eq id } }
+        db.write { People.replace(buildJsonObject { put("id", id.toString()); put("done", true) }) { "id" eq id.toString() } }
 
         assertEquals(buildJsonObject { put("done", true) }, db.read { pendingChanges() }.last().changeSet)
     }
@@ -542,14 +558,14 @@ internal class TrackingTest {
     fun `number values keep their exact json text`() = runTest {
         val db = NoSqlite { +People }
         val id = uuid("ada")
-        db.write { People.insert(buildJsonObject { put("id", id); put("n", 0) }) }
+        db.write { People.insert(buildJsonObject { put("id", id.toString()); put("n", 0) }) }
         val numbers = listOf("0.30000000000000004", "123456789012345678901234567890", "-0.0")
 
         for (number in numbers) {
-            db.pool().writeSql { execute("UPDATE people SET data = jsonb('{\"id\":\"$id\",\"n\":$number}')") }
+            db.pool().writeSql { execute("UPDATE nsq_people SET data = jsonb('{\"id\":\"$id\",\"n\":$number}')") }
         }
 
-        val patches = db.querySql("SELECT json(change_set) FROM __pending_changes ORDER BY id").map { it.single() }
+        val patches = db.querySql("SELECT json(change_set) FROM nsq__pending_changes ORDER BY id").map { it.single() }
         assertEquals(
             numbers.map { """{"n":$it}""" },
             patches.drop(1),
@@ -564,7 +580,7 @@ internal class TrackingTest {
         db.write {
             People.insert(
                 buildJsonObject {
-                    put("id", id)
+                    put("id", id.toString())
                     put("a[0]", "old")
                     put("a[b", "gone")
                     put("a.b", 1)
@@ -577,13 +593,13 @@ internal class TrackingTest {
         db.write {
             People.replace(
                 buildJsonObject {
-                    put("id", id)
+                    put("id", id.toString())
                     put("a[0]", "new")
                     put(quote, "y")
                     put("x]", true)
                     put("n", buildJsonObject { put("a[0]", "new"); put("mid", JsonNull) })
                 },
-            ) { "id" eq id }
+            ) { "id" eq id.toString() }
         }
 
         assertEquals(
@@ -603,15 +619,15 @@ internal class TrackingTest {
     fun `a key order change queues nothing`() = runTest {
         val db = NoSqlite { +People }
         val id = uuid("ada")
-        db.write { People.insert(buildJsonObject { put("id", id); put("a", 1); put("z", 2) }) }
+        db.write { People.insert(buildJsonObject { put("id", id.toString()); put("a", 1); put("z", 2) }) }
 
-        db.write { People.replace(buildJsonObject { put("id", id); put("z", 2); put("a", 1) }) { "id" eq id } }
+        db.write { People.replace(buildJsonObject { put("id", id.toString()); put("z", 2); put("a", 1) }) { "id" eq id.toString() } }
 
         assertEquals(1, db.read { pendingChanges() }.size)
     }
 
-    private fun nested(id: String, last: String, tags: List<String>): JsonObject = buildJsonObject {
-        put("id", id)
+    private fun nested(id: Uuid, last: String, tags: List<String>): JsonObject = buildJsonObject {
+        put("id", id.toString())
         put("name", buildJsonObject { put("first", "Ada"); put("last", last) })
         put("age", 36)
         put("tags", buildJsonArray { tags.forEach { add(JsonPrimitive(it)) } })
