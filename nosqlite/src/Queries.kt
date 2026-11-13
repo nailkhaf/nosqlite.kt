@@ -4,6 +4,7 @@ import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 /** The JSON key of the id every document carries. */
 internal const val ID: String = "id"
@@ -137,7 +138,7 @@ internal object Queries {
     val createPendingChanges: Command<Unit> = command(
         """
         CREATE TABLE IF NOT EXISTS ${identifier(PENDING_CHANGES)} (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BLOB NOT NULL DEFAULT (randomblob(16)),
             collection TEXT NOT NULL,
             before BLOB,
             after BLOB,
@@ -149,12 +150,12 @@ internal object Queries {
     val pendingChanges: Statement<Unit, List<PendingChange>> = Statement(
         sql = """
             SELECT id, collection, json(before), json(after), timestamp
-            FROM ${identifier(PENDING_CHANGES)} ORDER BY id;
+            FROM ${identifier(PENDING_CHANGES)} ORDER BY rowid;
         """.trimIndent(),
         encode = {},
         decode = rows {
             PendingChange(
-                id = getLong(0),
+                id = Uuid.fromByteArray(getBlob(0)),
                 collection = getText(1),
                 before = jsonObjectOrNull(2),
                 after = jsonObjectOrNull(3),
@@ -163,10 +164,10 @@ internal object Queries {
         },
     )
 
-    /** Deletes the ids bound as one JSON array, such as `[1,2,3]`. */
-    val deletePendingChanges: Statement<List<Long>, Unit> = Statement(
-        sql = "DELETE FROM ${identifier(PENDING_CHANGES)} WHERE id IN (SELECT value FROM json_each(?));",
-        encode = { ids -> bindText(1, ids.joinToString(",", "[", "]")) },
+    /** Deletes the ids bound as one JSON array of their hex strings, such as `["…","…"]`. */
+    val deletePendingChanges: Statement<List<Uuid>, Unit> = Statement(
+        sql = "DELETE FROM ${identifier(PENDING_CHANGES)} WHERE id IN (SELECT unhex(value) FROM json_each(?));",
+        encode = { ids -> bindText(1, ids.joinToString(",", "[", "]") { "\"${it.toHexString()}\"" }) },
         decode = { step() },
     )
 
@@ -246,4 +247,3 @@ private fun SQLiteStatement.jsonObjectOrNull(index: Int): JsonObject? {
     if (isNull(index)) return null
     return NoSqlite.Json.parseToJsonElement(getText(index)) as JsonObject
 }
-
