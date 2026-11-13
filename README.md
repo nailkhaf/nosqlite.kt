@@ -273,7 +273,7 @@ rows, so a change written after they were read stays. Each row is timestamped wi
 `write(untracked = true)` records nothing and does not nest inside another write. Inside it, `upsert(name, document)`
 and `delete(name, id)` address a collection by name, with the same id check and merge as a typed upsert. A name the
 schema does not have gets its table, id index, and id trigger, and the schema keeps that name once the write commits.
-`delete` of a name the schema does not have does nothing. A typed write that is not untracked, and a read whose table
+`delete` of a collection that has no table does nothing. A typed write that is not untracked, and a read whose table
 does not exist, still fail with `CollectionNotDeclared`.
 The queue is append-only. A collection that is not tracked records nothing. Rows queued before a collection stopped
 being tracked stay readable until they are removed. The id trigger is created with the table, so the id stays immutable.

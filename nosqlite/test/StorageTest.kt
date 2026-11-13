@@ -413,6 +413,23 @@ internal class StorageTest {
     }
 
     @Test
+    fun `a by-name delete reaches a table created before the database reopened`() = runTest {
+        withTempFile { location ->
+            val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
+            val first = NoSqlite(location) { }
+            first.write(untracked = true) { upsert("notes", note) }
+            first.close()
+
+            val second = NoSqlite(location) { }
+            val deleted = second.write(untracked = true) { delete("notes", uuid("note")) }
+
+            assertTrue(deleted)
+            assertEquals(0L, second.read { Notes.count() })
+            second.close()
+        }
+    }
+
+    @Test
     fun `an invalid collection name is rejected by a by-name change`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }

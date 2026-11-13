@@ -94,6 +94,9 @@ public suspend fun <T> Lookup.Many.replace(serializer: KSerializer<T>, value: T)
 context(_: WriteScope)
 public suspend fun Lookup.Many.delete(): Int = index.collection.delete { condition }
 
+internal fun idCondition(value: Uuid): Where =
+    Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
+
 /**
  * The document of a collection whose id is [value]. There is at most one.
  * The document's `id` field stores [Uuid.toString].
@@ -103,9 +106,6 @@ public suspend fun Lookup.Many.delete(): Int = index.collection.delete { conditi
  * Users.upsert(ada)
  * ```
  */
-internal fun idCondition(value: Uuid): Where =
-    Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
-
 public class Id internal constructor(internal val collection: Collection, public val value: Uuid) {
     internal val condition: Where = idCondition(value)
 
