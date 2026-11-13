@@ -27,10 +27,16 @@ public class WriteScope internal constructor(
     internal val created: MutableSet<String> = mutableSetOf()
 }
 
-/** Records that the current write changed this collection. */
+/** Records that the current write changed the collection [name]. */
 context(scope: WriteScope)
-internal fun Collection.changed() {
+internal fun changed(name: String) {
     scope.changed += name
+}
+
+/** Records that the current write changed this collection. */
+context(_: WriteScope)
+internal fun Collection.changed() {
+    changed(name)
 }
 
 context(scope: ReadScope)

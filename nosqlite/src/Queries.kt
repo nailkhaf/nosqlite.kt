@@ -29,12 +29,12 @@ internal object Queries {
      * The collection table, then its id index `nsq_idx_<collection>_id`, then the trigger
      * `nsq_<collection>_id_immutable`, in that order. The caller runs them in its write transaction.
      */
-    fun createTable(collection: Collection): List<Command<Unit>> =
+    fun createTable(collection: String): List<Command<Unit>> =
         listOf(table(collection), idIndex(collection), idTrigger(collection))
 
-    private fun table(collection: Collection): Command<Unit> = command(
+    private fun table(collection: String): Command<Unit> = command(
         """
-        CREATE TABLE IF NOT EXISTS ${collection.table} (
+        CREATE TABLE IF NOT EXISTS ${quoted(collection)} (
             data BLOB NOT NULL,
             CONSTRAINT document_id CHECK (json_type(data, '$.$ID') IS 'text' AND ($ID_VALUE) GLOB '$CANONICAL_UUID_GLOB')
         ) STRICT;
@@ -56,11 +56,11 @@ internal object Queries {
         },
     )
 
-    fun idIndexName(collection: Collection): String = indexName(collection.name, "id")
+    fun idIndexName(collection: String): String = indexName(collection, "id")
 
-    private fun idIndex(collection: Collection): Command<Unit> = command(
+    private fun idIndex(collection: String): Command<Unit> = command(
         "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(idIndexName(collection))} " +
-            "ON ${collection.table} ($ID_VALUE);",
+            "ON ${quoted(collection)} ($ID_VALUE);",
     )
 
     fun createIndex(index: Index): Command<Unit> = command(
@@ -99,12 +99,12 @@ internal object Queries {
         (Fragment("UPDATE ${collection.table} SET data = jsonb(?) WHERE ", listOf(SqlValue.Text(json))) +
             condition.render() + RETURNING).statement(countRows)
 
-    fun delete(collection: Collection, condition: Where): Statement<Unit, Int> =
-        (Fragment("DELETE FROM ${collection.table} WHERE ") + condition.render() + RETURNING).statement(countRows)
+    fun delete(collection: String, condition: Where): Statement<Unit, Int> =
+        (Fragment("DELETE FROM ${quoted(collection)} WHERE ") + condition.render() + RETURNING).statement(countRows)
 
     /** Inserts the input JSON, or applies it as a merge patch to the document with the same id. */
-    fun upsert(collection: Collection): Statement<String, Unit> = Statement(
-        sql = "INSERT INTO ${collection.table} (data) VALUES (jsonb(?1)) " +
+    fun upsert(collection: String): Statement<String, Unit> = Statement(
+        sql = "INSERT INTO ${quoted(collection)} (data) VALUES (jsonb(?1)) " +
             "ON CONFLICT ($ID_VALUE) DO UPDATE SET data = jsonb_patch(data, ?1);",
         encode = { json -> bindText(1, json) },
         decode = { step() },
@@ -116,9 +116,9 @@ internal object Queries {
      * `main` cannot read the temp tracking-state table. `RAISE(ABORT)` undoes the statement and leaves the rest of
      * the transaction in place.
      */
-    private fun idTrigger(collection: Collection): Command<Unit> = command("""
-        CREATE TRIGGER IF NOT EXISTS main.${identifier(triggerName(collection.name, "id_immutable"))}
-        BEFORE UPDATE ON ${collection.table}
+    private fun idTrigger(collection: String): Command<Unit> = command("""
+        CREATE TRIGGER IF NOT EXISTS main.${identifier(triggerName(collection, "id_immutable"))}
+        BEFORE UPDATE ON ${quoted(collection)}
         WHEN OLD.data ->> '$.$ID' IS NOT NEW.data ->> '$.$ID'
         BEGIN
             SELECT RAISE(ABORT, 'id is immutable');
@@ -226,6 +226,9 @@ internal object Queries {
 
 // Identifiers can't be bound, so they are quoted into the SQL text with their own quotes doubled.
 internal fun identifier(name: String): String = "\"${name.replace("\"", "\"\"")}\""
+
+// Queries.table builds the CREATE TABLE command and hides the table-name helper of the same name.
+private fun quoted(name: String): String = table(name)
 
 private fun where(condition: Where?): Fragment =
     condition?.let { Fragment(" WHERE ") + it.render() } ?: Fragment.Empty
