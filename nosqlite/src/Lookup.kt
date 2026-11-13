@@ -156,3 +156,17 @@ public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T) {
     withWriteConnection { Queries.upsert(name).execute(json) }
     changed()
 }
+
+/**
+ * Inserts [value], or stores it as the whole document with its id, as `replace` does: fields the stored document has
+ * and [value] lacks are removed. [value] must carry an id.
+ */
+context(_: WriteScope)
+public suspend inline fun <reified T> Collection.put(value: T): Unit = put(serializer(), value)
+
+context(_: WriteScope)
+public suspend fun <T> Collection.put(serializer: KSerializer<T>, value: T) {
+    val json = encode(serializer, value)
+    withWriteConnection { Queries.put(name).execute(json) }
+    changed()
+}

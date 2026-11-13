@@ -141,7 +141,8 @@ Every document needs an `id`: a `kotlin.uuid.Uuid` string, stored as `Uuid.toStr
 to that string. SQLite checks it on every write. `id(value)` takes that `Uuid` and addresses the one document:
 `get<T>()` returns it or `null`, and
 `update(value)`, `replace(value)` and `delete()` report whether there was one. `observe` on it emits that document,
-or `null` while there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
+or `null` while there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does,
+and `put(value)` inserts it or replaces the one with its id as `replace` does.
 An id never changes: a write that would change it throws `NoSqliteException.ImmutableId`. A missing or non-UUID id
 throws `NoSqliteException.InvalidId`. A second document with the same id throws `NoSqliteException.DuplicateId`.
 
@@ -156,8 +157,9 @@ Inside `db.write { }`:
   match's id: an id is immutable.
 - `delete { condition }` deletes every match.
 - `upsert(value)` inserts the document, or merge-patches the one with its id.
+- `put(value)` inserts the document, or stores it as the whole document with its id, as `replace` does.
 
-`insert` returns nothing. The others return how many documents they touched, and the by-id forms of `update`,
+`insert`, `upsert` and `put` return nothing. The others return how many documents they touched, and the by-id forms of `update`,
 `replace` and `delete` return whether there was one. A write commits when its block returns and rolls back when it
 throws; a nested `write` is a savepoint that rolls back alone. A duplicate id throws `NoSqliteException.DuplicateId`,
 and a changed id throws `NoSqliteException.ImmutableId`; caught inside the write, the transaction goes on. When another
@@ -272,8 +274,8 @@ runs, for example after `observe` on a tracked collection emits. `removePendingC
 rows, so a change written after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
 `write(untracked = true)` records nothing and does not nest inside another write. `put(name, document)` and
 `delete(name, id)` address a collection by name, for applying documents from a sync server, usually in an untracked
-write so they are not recorded. `put` stores the document exactly as given, inserting it or replacing the one with its
-id, so unlike `upsert` it is not a merge patch: fields the document leaves out are removed and `null` fields are kept.
+write so they are not recorded. Like `Collection.put`, `put` inserts the document or replaces the one with its id, so
+fields the document leaves out are removed and `null` fields are kept.
 A name the schema does not have gets its table, id index, and id trigger, and the schema keeps that name once the
 write commits. `delete` of a collection that has no table does nothing. A typed write or a read whose table does not
 exist still fails with `CollectionNotDeclared`.
