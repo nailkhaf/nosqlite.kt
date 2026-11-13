@@ -112,6 +112,17 @@ internal object Queries {
     )
 
     /**
+     * Inserts the input JSON, or replaces the document with the same id by it. An update rather than `REPLACE`, which
+     * would delete the row and fire the delete trigger.
+     */
+    fun put(collection: String): Statement<String, Unit> = Statement(
+        sql = "INSERT INTO ${table(collection)} (data) VALUES (jsonb(?1)) " +
+            "ON CONFLICT ($ID_VALUE) DO UPDATE SET data = excluded.data;",
+        encode = { json -> bindText(1, json) },
+        decode = { step() },
+    )
+
+    /**
      * Rejects an update that changes `id`. Named `nsq_<collection>_id_immutable` and stored in `main` with the table:
      * it reads only `OLD` and `NEW`, so it can be persistent. The tracking triggers stay temp, because a trigger in
      * `main` cannot read the temp tracking-state table. `RAISE(ABORT)` undoes the statement and leaves the rest of

@@ -94,14 +94,14 @@ public class SchemaBuilder internal constructor() {
     }
 }
 
-/** Collection names this database knows: those declared up front, plus any a committed untracked write created. */
+/** Collection names this database knows: those declared up front, plus any a committed write created by name. */
 internal class Schema(builder: SchemaBuilder) {
     private val names = atomic(builder.collections.map { it.name }.toSet())
 
-    /** True when [name] was declared, or a committed untracked write already created its table. */
+    /** True when [name] was declared, or a committed write already created its table by name. */
     internal operator fun contains(name: String): Boolean = name in names.value
 
-    /** Records [name] after a committed untracked write created its table. */
+    /** Records [name] after a committed write created its table by name. */
     internal fun register(name: String) {
         names.update { if (name in it) it else it + name }
     }
@@ -122,8 +122,7 @@ public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R):
  * sequential. Using the database from coroutines launched inside it (`launch`, `async`, parallel flow operators)
  * concurrently is unsupported and can crash; sequential suspension inside the block is fine. Do parallel work
  * outside the transaction, each coroutine in its own [read] or [write], or gather results first and write them in
- * one sequential block. Pass [untracked] to record none of the writes tracked collections do in the block, and to
- * change a collection by name with `upsert(name, document)` and `delete(name, id)`.
+ * one sequential block. Pass [untracked] to record none of the writes tracked collections do in the block.
  */
 public suspend fun <R> NoSqlite.write(
     untracked: Boolean = false,

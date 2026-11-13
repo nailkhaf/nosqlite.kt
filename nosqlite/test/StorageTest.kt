@@ -7,6 +7,7 @@ import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -289,17 +290,21 @@ internal class StorageTest {
     }
 
     @Test
-    fun `a by-name upsert creates the table and the next one reuses it`() = runTest {
+    fun `a by-name put creates the table and the next one replaces the document`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
         val other = buildJsonObject { put("id", uuid("note-2").toString()); put("text", "yo") }
-        val patch = buildJsonObject { put("id", uuid("note").toString()); put("done", true) }
+        val replacement = buildJsonObject {
+            put("id", uuid("note").toString())
+            put("done", true)
+            put("tag", JsonNull)
+        }
 
         db.write(untracked = true) {
-            upsert("notes", note)
-            upsert("notes", other)
+            put("notes", note)
+            put("notes", other)
         }
-        db.write(untracked = true) { upsert("notes", patch) }
+        db.write(untracked = true) { put("notes", replacement) }
 
         assertEquals(
             listOf(
@@ -329,14 +334,14 @@ internal class StorageTest {
         )
         assertEquals(2L, db.read { Notes.count() })
         assertEquals(
-            listOf(listOf("""{"id":"${uuid("note")}","text":"hi","done":true}""")),
+            listOf(listOf("""{"id":"${uuid("note")}","done":true,"tag":null}""")),
             db.querySql("""SELECT json(data) FROM nsq_notes WHERE data ->> '$.id' = '${uuid("note")}'"""),
         )
         assertTrue("notes" in db.pool().schema)
     }
 
     @Test
-    fun `a batch of by-name upserts creates the table once`() = runTest {
+    fun `a batch of by-name puts creates the table once`() = runTest {
         var creates = 0
         val driver = SteppingDriver(notesTableSql) { creates += 1 }
         val db = NoSqlite(driver = driver) { }
@@ -347,8 +352,8 @@ internal class StorageTest {
         val rolledBack = buildJsonObject { put("id", uuid("rolled").toString()); put("text", "no") }
 
         db.write(untracked = true) {
-            upsert("notes", first)
-            upsert("notes", second)
+            put("notes", first)
+            put("notes", second)
             assertEquals(1, creates)
             assertFails {
                 db.write {
@@ -356,8 +361,8 @@ internal class StorageTest {
                     error("rollback")
                 }
             }
-            upsert("notes", third)
-            upsert("notes", patch)
+            put("notes", third)
+            put("notes", patch)
             assertTrue(delete("notes", uuid("note-2")))
             assertEquals(1, creates)
         }
@@ -365,7 +370,7 @@ internal class StorageTest {
         assertEquals(1, creates)
         assertEquals(2L, db.read { Notes.count() })
         assertEquals(
-            listOf(listOf("""{"id":"${uuid("note")}","text":"hi","done":true}""")),
+            listOf(listOf("""{"id":"${uuid("note")}","done":true}""")),
             db.querySql("""SELECT json(data) FROM nsq_notes WHERE data ->> '$.id' = '${uuid("note")}'"""),
         )
         assertEquals(
@@ -382,20 +387,20 @@ internal class StorageTest {
     }
 
     @Test
-    fun `a rolled back upsert does not register the name`() = runTest {
+    fun `a rolled back put does not register the name`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
         assertFails {
             db.write(untracked = true) {
-                upsert("notes", note)
+                put("notes", note)
                 error("rollback")
             }
         }
 
         assertFalse("notes" in db.pool().schema)
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
-        db.write(untracked = true) { upsert("notes", note) }
+        db.write(untracked = true) { put("notes", note) }
         assertEquals(listOf(listOf("nsq_notes")), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
         assertEquals(1L, db.read { Notes.count() })
         assertTrue("notes" in db.pool().schema)
@@ -417,7 +422,7 @@ internal class StorageTest {
         withTempFile { location ->
             val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
             val first = NoSqlite(location) { }
-            first.write(untracked = true) { upsert("notes", note) }
+            first.write(untracked = true) { put("notes", note) }
             first.close()
 
             val second = NoSqlite(location) { }
@@ -441,10 +446,10 @@ internal class StorageTest {
         )
 
         for ((name, message) in invalid) {
-            val upsertError = assertFailsWith<IllegalArgumentException> {
-                db.write(untracked = true) { upsert(name, note) }
+            val putError = assertFailsWith<IllegalArgumentException> {
+                db.write(untracked = true) { put(name, note) }
             }
-            assertEquals(message, upsertError.message)
+            assertEquals(message, putError.message)
             val deleteError = assertFailsWith<IllegalArgumentException> {
                 db.write(untracked = true) { delete(name, uuid("note")) }
             }
@@ -453,16 +458,19 @@ internal class StorageTest {
     }
 
     @Test
-    fun `by-name changes require an untracked write`() = runTest {
+    fun `a by-name put in a nested write registers the name once the outer write commits`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
-        val upsertError = assertFailsWith<IllegalStateException> { db.write { upsert("notes", note) } }
-        val deleteError = assertFailsWith<IllegalStateException> { db.write { delete("notes", uuid("note")) } }
+        db.write {
+            db.write { put("notes", note) }
+            assertFalse("notes" in db.pool().schema)
+        }
 
-        assertEquals("By-name changes are only allowed in an untracked write", upsertError.message)
-        assertEquals("By-name changes are only allowed in an untracked write", deleteError.message)
-        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
+        assertTrue("notes" in db.pool().schema)
+        assertEquals(1L, db.read { Notes.count() })
+        assertTrue(db.write { delete("notes", uuid("note")) })
+        assertEquals(0L, db.read { Notes.count() })
     }
 
     @Test
@@ -494,8 +502,8 @@ internal class StorageTest {
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
         db.write(untracked = true) {
-            assertFails { upsert("notes", note) }
-            upsert("notes", note)
+            assertFails { put("notes", note) }
+            put("notes", note)
         }
 
         assertEquals(1L, db.read { Notes.count() })
@@ -511,8 +519,8 @@ internal class StorageTest {
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
         db.write(untracked = true) {
-            assertFails { upsert("notes", note) }
-            upsert("notes", note)
+            assertFails { put("notes", note) }
+            put("notes", note)
         }
 
         assertEquals(

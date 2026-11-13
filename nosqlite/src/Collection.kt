@@ -67,29 +67,29 @@ internal fun requireCollectionName(name: String) {
 }
 
 /**
- * Inserts [document] into [collection], or merges it into the document with the same id, as [Collection.upsert] does.
- * Only inside `write(untracked = true)`. A name the schema does not have gets its table, id index and id trigger,
- * and the schema keeps that name once the write commits. [document] must be a JSON object whose `id` is a UUID.
+ * Stores [document] in [collection] exactly as given: it is inserted, or it replaces the whole document with the same
+ * id. Unlike [Collection.upsert] it is not a merge patch, so fields the stored document has and [document] lacks are
+ * removed, and `null` fields are kept. Meant for applying documents from elsewhere, such as a sync server, usually
+ * in `write(untracked = true)` so a tracked collection does not record them. A name the schema does not have gets its table, id index and id trigger, and the schema
+ * keeps that name once the write commits. [document] must be a JSON object whose `id` is a UUID.
  */
 context(_: WriteScope)
-public suspend fun upsert(collection: String, document: JsonObject) {
-    requireUntracked()
+public suspend fun put(collection: String, document: JsonObject) {
     requireCollectionName(collection)
     ensureTable(collection)
     val json = NoSqlite.Json.encodeToString(serializer<JsonObject>(), document)
-    withWriteConnection(collection) { Queries.upsert(collection).execute(json) }
+    withWriteConnection(collection) { Queries.put(collection).execute(json) }
     changed(collection)
 }
 
 /**
- * Deletes the document [id] from [collection], as [Id.delete] does. Only inside `write(untracked = true)`.
+ * Deletes the document [id] from [collection], as [Id.delete] does.
  * A collection without a table is left untouched. The result is whether a document was deleted.
  */
 context(_: WriteScope)
 public suspend fun delete(collection: String, id: Uuid): Boolean {
-    requireUntracked()
     requireCollectionName(collection)
-    // The table may exist without the schema knowing it, created by an untracked write before the database reopened.
+    // The table may exist without the schema knowing it, created by name before the database reopened.
     val deleted = try {
         withWriteConnection(collection) { Queries.delete(collection, idCondition(id)).execute() }
     } catch (_: NoSqliteException.CollectionNotDeclared) {
@@ -97,11 +97,6 @@ public suspend fun delete(collection: String, id: Uuid): Boolean {
     }
     if (deleted > 0) changed(collection)
     return deleted > 0
-}
-
-context(scope: WriteScope)
-private fun requireUntracked() {
-    check(scope.untracked) { "By-name changes are only allowed in an untracked write" }
 }
 
 /** Inserts [value] as a new document; it must encode to a JSON object. */
@@ -213,7 +208,8 @@ internal suspend fun <R> withWriteConnection(name: String, block: suspend contex
 
 /**
  * Creates this collection's table, id index and id trigger when the schema does not have [name] and this write has
- * not created it yet, and remembers the name so the outermost write can register it after it commits.
+ * not created it yet, and remembers the name so the outermost write can register it after it commits. A savepoint
+ * hands the names it created to the enclosing write when it releases.
  */
 context(scope: WriteScope)
 internal suspend fun ensureTable(name: String) {
