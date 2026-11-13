@@ -186,7 +186,8 @@ internal object Queries {
     /**
      * Temp triggers `nsq_<collection>_insert`, `_update` and `_delete` that append the change unless the untracked
      * flag is set. A trigger stored in main cannot read a temp table, and INSERT/UPDATE/DELETE inside a trigger
-     * reject database-qualified names, so the body stays unqualified.
+     * reject database-qualified names, so the body stays unqualified. An update whose JSONB did not change records
+     * nothing.
      */
     fun trackingTriggers(collection: Collection): List<Command<Unit>> {
         val table = "main.${collection.table}"
@@ -206,7 +207,7 @@ internal object Queries {
             command("""
             CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(triggerName(collection.name, "update"))}
             AFTER UPDATE ON $table
-            $guard
+            $guard AND OLD.data IS NOT NEW.data
             BEGIN
                 $record ($name, OLD.data, NEW.data, $now);
             END;
@@ -242,3 +243,4 @@ private fun SQLiteStatement.jsonObjectOrNull(index: Int): JsonObject? {
     if (isNull(index)) return null
     return NoSqlite.Json.parseToJsonElement(getText(index)) as JsonObject
 }
+

@@ -47,17 +47,34 @@ internal class TrackingTest {
     private fun Contact.json(): JsonObject =
         NoSqlite.Json.parseToJsonElement(NoSqlite.Json.encodeToString(this)) as JsonObject
 
-    private fun recorded(id: Long, before: JsonObject?, after: JsonObject?, collection: String = Contacts.name) = PendingChange(id, collection, before, after, Instant.fromEpochMilliseconds(0))
+    private fun recorded(
+        id: Long,
+        before: JsonObject?,
+        after: JsonObject?,
+        collection: String = Contacts.name,
+    ) = PendingChange(id, collection, before, after, Instant.fromEpochMilliseconds(0))
+
+    private fun inserted(id: Long, contact: Contact) = recorded(id, null, contact.json())
+
+    private fun updated(id: Long, before: Contact, after: Contact) = recorded(id, before.json(), after.json())
+
+    private fun deleted(id: Long, contact: Contact) = recorded(id, contact.json(), null)
 
     private suspend fun changes(db: NoSqlite): List<PendingChange> = db.read { pendingChanges() }.withoutTime()
 
     private fun List<PendingChange>.withoutTime() = map { it.copy(timestamp = Instant.fromEpochMilliseconds(0)) }
 
-    /** Before and after of each change, with ids 1..n in order and no duplicate pair. */
-    private fun List<PendingChange>.pairs(): Set<Pair<JsonObject?, JsonObject?>> {
+    private data class Recorded(
+        val documentId: Uuid,
+        val before: JsonObject?,
+        val after: JsonObject?,
+    )
+
+    /** Each change, with queue ids 1..n in order and no duplicate record. */
+    private fun List<PendingChange>.bodies(): Set<Recorded> {
         assertEquals((1L..size).toList(), map { it.id })
         assertTrue(all { it.collection == Contacts.name })
-        return map { it.before to it.after }.toSet().also { assertEquals(size, it.size) }
+        return map { Recorded(it.documentId, it.before, it.after) }.toSet().also { assertEquals(size, it.size) }
     }
 
     private suspend fun NoSqlite.contacts(): List<Contact> = read { Contacts.list { orderBy { "id".asc } } }
@@ -80,7 +97,7 @@ internal class TrackingTest {
 
         db.write { Contacts.insert(ada) }
 
-        assertEquals(listOf(recorded(1, null, ada.json())), changes(db))
+        assertEquals(listOf(inserted(1, ada)), changes(db))
     }
 
     @Test
@@ -95,9 +112,9 @@ internal class TrackingTest {
 
         assertEquals(
             listOf(
-                recorded(1, null, ada.json()),
-                recorded(2, ada.json(), older.json()),
-                recorded(3, older.json(), renamed.json()),
+                inserted(1, ada),
+                updated(2, ada, older),
+                updated(3, older, renamed),
             ),
             changes(db),
         )
@@ -106,20 +123,20 @@ internal class TrackingTest {
     @Test
     fun `an id update replace and delete record before and after`() = runTest {
         val db = database()
-        val updated = ada.copy(name = "Ada Lovelace")
-        val replaced = updated.copy(age = 37)
+        val renamed = ada.copy(name = "Ada Lovelace")
+        val replaced = renamed.copy(age = 37)
 
         db.write { Contacts.insert(ada) }
-        db.write { Contacts.id(ada.id).update(updated) }
+        db.write { Contacts.id(ada.id).update(renamed) }
         db.write { Contacts.id(ada.id).replace(replaced) }
         assertEquals(true, db.write { Contacts.id(ada.id).delete() })
 
         assertEquals(
             listOf(
-                recorded(1, null, ada.json()),
-                recorded(2, ada.json(), updated.json()),
-                recorded(3, updated.json(), replaced.json()),
-                recorded(4, replaced.json(), null),
+                inserted(1, ada),
+                updated(2, ada, renamed),
+                updated(3, renamed, replaced),
+                deleted(4, replaced),
             ),
             changes(db),
         )
@@ -129,9 +146,9 @@ internal class TrackingTest {
     @Test
     fun `a where update replace and delete record every match`() = runTest {
         val db = database()
-        val ada99 = ada.copy(age = 99)
-        val grace99 = grace.copy(age = 99)
-        val replaced = ada99.copy(name = "Augusta")
+        val agedAda = ada.copy(age = 99)
+        val agedGrace = grace.copy(age = 99)
+        val replaced = ada.copy(age = 99, name = "Augusta")
 
         db.write {
             Contacts.insert(ada)
@@ -143,23 +160,21 @@ internal class TrackingTest {
 
         assertEquals(
             setOf(
-                null to ada.json(),
-                null to grace.json(),
-                ada.json() to ada99.json(),
-                grace.json() to grace99.json(),
-                ada99.json() to replaced.json(),
-                replaced.json() to null,
-                grace99.json() to null,
+                Recorded(ada.id, null, ada.json()),
+                Recorded(grace.id, null, grace.json()),
+                Recorded(ada.id, ada.json(), agedAda.json()),
+                Recorded(grace.id, grace.json(), agedGrace.json()),
+                Recorded(ada.id, agedAda.json(), replaced.json()),
+                Recorded(ada.id, replaced.json(), null),
+                Recorded(grace.id, agedGrace.json(), null),
             ),
-            changes(db).pairs(),
+            changes(db).bodies(),
         )
     }
 
     @Test
     fun `a many lookup update replace and delete record every match`() = runTest {
         val db = database()
-        val ada99 = ada.copy(age = 99)
-        val grace99 = grace.copy(age = 99)
         val renamed = alan.copy(name = "Alan Turing")
 
         db.write {
@@ -173,16 +188,16 @@ internal class TrackingTest {
 
         assertEquals(
             setOf(
-                null to ada.json(),
-                null to alan.json(),
-                null to grace.json(),
-                ada.json() to ada99.json(),
-                grace.json() to grace99.json(),
-                alan.json() to renamed.json(),
-                ada99.json() to null,
-                grace99.json() to null,
+                Recorded(ada.id, null, ada.json()),
+                Recorded(alan.id, null, alan.json()),
+                Recorded(grace.id, null, grace.json()),
+                Recorded(ada.id, ada.json(), ada.copy(age = 99).json()),
+                Recorded(grace.id, grace.json(), grace.copy(age = 99).json()),
+                Recorded(alan.id, alan.json(), renamed.json()),
+                Recorded(ada.id, ada.copy(age = 99).json(), null),
+                Recorded(grace.id, grace.copy(age = 99).json(), null),
             ),
-            changes(db).pairs(),
+            changes(db).bodies(),
         )
     }
 
@@ -199,7 +214,7 @@ internal class TrackingTest {
             assertEquals(0, Contacts.byAge(1).delete())
         }
 
-        assertEquals(listOf(recorded(1, null, ada.json())), changes(db))
+        assertEquals(listOf(inserted(1, ada)), changes(db))
     }
 
     @Test
@@ -212,7 +227,7 @@ internal class TrackingTest {
         db.write { Contacts.id(ada.id).update(older) }
 
         assertEquals(
-            listOf(recorded(1, null, ada.json()), recorded(2, ada.json(), older.json())),
+            listOf(inserted(1, ada), updated(2, ada, older)),
             changes(db),
         )
         assertEquals(listOf(older, alan), db.contacts())
@@ -228,7 +243,7 @@ internal class TrackingTest {
         }
 
         assertEquals("Untracked write cannot nest inside another write", error.message)
-        assertEquals(listOf(recorded(1, null, ada.json())), changes(db))
+        assertEquals(listOf(inserted(1, ada)), changes(db))
         assertEquals(listOf(ada), db.contacts())
     }
 
@@ -247,7 +262,7 @@ internal class TrackingTest {
         assertEquals(listOf(listOf("0")), db.querySql("SELECT untracked FROM nsq__tracking_state"))
         db.write { Contacts.insert(grace) }
         assertEquals(
-            listOf(recorded(1, null, ada.json()), recorded(2, null, grace.json())),
+            listOf(inserted(1, ada), inserted(2, grace)),
             changes(db),
         )
         assertEquals(listOf(ada, grace), db.contacts())
@@ -267,7 +282,7 @@ internal class TrackingTest {
         val rows = db.read { pendingChanges() }
         assertEquals(listOf(1L, 2L, 3L), rows.map { it.id })
         assertEquals(
-            listOf(recorded(1, null, ada.json()), recorded(2, null, alan.json()), recorded(3, ada.json(), null)),
+            listOf(inserted(1, ada), inserted(2, alan), deleted(3, ada)),
             rows.withoutTime(),
         )
         assertTrue(rows.all { it.timestamp in before..after })
@@ -285,7 +300,7 @@ internal class TrackingTest {
             removePendingChanges(early)
         }
 
-        assertEquals(listOf(recorded(2, null, alan.json())), changes(db))
+        assertEquals(listOf(inserted(2, alan)), changes(db))
         assertEquals(listOf(ada, alan), db.contacts())
     }
 
@@ -328,7 +343,7 @@ internal class TrackingTest {
         assertTrue("OLD.data" in sql && "NEW.data" in sql)
         val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'nsq__pending_changes'").single().single()
         assertTrue("AUTOINCREMENT" in table!!)
-        assertEquals(listOf(recorded(1, null, ada.json())), changes(db))
+        assertEquals(listOf(inserted(1, ada)), changes(db))
     }
 
     @Test
@@ -382,7 +397,7 @@ internal class TrackingTest {
             db.write { Contacts.insert(grace) }
 
             assertTrue(driver.connections.first().closed)
-            assertEquals(listOf(recorded(1, null, ada.json()), recorded(2, null, grace.json())), changes(db))
+            assertEquals(listOf(inserted(1, ada), inserted(2, grace)), changes(db))
             db.close()
         }
     }
@@ -399,8 +414,8 @@ internal class TrackingTest {
 
             assertEquals(
                 listOf(
-                    recorded(1, null, ada.json()),
-                    recorded(2, ada.json(), ada.copy(age = 37).json()),
+                    inserted(1, ada),
+                    updated(2, ada, ada.copy(age = 37)),
                 ),
                 changes(second),
             )
@@ -419,14 +434,48 @@ internal class TrackingTest {
         val first = db.read { pendingChanges() }.single()
         db.write { Contacts.insert(alan) }
         val extra = (3L..32_768L).map { id ->
-            PendingChange(id, Contacts.name, null, null, Instant.fromEpochMilliseconds(0))
+            PendingChange(
+                id,
+                Contacts.name,
+                null,
+                null,
+                Instant.fromEpochMilliseconds(0),
+            )
         }
 
         db.write { removePendingChanges(listOf(first) + extra) }
 
-        assertEquals(listOf(recorded(2, null, alan.json())), changes(db))
+        assertEquals(listOf(inserted(2, alan)), changes(db))
         assertEquals(listOf(ada, alan), db.contacts())
     }
+
+    @Test
+    fun `insert and delete record the document before and after`() = runTest {
+        val db = database()
+        db.write { Contacts.insert(ada) }
+        db.write { Contacts.id(ada.id).delete() }
+
+        val rows = changes(db)
+        assertEquals(listOf(inserted(1, ada), deleted(2, ada)), rows)
+        assertEquals(ada.id, rows[0].documentId)
+        assertEquals(null, rows[0].before)
+        assertEquals(ada.json(), rows[0].after)
+        assertEquals(ada.json(), rows[1].before)
+        assertEquals(null, rows[1].after)
+    }
+
+    @Test
+    fun `a no-op update queues nothing`() = runTest {
+        val db = database()
+        db.write { Contacts.insert(ada) }
+
+        db.write { Contacts.update(buildJsonObject { put("age", ada.age) }) { "id" eq ada.id.toString() } }
+        db.write { Contacts.upsert(ada) }
+
+        assertEquals(listOf(inserted(1, ada)), changes(db))
+        assertEquals(listOf(ada), db.contacts())
+    }
+
 }
 
 private class SqlLog(private val log: MutableList<String>) : SQLiteDriver {
