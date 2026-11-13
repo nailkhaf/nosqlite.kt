@@ -165,14 +165,14 @@ internal class IdTest {
     }
 
     @Test
-    fun `put inserts a new document and replaces an existing one whole`() = runTest {
+    fun `upsert without merge inserts a new document and replaces an existing one whole`() = runTest {
         val db = NoSqlite { +Users }
         db.write { Users.insert(person(adaId, plan = "pro")) }
         val augusta = buildJsonObject { put("id", adaId.toString()); put("name", "Augusta") }
 
         db.write {
-            Users.put(augusta)
-            Users.put(person(alanId))
+            Users.upsert(augusta, merge = false)
+            Users.upsert(person(alanId), merge = false)
         }
 
         assertEquals(augusta, db.read { Users.id(adaId).get<JsonObject>() })

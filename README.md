@@ -104,8 +104,8 @@ with(db) {
 
 ### Collections
 
-A collection is a name and its indexes. Create one directly, `Collection("notes")`, or extend `Collection` to
-declare indexes with `index(...)`. A database lists the collections it serves,
+A collection is a name and its indexes. Declare each one as an object extending `Collection`, `object Notes :
+Collection("notes")`, and declare its indexes there with `index(...)`. A database lists the collections it serves,
 `NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
 A collection's table is `nsq_<collection>`, its indexes are `nsq_idx_<collection>_` plus a suffix, and its triggers
 are `nsq_<collection>_` plus a suffix. Collection names can't start with `idx`.
@@ -141,8 +141,8 @@ Every document needs an `id`: a `kotlin.uuid.Uuid` string, stored as `Uuid.toStr
 to that string. SQLite checks it on every write. `id(value)` takes that `Uuid` and addresses the one document:
 `get<T>()` returns it or `null`, and
 `update(value)`, `replace(value)` and `delete()` report whether there was one. `observe` on it emits that document,
-or `null` while there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does,
-and `put(value)` inserts it or replaces the one with its id as `replace` does.
+or `null` while there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does;
+`upsert(value, merge = false)` replaces it as `replace` does.
 An id never changes: a write that would change it throws `NoSqliteException.ImmutableId`. A missing or non-UUID id
 throws `NoSqliteException.InvalidId`. A second document with the same id throws `NoSqliteException.DuplicateId`.
 
@@ -156,11 +156,11 @@ Inside `db.write { }`:
 - `replace(value) { condition }` stores the value as the whole document of every match. The value must carry each
   match's id: an id is immutable.
 - `delete { condition }` deletes every match.
-- `upsert(value)` inserts the document, or merge-patches the one with its id.
-- `put(value)` inserts the document, or stores it as the whole document with its id, as `replace` does.
+- `upsert(value)` inserts the document, or merge-patches the one with its id. `upsert(value, merge = false)` stores
+  it as the whole document instead, as `replace` does.
 
-`insert`, `upsert` and `put` return nothing. The others return how many documents they touched, and the by-id forms of `update`,
-`replace` and `delete` return whether there was one. A write commits when its block returns and rolls back when it
+`insert` and `upsert` return nothing. The others return how many documents they touched, and the by-id forms of
+`update`, `replace` and `delete` return whether there was one. A write commits when its block returns and rolls back when it
 throws; a nested `write` is a savepoint that rolls back alone. A duplicate id throws `NoSqliteException.DuplicateId`,
 and a changed id throws `NoSqliteException.ImmutableId`; caught inside the write, the transaction goes on. When another
 `NoSqlite` or process keeps the same
@@ -263,7 +263,7 @@ sync(changes)
 db.write { removePendingChanges(changes) }
 
 db.write(untracked = true) {
-    put("contacts", incoming)
+    upsert("contacts", incoming, merge = false)
     delete("contacts", removedId)
 }
 ```
@@ -271,10 +271,10 @@ db.write(untracked = true) {
 `pendingChanges()` returns the queue ordered by its row id. Read it whenever sync
 runs, for example after `observe` on a tracked collection emits. `removePendingChanges` deletes exactly the given
 rows, so a change written after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
-`write(untracked = true)` records nothing and does not nest inside another write. `put(name, document)` and
-`delete(name, id)` address a collection by name, for applying documents from a sync server, usually in an untracked
-write so they are not recorded. Like `Collection.put`, `put` inserts the document or replaces the one with its id, so
-fields the document leaves out are removed and `null` fields are kept.
+`write(untracked = true)` records nothing and does not nest inside another write. `upsert(name, document, merge)` and
+`delete(name, id)` are `upsert` and `delete` addressed by the collection's name, for code that has only the name,
+such as a replicator, usually in an untracked write so they are not recorded. With `merge = false` the document
+replaces the stored one whole, so fields it leaves out are removed and `null` fields are kept.
 A name the schema does not have gets its table, id index, and id trigger, and the schema keeps that name once the
 write commits. `delete` of a collection that has no table does nothing. A typed write or a read whose table does not
 exist still fails with `CollectionNotDeclared`.

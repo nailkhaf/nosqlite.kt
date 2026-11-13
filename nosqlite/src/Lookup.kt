@@ -144,29 +144,16 @@ context(_: WriteScope)
 public suspend fun Id.delete(): Boolean = collection.delete { condition } > 0
 
 /**
- * Inserts [value], or applies it as a JSON merge patch to the document with its id, as `update` does.
- * [value] must carry an id. An id already stored is merged; a different id is a different document.
+ * Inserts [value], or changes the document with its id: with [merge] it applies [value] as a JSON merge patch, as
+ * `update` does, and without it stores [value] as the whole document, as `replace` does. [value] must carry an id.
  */
 context(_: WriteScope)
-public suspend inline fun <reified T> Collection.upsert(value: T): Unit = upsert(serializer(), value)
+public suspend inline fun <reified T> Collection.upsert(value: T, merge: Boolean = true): Unit =
+    upsert(serializer(), value, merge)
 
 context(_: WriteScope)
-public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T) {
+public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T, merge: Boolean = true) {
     val json = encode(serializer, value)
-    withWriteConnection { Queries.upsert(name).execute(json) }
-    changed()
-}
-
-/**
- * Inserts [value], or stores it as the whole document with its id, as `replace` does: fields the stored document has
- * and [value] lacks are removed. [value] must carry an id.
- */
-context(_: WriteScope)
-public suspend inline fun <reified T> Collection.put(value: T): Unit = put(serializer(), value)
-
-context(_: WriteScope)
-public suspend fun <T> Collection.put(serializer: KSerializer<T>, value: T) {
-    val json = encode(serializer, value)
-    withWriteConnection { Queries.put(name).execute(json) }
+    withWriteConnection { Queries.upsert(name, merge).execute(json) }
     changed()
 }

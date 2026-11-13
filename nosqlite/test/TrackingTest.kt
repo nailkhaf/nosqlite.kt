@@ -224,7 +224,7 @@ internal class TrackingTest {
 
         db.write { Contacts.insert(ada) }
         db.write {
-            put("contacts", older.json())
+            upsert("contacts", older.json())
             assertTrue(delete("contacts", ada.id))
         }
 
@@ -237,14 +237,14 @@ internal class TrackingTest {
 
         db.write { Contacts.insert(ada) }
         db.write(untracked = true) {
-            put("contacts", alan.json())
+            upsert("contacts", alan.json())
             delete("contacts", ada.id)
-            put("fresh", note)
+            upsert("fresh", note)
         }
 
         assertEquals(listOf(inserted(1, ada)), changes(db))
         assertEquals(listOf(alan), db.contacts())
-        assertEquals(listOf(note), db.read { Collection("fresh").list<JsonObject>() })
+        assertEquals(listOf(note), db.read { Fresh.list<JsonObject>() })
     }
 
     @Test
@@ -521,3 +521,5 @@ private class SqlLog(private val log: MutableList<String>) : SQLiteDriver {
         }
     }
 }
+
+private object Fresh : Collection("fresh")

@@ -102,21 +102,14 @@ internal object Queries {
     fun delete(collection: String, condition: Where): Statement<Unit, Int> =
         (Fragment("DELETE FROM ${table(collection)} WHERE ") + condition.render() + RETURNING).statement(countRows)
 
-    /** Inserts the input JSON, or applies it as a merge patch to the document with the same id. */
-    fun upsert(collection: String): Statement<String, Unit> = Statement(
-        sql = "INSERT INTO ${table(collection)} (data) VALUES (jsonb(?1)) " +
-            "ON CONFLICT ($ID_VALUE) DO UPDATE SET data = jsonb_patch(data, ?1);",
-        encode = { json -> bindText(1, json) },
-        decode = { step() },
-    )
-
     /**
-     * Inserts the input JSON, or replaces the document with the same id by it. An update rather than `REPLACE`, which
-     * would delete the row and fire the delete trigger.
+     * Inserts the input JSON, or changes the document with the same id: applies it as a merge patch when [merge], and
+     * stores it as the whole document otherwise. An update rather than `REPLACE`, which would delete the row and fire
+     * the delete trigger.
      */
-    fun put(collection: String): Statement<String, Unit> = Statement(
+    fun upsert(collection: String, merge: Boolean): Statement<String, Unit> = Statement(
         sql = "INSERT INTO ${table(collection)} (data) VALUES (jsonb(?1)) " +
-            "ON CONFLICT ($ID_VALUE) DO UPDATE SET data = excluded.data;",
+            "ON CONFLICT ($ID_VALUE) DO UPDATE SET data = ${if (merge) "jsonb_patch(data, ?1)" else "excluded.data"};",
         encode = { json -> bindText(1, json) },
         decode = { step() },
     )
