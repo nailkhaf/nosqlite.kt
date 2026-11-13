@@ -169,17 +169,17 @@ internal suspend fun <R> Collection.withWriteConnection(block: suspend context(C
     mapErrors(this, untracked = scope.untracked) { context(connection()) { block() } }
 
 /**
- * An untracked write creates this collection's table, id index, and id trigger when the schema does not have it,
- * then registers it there. A declared collection is created when the writer opens. The statements are safe to repeat.
+ * An untracked write creates this collection's table, id index, and id trigger when the schema does not have it.
+ * The collection is remembered on this [WriteScope] and registered when the outermost write commits.
+ * A declared collection is created when the writer opens. The statements are safe to repeat.
  */
 context(scope: WriteScope)
 internal suspend fun Collection.ensureTable() {
-    val schema = scope.pool.schema
-    if (!scope.untracked || this in schema) return
+    if (!scope.untracked || this in scope.pool.schema || this in scope.created) return
     context(connection()) {
         Queries.createTable(this@ensureTable).forEach { it.execute() }
     }
-    schema.register(this)
+    scope.created += this
 }
 
 private val ErrorCode = Regex("^Error code: (\\d+)")

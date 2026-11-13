@@ -22,7 +22,7 @@ internal class ConnectionPool(
     location: Location = Location.InMemory,
     driver: SQLiteDriver = BundledSQLiteDriver(),
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
-    internal val schema: SchemaBuilder = SchemaBuilder(),
+    internal val schema: Schema = Schema(SchemaBuilder()),
     private val onWriterOpened: suspend (Connection) -> Unit,
 ) {
     init {

@@ -267,8 +267,8 @@ db.write(untracked = true) { import(contacts) }
 runs, for example after `observe` on a tracked collection emits. `removePendingChanges` deletes exactly the given
 rows, so a change written after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
 `write(untracked = true)` records nothing and does not nest inside another write. A write in that scope to a
-collection the schema does not have creates its table, id index, and id trigger, and the schema then keeps that
-collection. A write that is not untracked, and a read whose table does not exist, still fail with `CollectionNotDeclared`.
+collection the schema does not have creates its table, id index, and id trigger. The schema keeps that collection
+once the write commits. A write that is not untracked, and a read whose table does not exist, still fail with `CollectionNotDeclared`.
 The queue is append-only. A collection that is not tracked records nothing. Rows queued before a collection stopped
 being tracked stay readable until they are removed. The id trigger is created with the table, so the id stays immutable.
 

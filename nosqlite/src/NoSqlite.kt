@@ -2,6 +2,8 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.atomicfu.atomic
+import kotlinx.atomicfu.update
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -31,7 +33,7 @@ public class NoSqlite(
 ) {
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
 
-    private val tables = SchemaBuilder().apply(schema)
+    private val tables = Schema(SchemaBuilder().apply(schema))
 
     private val connections = ConnectionPool(location, driver, dispatcher, tables) { connection ->
         connection.transaction(Boundary.Write) { context(connection) { createSchema(tables) } }
@@ -89,19 +91,22 @@ public class SchemaBuilder internal constructor() {
         require(collections.none { it.name == name }) { "Collection '$name' is declared more than once" }
         collections += this
     }
+}
 
-    /** True when [collection] was declared, or an untracked write already created its table. */
-    internal operator fun contains(collection: Collection): Boolean = collections.any { it.name == collection.name }
+/** Collections this database knows: those declared up front, plus any a committed untracked write created. */
+internal class Schema(builder: SchemaBuilder) {
+    private val collections = atomic(builder.collections.toList())
 
-    /** Records [collection] after an untracked write created its table. */
+    /** True when [collection] was declared, or a committed untracked write already created its table. */
+    internal operator fun contains(collection: Collection): Boolean =
+        collections.value.any { it.name == collection.name }
+
+    /** Records [collection] after a committed untracked write created its table. */
     internal fun register(collection: Collection) {
-        if (collection !in this) collections += collection
+        collections.update { if (it.any { c -> c.name == collection.name }) it else it + collection }
     }
 
-    /** Drops collections [register] added after [kept], when the write that created them rolls back. */
-    internal fun rollback(kept: Int) {
-        while (collections.size > kept) collections.removeAt(collections.lastIndex)
-    }
+    internal operator fun iterator(): Iterator<Collection> = collections.value.iterator()
 }
 
 /**
@@ -129,12 +134,12 @@ public suspend fun <R> NoSqlite.write(
 // Creates the queue and the declared collections; safe to run again. Existing tables are never dropped.
 // One read of every managed index, then each collection is checked against that.
 context(_: Connection)
-internal suspend fun createSchema(tables: SchemaBuilder) {
+internal suspend fun createSchema(tables: Schema) {
     Queries.createPendingChanges.execute()
     Queries.createTrackingState.execute()
     Queries.seedTrackingState.execute()
     val indexes = Queries.managedIndexes.execute()
-    tables.collections.forEach { createSchema(it, indexes) }
+    for (collection in tables) createSchema(collection, indexes)
 }
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
