@@ -149,10 +149,10 @@ internal suspend fun createSchema(
     collection: Collection,
     indexes: Map<String, List<String>>,
 ) {
-    Queries.createTable(collection).forEach { it.execute() }
+    Queries.createTable(collection.name).forEach { it.execute() }
     val current = indexes[tableName(collection.name)].orEmpty()
     val wanted = collection.indexes.associateBy { it.name }
-    val idIndex = Queries.idIndexName(collection)
+    val idIndex = Queries.idIndexName(collection.name)
     current.filter { it != idIndex && it !in wanted }.forEach { Queries.dropIndex(it).execute() }
     wanted.filterKeys { it !in current }.values.forEach { Queries.createIndex(it).execute() }
     if (collection.tracked) Queries.trackingTriggers(collection).forEach { it.execute() }

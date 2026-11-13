@@ -103,8 +103,11 @@ public suspend fun Lookup.Many.delete(): Int = index.collection.delete { conditi
  * Users.upsert(ada)
  * ```
  */
+internal fun idCondition(value: Uuid): Where =
+    Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
+
 public class Id internal constructor(internal val collection: Collection, public val value: Uuid) {
-    internal val condition: Where = Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
+    internal val condition: Where = idCondition(value)
 
     override fun toString(): String = "${collection.name} id $value"
 }
@@ -150,6 +153,6 @@ public suspend inline fun <reified T> Collection.upsert(value: T): Unit = upsert
 context(_: WriteScope)
 public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T) {
     val json = encode(serializer, value)
-    withWriteConnection { Queries.upsert(this@upsert).execute(json) }
+    withWriteConnection { Queries.upsert(name).execute(json) }
     changed()
 }

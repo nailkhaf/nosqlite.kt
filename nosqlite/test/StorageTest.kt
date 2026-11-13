@@ -336,6 +336,52 @@ internal class StorageTest {
     }
 
     @Test
+    fun `a batch of by-name upserts creates the table once`() = runTest {
+        var creates = 0
+        val driver = SteppingDriver(notesTableSql) { creates += 1 }
+        val db = NoSqlite(driver = driver) { }
+        val first = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
+        val second = buildJsonObject { put("id", uuid("note-2").toString()); put("text", "yo") }
+        val third = buildJsonObject { put("id", uuid("note-3").toString()); put("text", "hey") }
+        val patch = buildJsonObject { put("id", uuid("note").toString()); put("done", true) }
+        val rolledBack = buildJsonObject { put("id", uuid("rolled").toString()); put("text", "no") }
+
+        db.write(untracked = true) {
+            upsert("notes", first)
+            upsert("notes", second)
+            assertEquals(1, creates)
+            assertFails {
+                db.write {
+                    Notes.insert(rolledBack)
+                    error("rollback")
+                }
+            }
+            upsert("notes", third)
+            upsert("notes", patch)
+            assertTrue(delete("notes", uuid("note-2")))
+            assertEquals(1, creates)
+        }
+
+        assertEquals(1, creates)
+        assertEquals(2L, db.read { Notes.count() })
+        assertEquals(
+            listOf(listOf("""{"id":"${uuid("note")}","text":"hi","done":true}""")),
+            db.querySql("""SELECT json(data) FROM nsq_notes WHERE data ->> '$.id' = '${uuid("note")}'"""),
+        )
+        assertEquals(
+            listOf(listOf("""{"id":"${uuid("note-3")}","text":"hey"}""")),
+            db.querySql("""SELECT json(data) FROM nsq_notes WHERE data ->> '$.id' = '${uuid("note-3")}'"""),
+        )
+        assertEquals(
+            emptyList(),
+            db.querySql(
+                """SELECT json(data) FROM nsq_notes WHERE data ->> '$.id' IN ('${uuid("note-2")}', '${uuid("rolled")}')""",
+            ),
+        )
+        assertTrue("notes" in db.pool().schema)
+    }
+
+    @Test
     fun `a rolled back upsert does not register the name`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
@@ -555,7 +601,7 @@ internal class StorageTest {
     }
 }
 
-private fun idIndexName(collection: Collection): String = Queries.idIndexName(collection)
+private fun idIndexName(collection: Collection): String = Queries.idIndexName(collection.name)
 
 private val notesTableSql = """
     CREATE TABLE IF NOT EXISTS "nsq_notes" (

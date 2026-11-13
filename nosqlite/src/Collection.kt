@@ -74,8 +74,11 @@ internal fun requireCollectionName(name: String) {
 context(scope: WriteScope)
 public suspend fun upsert(collection: String, document: JsonObject) {
     requireUntracked()
+    requireCollectionName(collection)
     if (scope.untracked) ensureTable(collection)
-    Collection(collection).upsert(document)
+    val json = NoSqlite.Json.encodeToString(serializer<JsonObject>(), document)
+    withWriteConnection(collection) { Queries.upsert(collection).execute(json) }
+    changed(collection)
 }
 
 /**
@@ -87,7 +90,9 @@ public suspend fun delete(collection: String, id: Uuid): Boolean {
     requireUntracked()
     requireCollectionName(collection)
     if (collection !in scope.pool.schema && collection !in scope.created) return false
-    return Collection(collection).id(id).delete()
+    val deleted = withWriteConnection(collection) { Queries.delete(collection, idCondition(id)).execute() }
+    if (deleted > 0) changed(collection)
+    return deleted > 0
 }
 
 context(scope: WriteScope)
@@ -161,13 +166,15 @@ public suspend fun <T> Collection.replace(
 /** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
 public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
-    val deleted = withWriteConnection { Queries.delete(this@delete, where(condition)).execute() }
+    val deleted = withWriteConnection { Queries.delete(name, where(condition)).execute() }
     if (deleted > 0) changed()
     return deleted
 }
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
-internal val Collection.table: String get() = identifier(tableName(name))
+internal fun table(name: String): String = identifier(tableName(name))
+
+internal val Collection.table: String get() = table(name)
 
 internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String {
     val json = NoSqlite.Json.encodeToString(serializer, value)
@@ -188,24 +195,28 @@ internal fun <T> Collection.decode(serializer: KSerializer<T>, row: SQLiteStatem
 /** Runs [block] on the transaction's connection, with SQLite's errors about this collection made typed. */
 context(_: ReadScope)
 internal suspend fun <R> Collection.withConnection(block: suspend context(Connection) () -> R): R =
-    mapErrors(this) { context(connection()) { block() } }
+    mapErrors(name) { context(connection()) { block() } }
 
 /** A write, with SQLite's errors about this collection made typed. */
 context(_: WriteScope)
 internal suspend fun <R> Collection.withWriteConnection(block: suspend context(Connection) () -> R): R =
-    mapErrors(this) { context(connection()) { block() } }
+    withWriteConnection(name, block)
+
+/** A write addressed by collection [name], with SQLite's errors about that name made typed. */
+context(_: WriteScope)
+internal suspend fun <R> withWriteConnection(name: String, block: suspend context(Connection) () -> R): R =
+    mapErrors(name) { context(connection()) { block() } }
 
 /**
- * Creates this collection's table, id index and id trigger when the schema does not have [name], and remembers the
- * name so the outermost write can register it after it commits. Callers decide whether to ask:
- * `if (scope.untracked) ensureTable(name)`. The statements are safe to repeat.
+ * Creates this collection's table, id index and id trigger when the schema does not have [name] and this write has
+ * not created it yet, and remembers the name so the outermost write can register it after it commits. Callers decide
+ * whether to ask: `if (scope.untracked) ensureTable(name)`.
  */
 context(scope: WriteScope)
 internal suspend fun ensureTable(name: String) {
-    if (name in scope.pool.schema) return
-    val collection = Collection(name)
+    if (name in scope.pool.schema || name in scope.created) return
     context(connection()) {
-        Queries.createTable(collection).forEach { it.execute() }
+        Queries.createTable(name).forEach { it.execute() }
     }
     scope.created += name
 }
@@ -221,7 +232,7 @@ private val BusyCodes = setOf(5, 6)
  * collections have a table, so SQLite not knowing this collection's table means it wasn't declared.
  * A unique constraint is a duplicate id. IdTest pins the message text for the bundled driver.
  */
-internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R): R = try {
+internal inline fun <R> mapErrors(collection: String? = null, block: () -> R): R = try {
     block()
 } catch (e: SQLiteException) {
     val message = e.message.orEmpty()
@@ -231,15 +242,15 @@ internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R
 
         collection == null -> throw e
 
-        "no such table: ${tableName(collection.name)}" in message ->
-            throw NoSqliteException.CollectionNotDeclared(collection.name, e)
+        "no such table: ${tableName(collection)}" in message ->
+            throw NoSqliteException.CollectionNotDeclared(collection, e)
 
         "CHECK constraint failed: document_id" in message ->
-            throw NoSqliteException.InvalidId(collection.name, e)
+            throw NoSqliteException.InvalidId(collection, e)
 
-        "UNIQUE constraint failed" in message -> throw NoSqliteException.DuplicateId(collection.name, e)
+        "UNIQUE constraint failed" in message -> throw NoSqliteException.DuplicateId(collection, e)
 
-        "id is immutable" in message -> throw NoSqliteException.ImmutableId(collection.name, e)
+        "id is immutable" in message -> throw NoSqliteException.ImmutableId(collection, e)
 
         else -> throw e
     }

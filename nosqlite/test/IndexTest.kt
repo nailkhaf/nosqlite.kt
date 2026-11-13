@@ -262,4 +262,4 @@ internal class IndexTest {
 }
 
 /** Kotlin/Native cannot link an internal member read through a test object. */
-private fun idIndexName(collection: Collection): String = Queries.idIndexName(collection)
+private fun idIndexName(collection: Collection): String = Queries.idIndexName(collection.name)
