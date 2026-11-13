@@ -289,7 +289,7 @@ internal class StorageTest {
     }
 
     @Test
-    fun `an untracked write creates a missing table, its id index, and its id trigger`() = runTest {
+    fun `an untracked write creates a missing table its id index and its id trigger`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
         val other = buildJsonObject { put("id", uuid("note-2").toString()); put("text", "yo") }
@@ -344,6 +344,7 @@ internal class StorageTest {
         assertFalse(Notes in db.pool().schema)
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
         db.write(untracked = true) { Notes.insert(note) }
+        assertEquals(listOf(listOf("nsq_notes")), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
         assertEquals(1L, db.read { Notes.count() })
         assertTrue(Notes in db.pool().schema)
     }
