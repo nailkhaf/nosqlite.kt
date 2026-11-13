@@ -169,7 +169,7 @@ internal class TrackingTest {
                 Recorded(ada.id, replaced.json(), null),
                 Recorded(grace.id, agedGrace.json(), null),
             ),
-            changes(db).bodies(),
+            db.read { pendingChanges() }.bodies(),
         )
     }
 
@@ -198,7 +198,7 @@ internal class TrackingTest {
                 Recorded(ada.id, ada.copy(age = 99).json(), null),
                 Recorded(grace.id, grace.copy(age = 99).json(), null),
             ),
-            changes(db).bodies(),
+            db.read { pendingChanges() }.bodies(),
         )
     }
 
@@ -323,7 +323,7 @@ internal class TrackingTest {
     fun `removing pending changes leaves one written later`() = runTest {
         val db = database()
         db.write { Contacts.insert(ada) }
-        val early = changes(db)
+        val early = db.read { pendingChanges() }
         db.write { Contacts.insert(alan) }
 
         db.write {
@@ -373,7 +373,7 @@ internal class TrackingTest {
         val sql = db.tempTriggerSql().joinToString("\n")
         assertTrue("OLD.data" in sql && "NEW.data" in sql)
         val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'nsq__pending_changes'").single().single()
-        assertTrue("id TEXT NOT NULL UNIQUE" in table!!)
+        assertTrue("id TEXT NOT NULL DEFAULT" in table!!)
         assertEquals(listOf(inserted(ada)), changes(db))
     }
 

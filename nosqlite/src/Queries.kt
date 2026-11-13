@@ -139,7 +139,7 @@ internal object Queries {
     val createPendingChanges: Command<Unit> = command(
         """
         CREATE TABLE IF NOT EXISTS ${identifier(PENDING_CHANGES)} (
-            id TEXT NOT NULL UNIQUE DEFAULT $NEW_PENDING_ID,
+            id TEXT NOT NULL DEFAULT $NEW_PENDING_ID,
             collection TEXT NOT NULL,
             before BLOB,
             after BLOB,
