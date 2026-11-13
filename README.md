@@ -271,11 +271,11 @@ runs, for example after `observe` on a tracked collection emits. `removePendingC
 rows, so a change written after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
 `write(untracked = true)` records nothing and does not nest inside another write. `put(name, document)` and
 `delete(name, id)` address a collection by name, for applying documents from a sync server, usually in an untracked
-write so they are not recorded. `put` stores the
-document exactly as given, inserting it or replacing the one with its id, so unlike `upsert` it is not a merge patch:
-fields the document leaves out are removed and `null` fields are kept. A name the schema does not have gets its table, id index, and id trigger, and the schema keeps that name once the write commits.
-`delete` of a collection that has no table does nothing. A typed write that is not untracked, and a read whose table
-does not exist, still fail with `CollectionNotDeclared`.
+write so they are not recorded. `put` stores the document exactly as given, inserting it or replacing the one with its
+id, so unlike `upsert` it is not a merge patch: fields the document leaves out are removed and `null` fields are kept.
+A name the schema does not have gets its table, id index, and id trigger, and the schema keeps that name once the
+write commits. `delete` of a collection that has no table does nothing. A typed write or a read whose table does not
+exist still fails with `CollectionNotDeclared`.
 The queue is append-only. A collection that is not tracked records nothing. Rows queued before a collection stopped
 being tracked stay readable until they are removed. The id trigger is created with the table, so the id stays immutable.
 
