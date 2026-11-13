@@ -49,7 +49,11 @@ internal object Queries {
             WHERE type = 'index' AND name GLOB '${INDEX_PREFIX}*'
         """.trimIndent(),
         encode = {},
-        decode = { rowsGrouped() },
+        decode = {
+            val grouped = mutableMapOf<String, MutableList<String>>()
+            while (step()) grouped.getOrPut(getText(0)) { mutableListOf() } += getText(1)
+            grouped
+        },
     )
 
     fun idIndexName(collection: Collection): String = indexName(collection.name, "id")
@@ -227,12 +231,6 @@ private fun where(condition: Where?): Fragment =
 
 // A row per document a write touched, counted as they come: androidx.sqlite has no changes().
 private const val RETURNING = " RETURNING 1;"
-
-private fun SQLiteStatement.rowsGrouped(): Map<String, List<String>> {
-    val grouped = mutableMapOf<String, MutableList<String>>()
-    while (step()) grouped.getOrPut(getText(0)) { mutableListOf() } += getText(1)
-    return grouped
-}
 
 private val countRows: SQLiteStatement.() -> Int = {
     var count = 0
