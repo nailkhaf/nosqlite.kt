@@ -104,7 +104,7 @@ internal class QueryTest {
     @Test
     fun `sorting by an indexed field reads the index in order`() = runTest {
         val db = database()
-        val sql = Queries.selectSql(Users, query { orderBy { "age".asc } }).sql
+        val sql = Queries.selectSql(Users.name, query { orderBy { "age".asc } }).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
 
@@ -115,7 +115,7 @@ internal class QueryTest {
     @Test
     fun `a descending sort on an indexed field uses the index without a temp b-tree`() = runTest {
         val db = database()
-        val sql = Queries.selectSql(Users, query { orderBy { "age".desc } }).sql
+        val sql = Queries.selectSql(Users.name, query { orderBy { "age".desc } }).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
 
@@ -160,7 +160,7 @@ internal class QueryTest {
         assertEquals(emptyList(), query.orderBy)
         assertEquals(Int.MAX_VALUE, query.limit)
         assertEquals(0, query.offset)
-        assertFalse("ORDER BY" in Queries.selectSql(Users, query).sql)
+        assertFalse("ORDER BY" in Queries.selectSql(Users.name, query).sql)
     }
 
     @Test

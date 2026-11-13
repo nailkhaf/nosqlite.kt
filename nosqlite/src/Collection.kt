@@ -106,7 +106,7 @@ public suspend inline fun <reified T> Collection.insert(value: T): Unit = insert
 context(_: WriteScope)
 public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
     val json = encode(serializer, value)
-    withWriteConnection { Queries.insert(this@insert).execute(json) }
+    withWriteConnection { Queries.insert(name).execute(json) }
     changed()
 }
 
@@ -121,12 +121,12 @@ public suspend fun <T> Collection.list(serializer: KSerializer<T>, query: QueryS
 
 context(_: ReadScope)
 internal suspend fun <T> Collection.list(serializer: KSerializer<T>, query: Query): List<T> =
-    withConnection { Queries.select(this@list, serializer, query).execute() }
+    withConnection { Queries.select(name, serializer, query).execute() }
 
 /** How many documents match [condition], or all of them without one. */
 context(_: ReadScope)
 public suspend fun Collection.count(condition: (WhereScope.() -> Where)? = null): Long =
-    withConnection { Queries.count(this@count, condition?.let(::where)).execute() }
+    withConnection { Queries.count(name, condition?.let(::where)).execute() }
 
 /**
  * Applies [value] as a JSON merge patch to every document matching [condition], so match on `id` to update one:
@@ -140,7 +140,7 @@ public suspend inline fun <reified T> Collection.update(value: T, noinline condi
 context(_: WriteScope)
 public suspend fun <T> Collection.update(serializer: KSerializer<T>, value: T, condition: WhereScope.() -> Where): Int {
     val json = encode(serializer, value)
-    val updated = withWriteConnection { Queries.update(this@update, json, where(condition)).execute() }
+    val updated = withWriteConnection { Queries.update(name, json, where(condition)).execute() }
     if (updated > 0) changed()
     return updated
 }
@@ -157,7 +157,7 @@ public suspend fun <T> Collection.replace(
     condition: WhereScope.() -> Where,
 ): Int {
     val json = encode(serializer, value)
-    val replaced = withWriteConnection { Queries.replace(this@replace, json, where(condition)).execute() }
+    val replaced = withWriteConnection { Queries.replace(name, json, where(condition)).execute() }
     if (replaced > 0) changed()
     return replaced
 }
@@ -173,8 +173,6 @@ public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
 internal fun table(name: String): String = identifier(tableName(name))
 
-internal val Collection.table: String get() = table(name)
-
 internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String {
     val json = NoSqlite.Json.encodeToString(serializer, value)
     require(json.startsWith('{')) { "A document of '$name' must be a JSON object, not $json" }
@@ -185,10 +183,10 @@ internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String
  * The document in the current row of a [Queries.selectSql] statement, as [serializer] reads it.
  * Custom serializers and init blocks fail with any exception, not only SerializationException.
  */
-internal fun <T> Collection.decode(serializer: KSerializer<T>, row: SQLiteStatement): T = try {
+internal fun <T> decode(collection: String, serializer: KSerializer<T>, row: SQLiteStatement): T = try {
     NoSqlite.Json.decodeFromString(serializer, row.getText(0))
 } catch (e: Exception) {
-    throw NoSqliteException.DecodingFailed(name, e)
+    throw NoSqliteException.DecodingFailed(collection, e)
 }
 
 /** Runs [block] on the transaction's connection, with SQLite's errors about this collection made typed. */

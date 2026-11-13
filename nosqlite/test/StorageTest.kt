@@ -503,7 +503,7 @@ internal class StorageTest {
     fun `a failed id index is created when the untracked write tries again`() = runTest {
         val notes: Collection = Notes
         val indexSql = "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(idIndexName(notes))} " +
-            "ON ${notes.table} ($ID_VALUE);"
+            "ON ${table(notes.name)} ($ID_VALUE);"
         val driver = FailingDriver(indexSql, times = 1)
         val db = NoSqlite(driver = driver) { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
