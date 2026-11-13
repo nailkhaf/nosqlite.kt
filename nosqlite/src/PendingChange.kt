@@ -1,26 +1,35 @@
 package io.github.nailkhaf.nosqlite
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
 /**
  * One recorded insert, update or delete of a tracked collection, in the order it was committed.
- * [documentId] is the document's `id`, a [Uuid]. [changeSet] is the new document for an [Action.Insert], `{}` for an
- * [Action.Delete], and a JSON merge patch for an [Action.Update]: nested objects are diffed recursively, arrays are
- * replaced whole, and a removed key is `null` at the outermost removed path.
+ * [before] is the document before the change, null for an insert. [after] is the document after the change, null
+ * for a delete. An update stores both. An update whose stored JSON did not change is not recorded.
  */
 public data class PendingChange(
     public val id: Long,
     public val collection: String,
-    public val documentId: Uuid,
     public val action: Action,
-    public val changeSet: JsonObject,
+    public val before: JsonObject?,
+    public val after: JsonObject?,
     public val timestamp: Instant,
 ) {
     /** What happened to [documentId]. */
     public enum class Action { Insert, Update, Delete }
 }
+
+/** The document's `id`, taken from [PendingChange.after], or from [PendingChange.before] when that is null. */
+public val PendingChange.documentId: Uuid
+    get() {
+        val document = after ?: before ?: error("A pending change has no document")
+        val id = document["id"]
+        require(id is JsonPrimitive && id.isString) { "A pending change document has no string id" }
+        return Uuid.parse(id.content)
+    }
 
 /** The pending changes recorded so far, ordered by id. */
 context(_: ReadScope)
