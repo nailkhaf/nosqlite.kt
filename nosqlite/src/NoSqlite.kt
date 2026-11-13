@@ -33,10 +33,11 @@ public class NoSqlite(
 ) {
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
 
-    private val tables = Schema(SchemaBuilder().apply(schema))
+    private val declared = SchemaBuilder().apply(schema)
+    private val tables = Schema(declared)
 
     private val connections = ConnectionPool(location, driver, dispatcher, tables) { connection ->
-        connection.transaction(Boundary.Write) { context(connection) { createSchema(tables) } }
+        connection.transaction(Boundary.Write) { context(connection) { createSchema(declared) } }
     }
 
     // Opening the writer creates the schema, so a first read on a new file finds its tables.
@@ -93,20 +94,17 @@ public class SchemaBuilder internal constructor() {
     }
 }
 
-/** Collections this database knows: those declared up front, plus any a committed untracked write created. */
+/** Collection names this database knows: those declared up front, plus any a committed untracked write created. */
 internal class Schema(builder: SchemaBuilder) {
-    private val collections = atomic(builder.collections.toList())
+    private val names = atomic(builder.collections.map { it.name }.toSet())
 
-    /** True when [collection] was declared, or a committed untracked write already created its table. */
-    internal operator fun contains(collection: Collection): Boolean =
-        collections.value.any { it.name == collection.name }
+    /** True when [name] was declared, or a committed untracked write already created its table. */
+    internal operator fun contains(name: String): Boolean = name in names.value
 
-    /** Records [collection] after a committed untracked write created its table. */
-    internal fun register(collection: Collection) {
-        collections.update { if (it.any { c -> c.name == collection.name }) it else it + collection }
+    /** Records [name] after a committed untracked write created its table. */
+    internal fun register(name: String) {
+        names.update { if (name in it) it else it + name }
     }
-
-    internal operator fun iterator(): Iterator<Collection> = collections.value.iterator()
 }
 
 /**
@@ -124,7 +122,8 @@ public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R):
  * sequential. Using the database from coroutines launched inside it (`launch`, `async`, parallel flow operators)
  * concurrently is unsupported and can crash; sequential suspension inside the block is fine. Do parallel work
  * outside the transaction, each coroutine in its own [read] or [write], or gather results first and write them in
- * one sequential block. Pass [untracked] to record none of the writes tracked collections do in the block.
+ * one sequential block. Pass [untracked] to record none of the writes tracked collections do in the block, and to
+ * change a collection by name with `upsert(name, document)` and `delete(name, id)`.
  */
 public suspend fun <R> NoSqlite.write(
     untracked: Boolean = false,
@@ -134,12 +133,12 @@ public suspend fun <R> NoSqlite.write(
 // Creates the queue and the declared collections; safe to run again. Existing tables are never dropped.
 // One read of every managed index, then each collection is checked against that.
 context(_: Connection)
-internal suspend fun createSchema(tables: Schema) {
+internal suspend fun createSchema(tables: SchemaBuilder) {
     Queries.createPendingChanges.execute()
     Queries.createTrackingState.execute()
     Queries.seedTrackingState.execute()
     val indexes = Queries.managedIndexes.execute()
-    for (collection in tables) createSchema(collection, indexes)
+    tables.collections.forEach { createSchema(it, indexes) }
 }
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.

@@ -23,8 +23,8 @@ public class WriteScope internal constructor(
     // The collections this transaction changed: a savepoint hands its own to the enclosing write when it releases.
     internal val changed: MutableSet<String> = mutableSetOf()
 
-    /** Collections this untracked write created. Registered on the schema when the outermost write commits. */
-    internal val created: MutableSet<Collection> = mutableSetOf()
+    /** Names this untracked write created. Registered on the schema when the outermost write commits. */
+    internal val created: MutableSet<String> = mutableSetOf()
 }
 
 /** Records that the current write changed this collection. */
