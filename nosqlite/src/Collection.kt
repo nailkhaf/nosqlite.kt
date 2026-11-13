@@ -3,8 +3,10 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
 import kotlin.reflect.KProperty1
+import kotlin.uuid.Uuid
 
 /**
  * A named set of JSON object documents, stored in its own table. The documents are the JSON itself: each read decodes
@@ -64,13 +66,41 @@ internal fun requireCollectionName(name: String) {
     }
 }
 
+/**
+ * Inserts [document] into [collection], or merges it into the document with the same id, as [Collection.upsert] does.
+ * Only inside `write(untracked = true)`. A name the schema does not have gets its table, id index and id trigger,
+ * and the schema keeps that name once the write commits. [document] must be a JSON object whose `id` is a UUID.
+ */
+context(scope: WriteScope)
+public suspend fun upsert(collection: String, document: JsonObject) {
+    requireUntracked()
+    if (scope.untracked) ensureTable(collection)
+    Collection(collection).upsert(document)
+}
+
+/**
+ * Deletes the document [id] from [collection], as [Id.delete] does. Only inside `write(untracked = true)`.
+ * A name the schema does not have is left untouched. The result is whether a document was deleted.
+ */
+context(scope: WriteScope)
+public suspend fun delete(collection: String, id: Uuid): Boolean {
+    requireUntracked()
+    requireCollectionName(collection)
+    if (collection !in scope.pool.schema && collection !in scope.created) return false
+    return Collection(collection).id(id).delete()
+}
+
+context(scope: WriteScope)
+private fun requireUntracked() {
+    check(scope.untracked) { "By-name changes are only allowed in an untracked write" }
+}
+
 /** Inserts [value] as a new document; it must encode to a JSON object. */
 context(_: WriteScope)
 public suspend inline fun <reified T> Collection.insert(value: T): Unit = insert(serializer(), value)
 
 context(_: WriteScope)
 public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
-    ensureTable()
     val json = encode(serializer, value)
     withWriteConnection { Queries.insert(this@insert).execute(json) }
     changed()
@@ -105,7 +135,6 @@ public suspend inline fun <reified T> Collection.update(value: T, noinline condi
 
 context(_: WriteScope)
 public suspend fun <T> Collection.update(serializer: KSerializer<T>, value: T, condition: WhereScope.() -> Where): Int {
-    ensureTable()
     val json = encode(serializer, value)
     val updated = withWriteConnection { Queries.update(this@update, json, where(condition)).execute() }
     if (updated > 0) changed()
@@ -123,7 +152,6 @@ public suspend fun <T> Collection.replace(
     value: T,
     condition: WhereScope.() -> Where,
 ): Int {
-    ensureTable()
     val json = encode(serializer, value)
     val replaced = withWriteConnection { Queries.replace(this@replace, json, where(condition)).execute() }
     if (replaced > 0) changed()
@@ -133,7 +161,6 @@ public suspend fun <T> Collection.replace(
 /** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
 public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
-    ensureTable()
     val deleted = withWriteConnection { Queries.delete(this@delete, where(condition)).execute() }
     if (deleted > 0) changed()
     return deleted
@@ -163,23 +190,24 @@ context(_: ReadScope)
 internal suspend fun <R> Collection.withConnection(block: suspend context(Connection) () -> R): R =
     mapErrors(this) { context(connection()) { block() } }
 
-/** A write: a missing table is not [NoSqliteException.CollectionNotDeclared] when an untracked write creates it. */
-context(scope: WriteScope)
+/** A write, with SQLite's errors about this collection made typed. */
+context(_: WriteScope)
 internal suspend fun <R> Collection.withWriteConnection(block: suspend context(Connection) () -> R): R =
-    mapErrors(this, untracked = scope.untracked) { context(connection()) { block() } }
+    mapErrors(this) { context(connection()) { block() } }
 
 /**
- * An untracked write creates this collection's table, id index, and id trigger when the schema does not have it.
- * The collection is remembered on this [WriteScope] and registered when the outermost write commits.
- * A declared collection is created when the writer opens. The statements are safe to repeat.
+ * Creates this collection's table, id index and id trigger when the schema does not have [name], and remembers the
+ * name so the outermost write can register it after it commits. Callers decide whether to ask:
+ * `if (scope.untracked) ensureTable(name)`. The statements are safe to repeat.
  */
 context(scope: WriteScope)
-internal suspend fun Collection.ensureTable() {
-    if (!scope.untracked || this in scope.pool.schema || this in scope.created) return
+internal suspend fun ensureTable(name: String) {
+    if (name in scope.pool.schema) return
+    val collection = Collection(name)
     context(connection()) {
-        Queries.createTable(this@ensureTable).forEach { it.execute() }
+        Queries.createTable(collection).forEach { it.execute() }
     }
-    scope.created += this
+    scope.created += name
 }
 
 private val ErrorCode = Regex("^Error code: (\\d+)")
@@ -190,11 +218,10 @@ private val BusyCodes = setOf(5, 6)
 /**
  * Runs [block], making SQLite's errors typed: a locked database for any statement, and for one about [collection]
  * its missing table, an id that is not a lowercase canonical UUID, a duplicate id and an id change. Only declared
- * collections have a table, so SQLite not knowing this collection's table means it wasn't declared. An untracked
- * write creates a missing table before it writes, so that write does not report a missing table; a read still does.
+ * collections have a table, so SQLite not knowing this collection's table means it wasn't declared.
  * A unique constraint is a duplicate id. IdTest pins the message text for the bundled driver.
  */
-internal inline fun <R> mapErrors(collection: Collection? = null, untracked: Boolean = false, block: () -> R): R = try {
+internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R): R = try {
     block()
 } catch (e: SQLiteException) {
     val message = e.message.orEmpty()
@@ -205,7 +232,7 @@ internal inline fun <R> mapErrors(collection: Collection? = null, untracked: Boo
         collection == null -> throw e
 
         "no such table: ${tableName(collection.name)}" in message ->
-            if (untracked) throw e else throw NoSqliteException.CollectionNotDeclared(collection.name, e)
+            throw NoSqliteException.CollectionNotDeclared(collection.name, e)
 
         "CHECK constraint failed: document_id" in message ->
             throw NoSqliteException.InvalidId(collection.name, e)

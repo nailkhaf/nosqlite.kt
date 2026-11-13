@@ -261,15 +261,20 @@ val changes = db.read { pendingChanges() }
 sync(changes)
 db.write { removePendingChanges(changes) }
 
-db.write(untracked = true) { import(contacts) }
+db.write(untracked = true) {
+    upsert("contacts", incoming)
+    delete("contacts", removedId)
+}
 ```
 
 `pendingChanges()` returns the queue ordered by its row id. Read it whenever sync
 runs, for example after `observe` on a tracked collection emits. `removePendingChanges` deletes exactly the given
 rows, so a change written after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
-`write(untracked = true)` records nothing and does not nest inside another write. A write in that scope to a
-collection the schema does not have creates its table, id index, and id trigger. The schema keeps that collection
-once the write commits. A write that is not untracked, and a read whose table does not exist, still fail with `CollectionNotDeclared`.
+`write(untracked = true)` records nothing and does not nest inside another write. Inside it, `upsert(name, document)`
+and `delete(name, id)` address a collection by name, with the same id check and merge as a typed upsert. A name the
+schema does not have gets its table, id index, and id trigger, and the schema keeps that name once the write commits.
+`delete` of a name the schema does not have does nothing. A typed write that is not untracked, and a read whose table
+does not exist, still fail with `CollectionNotDeclared`.
 The queue is append-only. A collection that is not tracked records nothing. Rows queued before a collection stopped
 being tracked stay readable until they are removed. The id trigger is created with the table, so the id stays immutable.
 

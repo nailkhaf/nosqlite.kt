@@ -289,15 +289,17 @@ internal class StorageTest {
     }
 
     @Test
-    fun `an untracked write creates a missing table its id index and its id trigger`() = runTest {
+    fun `a by-name upsert creates the table and the next one reuses it`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
         val other = buildJsonObject { put("id", uuid("note-2").toString()); put("text", "yo") }
+        val patch = buildJsonObject { put("id", uuid("note").toString()); put("done", true) }
 
         db.write(untracked = true) {
-            Notes.insert(note)
-            Notes.insert(other)
+            upsert("notes", note)
+            upsert("notes", other)
         }
+        db.write(untracked = true) { upsert("notes", patch) }
 
         assertEquals(
             listOf(
@@ -326,27 +328,78 @@ internal class StorageTest {
             db.querySql("SELECT name FROM sqlite_temp_schema WHERE type = 'trigger' AND tbl_name = 'nsq_notes'"),
         )
         assertEquals(2L, db.read { Notes.count() })
-        assertTrue(Notes in db.pool().schema)
+        assertEquals(
+            listOf(listOf("""{"id":"${uuid("note")}","text":"hi","done":true}""")),
+            db.querySql("""SELECT json(data) FROM nsq_notes WHERE data ->> '$.id' = '${uuid("note")}'"""),
+        )
+        assertTrue("notes" in db.pool().schema)
     }
 
     @Test
-    fun `a rolled back untracked write does not register the collection`() = runTest {
+    fun `a rolled back upsert does not register the name`() = runTest {
         val db = NoSqlite { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
         assertFails {
             db.write(untracked = true) {
-                Notes.insert(note)
+                upsert("notes", note)
                 error("rollback")
             }
         }
 
-        assertFalse(Notes in db.pool().schema)
+        assertFalse("notes" in db.pool().schema)
         assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
-        db.write(untracked = true) { Notes.insert(note) }
+        db.write(untracked = true) { upsert("notes", note) }
         assertEquals(listOf(listOf("nsq_notes")), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
         assertEquals(1L, db.read { Notes.count() })
-        assertTrue(Notes in db.pool().schema)
+        assertTrue("notes" in db.pool().schema)
+    }
+
+    @Test
+    fun `delete of an unknown collection does nothing`() = runTest {
+        val db = NoSqlite { }
+
+        val deleted = db.write(untracked = true) { delete("notes", uuid("note")) }
+
+        assertFalse(deleted)
+        assertFalse("notes" in db.pool().schema)
+        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
+    }
+
+    @Test
+    fun `an invalid collection name is rejected by a by-name change`() = runTest {
+        val db = NoSqlite { }
+        val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
+        val invalid = mapOf(
+            "my users" to "Invalid collection name: 'my users'",
+            "idx_users" to "Invalid collection name: 'idx_users'",
+            "sqlite_users" to "Collection name is reserved by SQLite: 'sqlite_users'",
+            "_pending_changes" to "Collection name is reserved: '_pending_changes'",
+        )
+
+        for ((name, message) in invalid) {
+            val upsertError = assertFailsWith<IllegalArgumentException> {
+                db.write(untracked = true) { upsert(name, note) }
+            }
+            assertEquals(message, upsertError.message)
+            val deleteError = assertFailsWith<IllegalArgumentException> {
+                db.write(untracked = true) { delete(name, uuid("note")) }
+            }
+            assertEquals(message, deleteError.message)
+        }
+    }
+
+    @Test
+    fun `by-name changes require an untracked write`() = runTest {
+        val db = NoSqlite { }
+        val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
+
+        val upsertError = assertFailsWith<IllegalStateException> { db.write { upsert("notes", note) } }
+        val deleteError = assertFailsWith<IllegalStateException> { db.write { delete("notes", uuid("note")) } }
+
+        assertEquals("By-name changes are only allowed in an untracked write", upsertError.message)
+        assertEquals("By-name changes are only allowed in an untracked write", deleteError.message)
+        assertEquals(emptyList(), db.querySql("SELECT name FROM sqlite_schema WHERE name = 'nsq_notes'"))
     }
 
     @Test
@@ -378,8 +431,8 @@ internal class StorageTest {
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
         db.write(untracked = true) {
-            assertFails { Notes.insert(note) }
-            Notes.insert(note)
+            assertFails { upsert("notes", note) }
+            upsert("notes", note)
         }
 
         assertEquals(1L, db.read { Notes.count() })
@@ -395,8 +448,8 @@ internal class StorageTest {
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
         db.write(untracked = true) {
-            assertFails { Notes.insert(note) }
-            Notes.insert(note)
+            assertFails { upsert("notes", note) }
+            upsert("notes", note)
         }
 
         assertEquals(
