@@ -44,11 +44,9 @@ internal object Queries {
     /** Every managed index name, by table. Indexes nosqlite does not name are left out. */
     val managedIndexes: Statement<Unit, Map<String, List<String>>> = Statement(
         sql = """
-            SELECT m.name, i.name
-            FROM sqlite_schema AS m
-            JOIN pragma_index_list(m.name) AS i
-            WHERE m.type = 'table' AND i.name GLOB '${INDEX_PREFIX}*'
-            ORDER BY m.name, i.seq
+            SELECT tbl_name, name
+            FROM sqlite_schema
+            WHERE type = 'index' AND name GLOB '${INDEX_PREFIX}*'
         """.trimIndent(),
         encode = {},
         decode = { rowsGrouped() },
