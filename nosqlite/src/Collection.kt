@@ -129,37 +129,29 @@ public suspend fun Collection.count(condition: (WhereScope.() -> Where)? = null)
     withConnection { Queries.count(this@count, condition?.let(::where)).execute() }
 
 /**
- * Applies [value] as a JSON merge patch to every document matching [condition], so match on `id` to update one:
- * its fields replace theirs, a `null` removes one, and fields it doesn't have are kept. The result is how many
- * documents were updated.
+ * Updates every document matching [condition] with [value], so match on `id` to update one. With [merge] (the
+ * default) [value] is a JSON merge patch: its fields replace theirs, a `null` removes one, and fields it doesn't have
+ * are kept. Without it [value] is stored as each whole document, so it must carry each match's id. The result is how
+ * many documents were updated.
  */
 context(_: WriteScope)
-public suspend inline fun <reified T> Collection.update(value: T, noinline condition: WhereScope.() -> Where): Int =
-    update(serializer(), value, condition)
+public suspend inline fun <reified T> Collection.update(
+    value: T,
+    merge: Boolean = true,
+    noinline condition: WhereScope.() -> Where,
+): Int = update(serializer(), value, merge, condition)
 
 context(_: WriteScope)
-public suspend fun <T> Collection.update(serializer: KSerializer<T>, value: T, condition: WhereScope.() -> Where): Int {
-    val json = encode(serializer, value)
-    val updated = withWriteConnection { Queries.update(this@update, json, where(condition)).execute() }
-    if (updated > 0) changed()
-    return updated
-}
-
-/** Replaces every document matching [condition] with [value]; the result is how many documents were replaced. */
-context(_: WriteScope)
-public suspend inline fun <reified T> Collection.replace(value: T, noinline condition: WhereScope.() -> Where): Int =
-    replace(serializer(), value, condition)
-
-context(_: WriteScope)
-public suspend fun <T> Collection.replace(
+public suspend fun <T> Collection.update(
     serializer: KSerializer<T>,
     value: T,
+    merge: Boolean = true,
     condition: WhereScope.() -> Where,
 ): Int {
     val json = encode(serializer, value)
-    val replaced = withWriteConnection { Queries.replace(this@replace, json, where(condition)).execute() }
-    if (replaced > 0) changed()
-    return replaced
+    val updated = withWriteConnection { Queries.update(this@update, json, merge, where(condition)).execute() }
+    if (updated > 0) changed()
+    return updated
 }
 
 /** Deletes every document matching [condition]; the result is how many were deleted. */

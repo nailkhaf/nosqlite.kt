@@ -103,10 +103,11 @@ internal class ProjectionTest {
     }
 
     @Test
-    fun `a replace drops the fields its type does not declare`() = runTest {
+    fun `an update without merge drops the fields its type does not declare`() = runTest {
         val db = seeded()
 
-        db.write { Profiles.id(ada).replace(Profile(ada, Address("Rome"), mapOf("theme" to "light"))) }
+        val replacement = Profile(ada, Address("Rome"), mapOf("theme" to "light"))
+        db.write { Profiles.id(ada).update(replacement, merge = false) }
 
         val expected = json("""{"id":"$ada","address":{"city":"Rome"},"settings":{"theme":"light"},"nickname":null}""")
         assertEquals(expected, db.stored())

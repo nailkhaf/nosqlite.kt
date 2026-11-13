@@ -63,7 +63,7 @@ internal class IdTest {
 
         for (value in badIds()) {
             val error = assertFailsWith<NoSqliteException.ImmutableId> {
-                db.write { Users.replace(value) { "id" eq adaId.toString() } }
+                db.write { Users.update(value, merge = false) { "id" eq adaId.toString() } }
             }
             assertEquals("users", error.collection)
             assertEquals("Id of a document in 'users' is immutable", error.message)
@@ -100,7 +100,7 @@ internal class IdTest {
             db.write { Users.id(adaId).update(buildJsonObject { put("id", alanId.toString()) }) }
         }
         val replace = assertFailsWith<NoSqliteException.ImmutableId> {
-            db.write { Users.id(adaId).replace(person(alanId)) }
+            db.write { Users.id(adaId).update(person(alanId), merge = false) }
         }
 
         assertEquals("users", update.collection)
