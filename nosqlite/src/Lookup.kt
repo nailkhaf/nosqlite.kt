@@ -74,21 +74,14 @@ public suspend fun <T> Lookup.Many.list(serializer: KSerializer<T>, query: Query
 context(_: ReadScope)
 public suspend fun Lookup.Many.count(): Long = index.collection.count { condition }
 
-/** Applies [value] as a merge patch to the documents found, as `update` does; the result is how many were updated. */
+/** Updates the documents found with [value], as `update` does; the result is how many were updated. */
 context(_: WriteScope)
-public suspend inline fun <reified T> Lookup.Many.update(value: T): Int = update(serializer(), value)
+public suspend inline fun <reified T> Lookup.Many.update(value: T, merge: Boolean = true): Int =
+    update(serializer(), value, merge)
 
 context(_: WriteScope)
-public suspend fun <T> Lookup.Many.update(serializer: KSerializer<T>, value: T): Int =
-    index.collection.update(serializer, value) { condition }
-
-/** Replaces the documents found with [value]; the result is how many were replaced. */
-context(_: WriteScope)
-public suspend inline fun <reified T> Lookup.Many.replace(value: T): Int = replace(serializer(), value)
-
-context(_: WriteScope)
-public suspend fun <T> Lookup.Many.replace(serializer: KSerializer<T>, value: T): Int =
-    index.collection.replace(serializer, value) { condition }
+public suspend fun <T> Lookup.Many.update(serializer: KSerializer<T>, value: T, merge: Boolean = true): Int =
+    index.collection.update(serializer, value, merge) { condition }
 
 /** Deletes the documents found; the result is how many were deleted. */
 context(_: WriteScope)
@@ -123,21 +116,17 @@ context(_: ReadScope)
 public suspend fun <T> Id.get(serializer: KSerializer<T>): T? =
     collection.list(serializer, Query(condition, emptyList(), limit = 1, offset = 0)).firstOrNull()
 
-/** Applies [value] as a merge patch to the document, as `update` does; the result is whether there was one. */
+/**
+ * Updates the document with [value], as `update` does: a merge patch with [merge], the whole document without it, and
+ * then [value] must carry the same id. The result is whether there was one.
+ */
 context(_: WriteScope)
-public suspend inline fun <reified T> Id.update(value: T): Boolean = update(serializer(), value)
+public suspend inline fun <reified T> Id.update(value: T, merge: Boolean = true): Boolean =
+    update(serializer(), value, merge)
 
 context(_: WriteScope)
-public suspend fun <T> Id.update(serializer: KSerializer<T>, value: T): Boolean =
-    collection.update(serializer, value) { condition } > 0
-
-/** Replaces the document with [value]; the result is whether there was one. [value] must carry the same id. */
-context(_: WriteScope)
-public suspend inline fun <reified T> Id.replace(value: T): Boolean = replace(serializer(), value)
-
-context(_: WriteScope)
-public suspend fun <T> Id.replace(serializer: KSerializer<T>, value: T): Boolean =
-    collection.replace(serializer, value) { condition } > 0
+public suspend fun <T> Id.update(serializer: KSerializer<T>, value: T, merge: Boolean = true): Boolean =
+    collection.update(serializer, value, merge) { condition } > 0
 
 /** Deletes the document; the result is whether there was one. */
 context(_: WriteScope)
@@ -145,7 +134,7 @@ public suspend fun Id.delete(): Boolean = collection.delete { condition } > 0
 
 /**
  * Inserts [value], or changes the document with its id: with [merge] it applies [value] as a JSON merge patch, as
- * `update` does, and without it stores [value] as the whole document, as `replace` does. [value] must carry an id.
+ * `update` does, and without it stores [value] as the whole document. [value] must carry an id.
  */
 context(_: WriteScope)
 public suspend inline fun <reified T> Collection.upsert(value: T, merge: Boolean = true): Unit =

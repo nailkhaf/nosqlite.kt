@@ -61,13 +61,13 @@ internal class WriteTest {
     }
 
     @Test
-    fun `replace stores the value as the whole document`() = runTest {
+    fun `update without merge stores the value as the whole document`() = runTest {
         val db = NoSqlite { +Raw }
         val id = uuid("a")
         db.write { Raw.insert(buildJsonObject { put("id", id.toString()); put("age", 30); put("nickname", "x") }) }
         val replacement = buildJsonObject { put("id", id.toString()); put("age", 31) }
 
-        val replaced = db.write { Raw.replace(replacement) { "id" eq id.toString() } }
+        val replaced = db.write { Raw.update(replacement, merge = false) { "id" eq id.toString() } }
 
         assertEquals(1, replaced)
         assertEquals(listOf(replacement), db.read { Raw.list<JsonObject>() })
@@ -89,7 +89,7 @@ internal class WriteTest {
 
         db.write {
             assertEquals(0, Users.update(ann) { "id" eq uuid("nobody").toString() })
-            assertEquals(0, Users.replace(ann) { "id" eq uuid("nobody").toString() })
+            assertEquals(0, Users.update(ann, merge = false) { "id" eq uuid("nobody").toString() })
             assertEquals(0, Users.delete { "id" eq uuid("nobody").toString() })
         }
 

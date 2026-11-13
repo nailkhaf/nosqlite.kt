@@ -128,7 +128,7 @@ internal class TrackingTest {
 
         db.write { Contacts.insert(ada) }
         db.write { Contacts.id(ada.id).update(renamed) }
-        db.write { Contacts.id(ada.id).replace(replaced) }
+        db.write { Contacts.id(ada.id).update(replaced, merge = false) }
         assertEquals(true, db.write { Contacts.id(ada.id).delete() })
 
         assertEquals(
@@ -155,7 +155,7 @@ internal class TrackingTest {
             Contacts.insert(grace)
         }
         assertEquals(2, db.write { Contacts.update(buildJsonObject { put("age", 99) }) { "age" eq 36 } })
-        assertEquals(1, db.write { Contacts.replace(replaced) { "id" eq ada.id.toString() } })
+        assertEquals(1, db.write { Contacts.update(replaced, merge = false) { "id" eq ada.id.toString() } })
         assertEquals(2, db.write { Contacts.delete { "age" gte 36 } })
 
         assertEquals(
@@ -183,7 +183,7 @@ internal class TrackingTest {
             Contacts.insert(grace)
         }
         assertEquals(2, db.write { Contacts.byAge(36).update(buildJsonObject { put("age", 99) }) })
-        assertEquals(1, db.write { Contacts.byAge(41).replace(renamed) })
+        assertEquals(1, db.write { Contacts.byAge(41).update(renamed, merge = false) })
         assertEquals(2, db.write { Contacts.byAge(99).delete() })
 
         assertEquals(
@@ -208,7 +208,7 @@ internal class TrackingTest {
 
         db.write {
             assertEquals(0, Contacts.update(ada.copy(age = 1)) { "id" eq uuid("nobody").toString() })
-            assertEquals(0, Contacts.replace(ada) { "id" eq uuid("nobody").toString() })
+            assertEquals(0, Contacts.update(ada, merge = false) { "id" eq uuid("nobody").toString() })
             assertEquals(0, Contacts.delete { "id" eq uuid("nobody").toString() })
             assertEquals(false, Contacts.id(uuid("nobody")).delete())
             assertEquals(0, Contacts.byAge(1).delete())
