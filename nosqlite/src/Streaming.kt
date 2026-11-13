@@ -23,9 +23,9 @@ public suspend fun <T> Collection.forEach(
     action: suspend (T) -> Unit,
 ) {
     val query = query(query)
-    val select = Queries.selectSql(this, query)
+    val select = Queries.selectSql(name, query)
     withConnection {
-        select.forEachRow { action(decode(serializer, this)) }
+        select.forEachRow { action(decode(name, serializer, this)) }
     }
 }
 
