@@ -58,7 +58,7 @@ internal class TrackingTest {
         action: PendingChange.Action,
         changeSet: JsonObject,
         collection: String = Contacts.name,
-    ) = PendingChange(id, collection, documentId.toString(), action, changeSet, Instant.fromEpochMilliseconds(0))
+    ) = PendingChange(id, collection, documentId, action, changeSet, Instant.fromEpochMilliseconds(0))
 
     private fun inserted(id: Long, contact: Contact) = recorded(id, contact.id, PendingChange.Action.Insert, contact.json())
 
@@ -73,7 +73,7 @@ internal class TrackingTest {
     private fun List<PendingChange>.withoutTime() = map { it.copy(timestamp = Instant.fromEpochMilliseconds(0)) }
 
     /** Each change, with queue ids 1..n in order and no duplicate triple. */
-    private fun List<PendingChange>.bodies(): Set<Triple<String, PendingChange.Action, JsonObject>> {
+    private fun List<PendingChange>.bodies(): Set<Triple<Uuid, PendingChange.Action, JsonObject>> {
         assertEquals((1L..size).toList(), map { it.id })
         assertTrue(all { it.collection == Contacts.name })
         return map { Triple(it.documentId, it.action, it.changeSet) }.toSet().also { assertEquals(size, it.size) }
@@ -160,13 +160,13 @@ internal class TrackingTest {
 
         assertEquals(
             setOf(
-                Triple(ada.id.toString(), PendingChange.Action.Insert, ada.json()),
-                Triple(grace.id.toString(), PendingChange.Action.Insert, grace.json()),
-                Triple(ada.id.toString(), PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
-                Triple(grace.id.toString(), PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
-                Triple(ada.id.toString(), PendingChange.Action.Update, buildJsonObject { put("name", "Augusta") }),
-                Triple(ada.id.toString(), PendingChange.Action.Delete, buildJsonObject { }),
-                Triple(grace.id.toString(), PendingChange.Action.Delete, buildJsonObject { }),
+                Triple(ada.id, PendingChange.Action.Insert, ada.json()),
+                Triple(grace.id, PendingChange.Action.Insert, grace.json()),
+                Triple(ada.id, PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
+                Triple(grace.id, PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
+                Triple(ada.id, PendingChange.Action.Update, buildJsonObject { put("name", "Augusta") }),
+                Triple(ada.id, PendingChange.Action.Delete, buildJsonObject { }),
+                Triple(grace.id, PendingChange.Action.Delete, buildJsonObject { }),
             ),
             changes(db).bodies(),
         )
@@ -188,14 +188,14 @@ internal class TrackingTest {
 
         assertEquals(
             setOf(
-                Triple(ada.id.toString(), PendingChange.Action.Insert, ada.json()),
-                Triple(alan.id.toString(), PendingChange.Action.Insert, alan.json()),
-                Triple(grace.id.toString(), PendingChange.Action.Insert, grace.json()),
-                Triple(ada.id.toString(), PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
-                Triple(grace.id.toString(), PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
-                Triple(alan.id.toString(), PendingChange.Action.Update, buildJsonObject { put("name", "Alan Turing") }),
-                Triple(ada.id.toString(), PendingChange.Action.Delete, buildJsonObject { }),
-                Triple(grace.id.toString(), PendingChange.Action.Delete, buildJsonObject { }),
+                Triple(ada.id, PendingChange.Action.Insert, ada.json()),
+                Triple(alan.id, PendingChange.Action.Insert, alan.json()),
+                Triple(grace.id, PendingChange.Action.Insert, grace.json()),
+                Triple(ada.id, PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
+                Triple(grace.id, PendingChange.Action.Update, buildJsonObject { put("age", 99) }),
+                Triple(alan.id, PendingChange.Action.Update, buildJsonObject { put("name", "Alan Turing") }),
+                Triple(ada.id, PendingChange.Action.Delete, buildJsonObject { }),
+                Triple(grace.id, PendingChange.Action.Delete, buildJsonObject { }),
             ),
             changes(db).bodies(),
         )
@@ -437,7 +437,7 @@ internal class TrackingTest {
             PendingChange(
                 id,
                 Contacts.name,
-                ada.id.toString(),
+                ada.id,
                 PendingChange.Action.Delete,
                 buildJsonObject { },
                 Instant.fromEpochMilliseconds(0),

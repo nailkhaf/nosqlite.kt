@@ -247,7 +247,7 @@ the last one isn't emitted. Changes are tracked per collection.
 ### Change tracking
 
 `Collection("contacts", tracked = true)` records every insert, update and delete in `nsq__pending_changes`.
-Each row has the document's `id`, an action (`Insert`, `Update` or `Delete`) and a change set. An insert's change
+Each row has the document's `id` as a `Uuid`, an action (`Insert`, `Update` or `Delete`) and a change set. An insert's change
 set is the new document. A delete's is `{}`. An update's is a JSON merge patch: nested objects are diffed
 recursively, arrays are replaced whole, and a removed key is `null` at the outermost removed path. An update that
 does not change the stored document records nothing.
