@@ -59,7 +59,7 @@ import kotlin.uuid.Uuid
 data class Name(val first: String, val last: String)
 
 @Serializable
-data class User(val id: String, val email: String, val name: Name, val age: Int, val tags: List<String> = emptyList())
+data class User(val id: Uuid, val email: String, val name: Name, val age: Int, val tags: List<String> = emptyList())
 
 object Users : Collection("users") {
     val byAge = index(User::age)
@@ -68,8 +68,8 @@ object Users : Collection("users") {
 
 val db = NoSqlite("app.db") { +Users }
 
-val adaId = Uuid.random().toString()
-val alanId = Uuid.random().toString()
+val adaId = Uuid.random()
+val alanId = Uuid.random()
 
 db.write {
     Users.insert(User(adaId, "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
@@ -107,6 +107,8 @@ with(db) {
 A collection is a name and its indexes. Create one directly, `Collection("notes")`, or extend `Collection` to
 declare indexes with `index(...)`. A database lists the collections it serves,
 `NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
+A collection's table is `nsq_<collection>`, its indexes are `nsq_idx_<collection>_` plus a suffix, and its triggers
+are `nsq_<collection>_` plus a suffix. Collection names can't start with `idx`.
 Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDeclared`.
 A collection's name is permanent. Opening a database without listing a collection leaves that collection's table
 and documents in place.
@@ -125,28 +127,29 @@ renamed with `@SerialName`. Keys are identifiers.
 ### Indexes
 
 `index("age")` takes one field or several, in order, and an optional `where` that makes the index partial:
-`index("nickname", where = { "active".isTrue() })`. Each index is named by a hash of its definition, so a changed
-index is dropped and created again when the database opens, and a removed one dropped.
+`index("nickname", where = { "active".isTrue() })`. Each index is named `nsq_idx_<collection>_` plus a hash of its
+definition, so a changed index is dropped and created again when the database opens, and a removed one dropped.
 
-Every collection also has an index on `id`, which is not declared. Calling an index looks documents up by its values.
+Every collection also has an index on `id`, named `nsq_idx_<collection>_id`, which is not declared.
+Calling an index looks documents up by its values.
 It takes its leading fields, `null` matching a null or missing field, and finds any number: `list<T> { }`, `count()`,
 `update(value)`, `replace(value)` and `delete()` return the documents or how many there were.
 
 ### Ids
 
-Every document has an `id` field, and its value is a `kotlin.uuid.Uuid` string, the 36-character form `Uuid.toString()`
-returns. `insert`, `replace` and `upsert` reject a document whose id is missing or not that string.
-`id(value)` addresses the one document with that id: `get<T>()` returns it or `null`, and `update(value)`,
-`replace(value)` and `delete()` report whether there was one. `observe` on it emits that document, or `null` while
-there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
-An id never changes: a write that would change it throws `NoSqliteException.ImmutableId`. A second document with the
-same id throws `NoSqliteException.DuplicateId`.
+Every document needs an `id`: a `kotlin.uuid.Uuid` string, stored as `Uuid.toString()`. A `Uuid` property serializes
+to that string. SQLite checks it on every write. `id(value)` takes that `Uuid` and addresses the one document:
+`get<T>()` returns it or `null`, and
+`update(value)`, `replace(value)` and `delete()` report whether there was one. `observe` on it emits that document,
+or `null` while there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
+An id never changes: a write that would change it throws `NoSqliteException.ImmutableId`. A missing or non-UUID id
+throws `NoSqliteException.InvalidId`. A second document with the same id throws `NoSqliteException.DuplicateId`.
 
 ### Writes
 
 Inside `db.write { }`:
 
-- `insert(value)` adds a document. It must encode to a JSON object with a UUID string `id`.
+- `insert(value)` adds a document. It must encode to a JSON object whose `id` is `Uuid.toString()`.
 - `update(value) { condition }` applies the value to every match as a JSON merge patch: its fields replace theirs,
   a `null` removes one, and fields it doesn't have are kept.
 - `replace(value) { condition }` stores the value as the whole document of every match. The value must carry each
@@ -243,8 +246,8 @@ the last one isn't emitted. Changes are tracked per collection.
 
 ### Change tracking
 
-`Collection("contacts", tracked = true)` records every insert, update and delete in `__pending_changes`.
-Each row has the document's `id`, an action (`Insert`, `Update` or `Delete`) and a change set. An insert's change
+`Collection("contacts", tracked = true)` records every insert, update and delete in `nsq__pending_changes`.
+Each row has the document's `id` as a `Uuid`, an action (`Insert`, `Update` or `Delete`) and a change set. An insert's change
 set is the new document. A delete's is `{}`. An update's is a JSON merge patch: nested objects are diffed
 recursively, arrays are replaced whole, and a removed key is `null` at the outermost removed path. An update that
 does not change the stored document records nothing.
@@ -268,7 +271,7 @@ rows, so a change written after they were read stays. Each row is timestamped wi
 creates the table and the id index when either is missing, and adds no triggers. A write that is not untracked, and a
 read whose table does not exist, still fail with `CollectionNotDeclared`.
 The queue is append-only. A collection that is not tracked records nothing. Rows queued before a collection stopped
-being tracked stay readable until they are removed. Every collection, tracked or not, keeps its id immutable.
+being tracked stay readable until they are removed. A declared collection, tracked or not, keeps its id immutable.
 
 ## Sample
 

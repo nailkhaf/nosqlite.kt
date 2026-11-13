@@ -15,16 +15,13 @@ public sealed class NoSqliteException(message: String, cause: Throwable? = null)
     public class ImmutableId internal constructor(public val collection: String, cause: Throwable) :
         NoSqliteException("Id of a document in '$collection' is immutable", cause)
 
+    /** A document of [collection] has no id or one that isn't a lowercase canonical UUID string. */
+    public class InvalidId internal constructor(public val collection: String, cause: Throwable) :
+        NoSqliteException("A document of '$collection' must have a UUID string id", cause)
+
     /** A document of [collection] can't be decoded into the requested type. */
     public class DecodingFailed internal constructor(public val collection: String, cause: Throwable) :
         NoSqliteException("Can't decode a document of '$collection': ${cause.message}", cause)
-
-    /** A table named [collection] exists with [columns] instead of a collection's, so something else created it. */
-    public class IncompatibleTable internal constructor(public val collection: String, public val columns: List<String>) :
-        NoSqliteException(
-            "Table '$collection' has columns (${columns.joinToString()}), " +
-                "not a collection's (${Queries.TableColumns.joinToString()})",
-        )
 
     /** The driver's SQLite is [version], older than 3.45.0, the first with the JSONB functions storage needs. */
     public class UnsupportedSqlite internal constructor(public val version: String) :
