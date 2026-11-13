@@ -19,12 +19,21 @@ public class WriteScope internal constructor(connection: Connection, pool: Conne
     ReadScope(connection, pool) {
     // The collections this transaction changed: a savepoint hands its own to the enclosing write when it releases.
     internal val changed: MutableSet<String> = mutableSetOf()
+
+    /** Collection names this write created by name. Registered on the schema when the outermost write commits. */
+    internal val created: MutableSet<String> = mutableSetOf()
+}
+
+/** Records that the current write changed the collection [name]. */
+context(scope: WriteScope)
+internal fun changed(name: String) {
+    scope.changed += name
 }
 
 /** Records that the current write changed this collection. */
-context(scope: WriteScope)
+context(_: WriteScope)
 internal fun Collection.changed() {
-    scope.changed += name
+    changed(name)
 }
 
 context(scope: ReadScope)
@@ -53,7 +62,10 @@ internal suspend fun <R> ConnectionPool.write(
         check(!untracked) { "Untracked write cannot nest inside another write" }
         val scope = WriteScope(active.connection, this)
         return active.connection.transaction(Boundary.Savepoint) { withScope(scope, block) }
-            .also { active.changed += scope.changed }
+            .also {
+                active.changed += scope.changed
+                active.created += scope.created
+            }
     }
     return withWriter { connection ->
         val scope = WriteScope(connection, this)
@@ -63,7 +75,10 @@ internal suspend fun <R> ConnectionPool.write(
             withScope(scope, block).also {
                 if (untracked) connection.setUntracked(false)
             }
-        }.also { onCommit(scope.changed.toSet()) }
+        }.also {
+            onCommit(scope.changed.toSet())
+            scope.created.forEach { schema.register(it) }
+        }
     }
 }
 

@@ -165,7 +165,7 @@ internal class IndexTest {
     fun `getting a document by id uses the id index`() = runTest {
         val db = NoSqlite { +Users }
         val sql = Queries.selectSql(
-            Users,
+            Users.name,
             Query(Users.id(ada.id).condition, emptyList(), limit = 1, offset = 0),
         ).sql
 
@@ -262,4 +262,4 @@ internal class IndexTest {
 }
 
 /** Kotlin/Native cannot link an internal member read through a test object. */
-private fun idIndexName(collection: Collection): String = Queries.idIndexName(collection)
+private fun idIndexName(collection: Collection): String = Queries.idIndexName(collection.name)

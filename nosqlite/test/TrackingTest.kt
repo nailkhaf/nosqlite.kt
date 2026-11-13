@@ -218,6 +218,36 @@ internal class TrackingTest {
     }
 
     @Test
+    fun `a by-name change in a tracked write is recorded`() = runTest {
+        val db = database()
+        val older = ada.copy(age = 37)
+
+        db.write { Contacts.insert(ada) }
+        db.write {
+            upsert("contacts", older.json())
+            assertTrue(delete("contacts", ada.id))
+        }
+
+        assertEquals(listOf(inserted(1, ada), updated(2, ada, older), deleted(3, older)), changes(db))
+    }
+
+    @Test
+    fun `a by-name change in an untracked write records nothing`() = runTest {
+        val db = database()
+
+        db.write { Contacts.insert(ada) }
+        db.write(untracked = true) {
+            upsert("contacts", alan.json())
+            delete("contacts", ada.id)
+            upsert("fresh", note)
+        }
+
+        assertEquals(listOf(inserted(1, ada)), changes(db))
+        assertEquals(listOf(alan), db.contacts())
+        assertEquals(listOf(note), db.read { Fresh.list<JsonObject>() })
+    }
+
+    @Test
     fun `untracked writes record nothing`() = runTest {
         val db = database()
         val older = ada.copy(age = 37)
@@ -491,3 +521,5 @@ private class SqlLog(private val log: MutableList<String>) : SQLiteDriver {
         }
     }
 }
+
+private object Fresh : Collection("fresh")

@@ -3,17 +3,19 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteException
 import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.serializer
 import kotlin.reflect.KProperty1
+import kotlin.uuid.Uuid
 
 /**
  * A named set of JSON object documents, stored in its own table. The documents are the JSON itself: each read decodes
  * them into the type it asks for, and a typed write changes only the fields its type declares, so fields the app
- * doesn't know yet survive. Create one directly, or extend it to declare indexes, and list it in `NoSqlite { }`.
+ * doesn't know yet survive. Declare each collection once, as an object extending it, and list it in `NoSqlite { }`.
  * Every document has an `id`, stored as [kotlin.uuid.Uuid.toString]: required, unique and immutable. Pass `tracked = true` to
  * record every insert, update and delete.
  * ```
- * val Notes = Collection("notes")
+ * object Notes : Collection("notes")
  *
  * object Users : Collection("users") {
  *     val byAge = index(User::age)
@@ -26,7 +28,7 @@ import kotlin.reflect.KProperty1
  * }
  * ```
  */
-public open class Collection(public val name: String, public val tracked: Boolean = false) {
+public abstract class Collection(public val name: String, public val tracked: Boolean = false) {
     init {
         requireCollectionName(name)
     }
@@ -64,6 +66,39 @@ internal fun requireCollectionName(name: String) {
     }
 }
 
+/**
+ * [Collection.upsert] addressed by the collection's name, for code that has only the name, such as a replicator,
+ * usually inside `write(untracked = true)` so a tracked collection does not record it. With [merge] = false the
+ * document replaces the stored one whole, so fields it leaves out are removed and `null` fields are kept. A name the
+ * schema does not have gets its table, id index and id trigger, and the schema keeps that name once the write
+ * commits. [document] must be a JSON object whose `id` is a UUID.
+ */
+context(_: WriteScope)
+public suspend fun upsert(collection: String, document: JsonObject, merge: Boolean = true) {
+    requireCollectionName(collection)
+    ensureTable(collection)
+    val json = NoSqlite.Json.encodeToString(serializer<JsonObject>(), document)
+    withWriteConnection(collection) { Queries.upsert(collection, merge).execute(json) }
+    changed(collection)
+}
+
+/**
+ * [Id.delete] addressed by the collection's name: deletes the document [id] from [collection].
+ * A collection without a table is left untouched. The result is whether a document was deleted.
+ */
+context(_: WriteScope)
+public suspend fun delete(collection: String, id: Uuid): Boolean {
+    requireCollectionName(collection)
+    // The table may exist without the schema knowing it, created by name before the database reopened.
+    val deleted = try {
+        withWriteConnection(collection) { Queries.delete(collection, idCondition(id)).execute() }
+    } catch (_: NoSqliteException.CollectionNotDeclared) {
+        return false
+    }
+    if (deleted > 0) changed(collection)
+    return deleted > 0
+}
+
 /** Inserts [value] as a new document; it must encode to a JSON object. */
 context(_: WriteScope)
 public suspend inline fun <reified T> Collection.insert(value: T): Unit = insert(serializer(), value)
@@ -71,7 +106,7 @@ public suspend inline fun <reified T> Collection.insert(value: T): Unit = insert
 context(_: WriteScope)
 public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
     val json = encode(serializer, value)
-    withConnection { Queries.insert(this@insert).execute(json) }
+    withWriteConnection { Queries.insert(name).execute(json) }
     changed()
 }
 
@@ -86,12 +121,12 @@ public suspend fun <T> Collection.list(serializer: KSerializer<T>, query: QueryS
 
 context(_: ReadScope)
 internal suspend fun <T> Collection.list(serializer: KSerializer<T>, query: Query): List<T> =
-    withConnection { Queries.select(this@list, serializer, query).execute() }
+    withConnection { Queries.select(name, serializer, query).execute() }
 
 /** How many documents match [condition], or all of them without one. */
 context(_: ReadScope)
 public suspend fun Collection.count(condition: (WhereScope.() -> Where)? = null): Long =
-    withConnection { Queries.count(this@count, condition?.let(::where)).execute() }
+    withConnection { Queries.count(name, condition?.let(::where)).execute() }
 
 /**
  * Applies [value] as a JSON merge patch to every document matching [condition], so match on `id` to update one:
@@ -105,7 +140,7 @@ public suspend inline fun <reified T> Collection.update(value: T, noinline condi
 context(_: WriteScope)
 public suspend fun <T> Collection.update(serializer: KSerializer<T>, value: T, condition: WhereScope.() -> Where): Int {
     val json = encode(serializer, value)
-    val updated = withConnection { Queries.update(this@update, json, where(condition)).execute() }
+    val updated = withWriteConnection { Queries.update(name, json, where(condition)).execute() }
     if (updated > 0) changed()
     return updated
 }
@@ -122,7 +157,7 @@ public suspend fun <T> Collection.replace(
     condition: WhereScope.() -> Where,
 ): Int {
     val json = encode(serializer, value)
-    val replaced = withConnection { Queries.replace(this@replace, json, where(condition)).execute() }
+    val replaced = withWriteConnection { Queries.replace(name, json, where(condition)).execute() }
     if (replaced > 0) changed()
     return replaced
 }
@@ -130,13 +165,13 @@ public suspend fun <T> Collection.replace(
 /** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
 public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
-    val deleted = withConnection { Queries.delete(this@delete, where(condition)).execute() }
+    val deleted = withWriteConnection { Queries.delete(name, where(condition)).execute() }
     if (deleted > 0) changed()
     return deleted
 }
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
-internal val Collection.table: String get() = identifier(tableName(name))
+internal fun table(name: String): String = identifier(tableName(name))
 
 internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String {
     val json = NoSqlite.Json.encodeToString(serializer, value)
@@ -148,16 +183,40 @@ internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String
  * The document in the current row of a [Queries.selectSql] statement, as [serializer] reads it.
  * Custom serializers and init blocks fail with any exception, not only SerializationException.
  */
-internal fun <T> Collection.decode(serializer: KSerializer<T>, row: SQLiteStatement): T = try {
+internal fun <T> decode(collection: String, serializer: KSerializer<T>, row: SQLiteStatement): T = try {
     NoSqlite.Json.decodeFromString(serializer, row.getText(0))
 } catch (e: Exception) {
-    throw NoSqliteException.DecodingFailed(name, e)
+    throw NoSqliteException.DecodingFailed(collection, e)
 }
 
 /** Runs [block] on the transaction's connection, with SQLite's errors about this collection made typed. */
 context(_: ReadScope)
 internal suspend fun <R> Collection.withConnection(block: suspend context(Connection) () -> R): R =
-    mapErrors(this) { context(connection()) { block() } }
+    mapErrors(name) { context(connection()) { block() } }
+
+/** A write, with SQLite's errors about this collection made typed. */
+context(_: WriteScope)
+internal suspend fun <R> Collection.withWriteConnection(block: suspend context(Connection) () -> R): R =
+    withWriteConnection(name, block)
+
+/** A write addressed by collection [name], with SQLite's errors about that name made typed. */
+context(_: WriteScope)
+internal suspend fun <R> withWriteConnection(name: String, block: suspend context(Connection) () -> R): R =
+    mapErrors(name) { context(connection()) { block() } }
+
+/**
+ * Creates this collection's table, id index and id trigger when the schema does not have [name] and this write has
+ * not created it yet, and remembers the name so the outermost write can register it after it commits. A savepoint
+ * hands the names it created to the enclosing write when it releases.
+ */
+context(scope: WriteScope)
+internal suspend fun ensureTable(name: String) {
+    if (name in scope.pool.schema || name in scope.created) return
+    context(connection()) {
+        Queries.createTable(name).forEach { it.execute() }
+    }
+    scope.created += name
+}
 
 private val ErrorCode = Regex("^Error code: (\\d+)")
 
@@ -167,10 +226,10 @@ private val BusyCodes = setOf(5, 6)
 /**
  * Runs [block], making SQLite's errors typed: a locked database for any statement, and for one about [collection]
  * its missing table, an id that is not a lowercase canonical UUID, a duplicate id and an id change. Only declared
- * collections have a table, so SQLite not knowing this collection's table means it wasn't declared. A unique
- * constraint is a duplicate id. IdTest pins the message text for the bundled driver.
+ * collections have a table, so SQLite not knowing this collection's table means it wasn't declared.
+ * A unique constraint is a duplicate id. IdTest pins the message text for the bundled driver.
  */
-internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R): R = try {
+internal inline fun <R> mapErrors(collection: String? = null, block: () -> R): R = try {
     block()
 } catch (e: SQLiteException) {
     val message = e.message.orEmpty()
@@ -180,15 +239,15 @@ internal inline fun <R> mapErrors(collection: Collection? = null, block: () -> R
 
         collection == null -> throw e
 
-        "no such table: ${tableName(collection.name)}" in message ->
-            throw NoSqliteException.CollectionNotDeclared(collection.name, e)
+        "no such table: ${tableName(collection)}" in message ->
+            throw NoSqliteException.CollectionNotDeclared(collection, e)
 
         "CHECK constraint failed: document_id" in message ->
-            throw NoSqliteException.InvalidId(collection.name, e)
+            throw NoSqliteException.InvalidId(collection, e)
 
-        "UNIQUE constraint failed" in message -> throw NoSqliteException.DuplicateId(collection.name, e)
+        "UNIQUE constraint failed" in message -> throw NoSqliteException.DuplicateId(collection, e)
 
-        "id is immutable" in message -> throw NoSqliteException.ImmutableId(collection.name, e)
+        "id is immutable" in message -> throw NoSqliteException.ImmutableId(collection, e)
 
         else -> throw e
     }

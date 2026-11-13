@@ -94,6 +94,9 @@ public suspend fun <T> Lookup.Many.replace(serializer: KSerializer<T>, value: T)
 context(_: WriteScope)
 public suspend fun Lookup.Many.delete(): Int = index.collection.delete { condition }
 
+internal fun idCondition(value: Uuid): Where =
+    Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
+
 /**
  * The document of a collection whose id is [value]. There is at most one.
  * The document's `id` field stores [Uuid.toString].
@@ -104,7 +107,7 @@ public suspend fun Lookup.Many.delete(): Int = index.collection.delete { conditi
  * ```
  */
 public class Id internal constructor(internal val collection: Collection, public val value: Uuid) {
-    internal val condition: Where = Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
+    internal val condition: Where = idCondition(value)
 
     override fun toString(): String = "${collection.name} id $value"
 }
@@ -141,15 +144,16 @@ context(_: WriteScope)
 public suspend fun Id.delete(): Boolean = collection.delete { condition } > 0
 
 /**
- * Inserts [value], or applies it as a JSON merge patch to the document with its id, as `update` does.
- * [value] must carry an id. An id already stored is merged; a different id is a different document.
+ * Inserts [value], or changes the document with its id: with [merge] it applies [value] as a JSON merge patch, as
+ * `update` does, and without it stores [value] as the whole document, as `replace` does. [value] must carry an id.
  */
 context(_: WriteScope)
-public suspend inline fun <reified T> Collection.upsert(value: T): Unit = upsert(serializer(), value)
+public suspend inline fun <reified T> Collection.upsert(value: T, merge: Boolean = true): Unit =
+    upsert(serializer(), value, merge)
 
 context(_: WriteScope)
-public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T) {
+public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T, merge: Boolean = true) {
     val json = encode(serializer, value)
-    withConnection { Queries.upsert(this@upsert).execute(json) }
+    withWriteConnection { Queries.upsert(name, merge).execute(json) }
     changed()
 }

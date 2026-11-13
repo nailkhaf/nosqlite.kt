@@ -2,6 +2,8 @@ package io.github.nailkhaf.nosqlite
 
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.atomicfu.atomic
+import kotlinx.atomicfu.update
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -31,9 +33,9 @@ public class NoSqlite(
 ) {
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
 
-    private val tables = SchemaBuilder().apply(schema)
+    private val tables = Schema(SchemaBuilder().apply(schema).collections)
 
-    private val connections = ConnectionPool(location, driver, dispatcher) { connection ->
+    private val connections = ConnectionPool(location, driver, dispatcher, tables) { connection ->
         connection.transaction(Boundary.Write) { context(connection) { createSchema(tables) } }
     }
 
@@ -91,6 +93,19 @@ public class SchemaBuilder internal constructor() {
     }
 }
 
+/** Collection names this database knows: those declared up front, plus any a committed write created by name. */
+internal class Schema(internal val declared: List<Collection> = emptyList()) {
+    private val names = atomic(declared.map { it.name }.toSet())
+
+    /** True when [name] was declared, or a committed write already created its table by name. */
+    internal operator fun contains(name: String): Boolean = name in names.value
+
+    /** Records [name] after a committed write created its table by name. */
+    internal fun register(name: String) {
+        names.update { if (name in it) it else it + name }
+    }
+}
+
 /**
  * Runs [block] in a read transaction: every read in it sees one snapshot. Inside [write] it runs in that write.
  * The block runs on one connection and must stay sequential. Using the database from coroutines launched inside it
@@ -116,12 +131,12 @@ public suspend fun <R> NoSqlite.write(
 // Creates the queue and the declared collections; safe to run again. Existing tables are never dropped.
 // One read of every managed index, then each collection is checked against that.
 context(_: Connection)
-internal suspend fun createSchema(tables: SchemaBuilder) {
+internal suspend fun createSchema(tables: Schema) {
     Queries.createPendingChanges.execute()
     Queries.createTrackingState.execute()
     Queries.seedTrackingState.execute()
     val indexes = Queries.managedIndexes.execute()
-    tables.collections.forEach { createSchema(it, indexes) }
+    tables.declared.forEach { createSchema(it, indexes) }
 }
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
@@ -132,11 +147,11 @@ internal suspend fun createSchema(
     collection: Collection,
     indexes: Map<String, List<String>>,
 ) {
-    Queries.createTable(collection).forEach { it.execute() }
+    Queries.createTable(collection.name).forEach { it.execute() }
     val current = indexes[tableName(collection.name)].orEmpty()
     val wanted = collection.indexes.associateBy { it.name }
-    val idIndex = Queries.idIndexName(collection)
+    val idIndex = Queries.idIndexName(collection.name)
     current.filter { it != idIndex && it !in wanted }.forEach { Queries.dropIndex(it).execute() }
     wanted.filterKeys { it !in current }.values.forEach { Queries.createIndex(it).execute() }
-    if (collection.tracked) Queries.trackingTriggers(collection).forEach { it.execute() }
+    if (collection.tracked) Queries.trackingTriggers(collection.name).forEach { it.execute() }
 }

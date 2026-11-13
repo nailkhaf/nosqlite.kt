@@ -165,6 +165,21 @@ internal class IdTest {
     }
 
     @Test
+    fun `upsert without merge inserts a new document and replaces an existing one whole`() = runTest {
+        val db = NoSqlite { +Users }
+        db.write { Users.insert(person(adaId, plan = "pro")) }
+        val augusta = buildJsonObject { put("id", adaId.toString()); put("name", "Augusta") }
+
+        db.write {
+            Users.upsert(augusta, merge = false)
+            Users.upsert(person(alanId), merge = false)
+        }
+
+        assertEquals(augusta, db.read { Users.id(adaId).get<JsonObject>() })
+        assertEquals(person(alanId), db.read { Users.id(alanId).get<JsonObject>() })
+    }
+
+    @Test
     fun `the id trigger is stored with the table and rejects a change from another connection`() = runTest {
         withTempFile { location ->
             val db = NoSqlite(location) { +Users }
