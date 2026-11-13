@@ -133,16 +133,16 @@ definition, so a changed index is dropped and created again when the database op
 Every collection also has an index on `id`, named `nsq_idx_<collection>_id`, which is not declared.
 Calling an index looks documents up by its values.
 It takes its leading fields, `null` matching a null or missing field, and finds any number: `list<T> { }`, `count()`,
-`update(value)`, `replace(value)` and `delete()` return the documents or how many there were.
+`update(value)` and `delete()` return the documents or how many there were.
 
 ### Ids
 
 Every document needs an `id`: a `kotlin.uuid.Uuid` string, stored as `Uuid.toString()`. A `Uuid` property serializes
 to that string. SQLite checks it on every write. `id(value)` takes that `Uuid` and addresses the one document:
 `get<T>()` returns it or `null`, and
-`update(value)`, `replace(value)` and `delete()` report whether there was one. `observe` on it emits that document,
-or `null` while there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does;
-`upsert(value, merge = false)` replaces it as `replace` does.
+`update(value)` and `delete()` report whether there was one. `observe` on it emits that document, or `null` while
+there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
+`update` and `upsert` take `merge = false` to store the value as the whole document instead of merging it.
 An id never changes: a write that would change it throws `NoSqliteException.ImmutableId`. A missing or non-UUID id
 throws `NoSqliteException.InvalidId`. A second document with the same id throws `NoSqliteException.DuplicateId`.
 
@@ -152,15 +152,13 @@ Inside `db.write { }`:
 
 - `insert(value)` adds a document. It must encode to a JSON object whose `id` is `Uuid.toString()`.
 - `update(value) { condition }` applies the value to every match as a JSON merge patch: its fields replace theirs,
-  a `null` removes one, and fields it doesn't have are kept.
-- `replace(value) { condition }` stores the value as the whole document of every match. The value must carry each
-  match's id: an id is immutable.
+  a `null` removes one, and fields it doesn't have are kept. `update(value, merge = false) { condition }` stores the
+  value as the whole document of every match instead; the value must carry each match's id, since an id is immutable.
 - `delete { condition }` deletes every match.
-- `upsert(value)` inserts the document, or merge-patches the one with its id. `upsert(value, merge = false)` stores
-  it as the whole document instead, as `replace` does.
+- `upsert(value)` inserts the document, or updates the one with its id as `update` does, `merge = false` included.
 
 `insert` and `upsert` return nothing. The others return how many documents they touched, and the by-id forms of
-`update`, `replace` and `delete` return whether there was one. A write commits when its block returns and rolls back when it
+`update` and `delete` return whether there was one. A write commits when its block returns and rolls back when it
 throws; a nested `write` is a savepoint that rolls back alone. A duplicate id throws `NoSqliteException.DuplicateId`,
 and a changed id throws `NoSqliteException.ImmutableId`; caught inside the write, the transaction goes on. When another
 `NoSqlite` or process keeps the same
@@ -194,7 +192,8 @@ val upload: JsonObject? = db.read { Users.id(ada.id).get<JsonObject>() }
 ```
 
 A merge patch replaces lists and merges maps like any object, so it never removes a field the value leaves out.
-To drop a field removed from the class, a map key or a sealed subtype's old fields, `replace` the document.
+To drop a field removed from the class, a map key or a sealed subtype's old fields, update the document with
+`merge = false`.
 
 ### Reads and queries
 

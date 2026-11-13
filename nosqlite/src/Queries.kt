@@ -92,13 +92,12 @@ internal object Queries {
             getLong(0)
         }
 
-    fun update(collection: String, patch: String, condition: Where): Statement<Unit, Int> =
-        (Fragment("UPDATE ${table(collection)} SET data = jsonb_patch(data, ?) WHERE ", listOf(SqlValue.Text(patch))) +
+    /** Applies the JSON as a merge patch to every match when [merge], or stores it as each whole document. */
+    fun update(collection: String, json: String, merge: Boolean, condition: Where): Statement<Unit, Int> {
+        val value = if (merge) "jsonb_patch(data, ?)" else "jsonb(?)"
+        return (Fragment("UPDATE ${table(collection)} SET data = $value WHERE ", listOf(SqlValue.Text(json))) +
             condition.render() + RETURNING).statement(countRows)
-
-    fun replace(collection: String, json: String, condition: Where): Statement<Unit, Int> =
-        (Fragment("UPDATE ${table(collection)} SET data = jsonb(?) WHERE ", listOf(SqlValue.Text(json))) +
-            condition.render() + RETURNING).statement(countRows)
+    }
 
     fun delete(collection: String, condition: Where): Statement<Unit, Int> =
         (Fragment("DELETE FROM ${table(collection)} WHERE ") + condition.render() + RETURNING).statement(countRows)

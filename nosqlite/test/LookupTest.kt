@@ -77,8 +77,8 @@ internal class LookupTest {
         db.write {
             assertTrue(Users.id(ada.id).update(ada.copy(age = 37)))
             assertFalse(Users.id(uuid("nobody")).update(ada))
-            assertTrue(Users.id(alan.id).replace(alan.copy(age = 42)))
-            assertFalse(Users.id(uuid("nobody")).replace(ada))
+            assertTrue(Users.id(alan.id).update(alan.copy(age = 42), merge = false))
+            assertFalse(Users.id(uuid("nobody")).update(ada, merge = false))
             assertTrue(Users.id(grace.id).delete())
             assertFalse(Users.id(grace.id).delete())
         }
@@ -139,7 +139,7 @@ internal class LookupTest {
 
         db.write {
             assertEquals(1, Users.byActive(false).update(grace.copy(age = 50)))
-            assertEquals(1, Users.byActive(false).replace(grace.copy(age = 51)))
+            assertEquals(1, Users.byActive(false).update(grace.copy(age = 51), merge = false))
             assertEquals(0, Users.byAge(99).delete())
             assertEquals(1, Users.byAge(41).delete())
         }
