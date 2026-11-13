@@ -67,9 +67,8 @@ internal fun requireCollectionName(name: String) {
 }
 
 /**
- * Stores [document] in [collection] exactly as given: it is inserted, or it replaces the whole document with the same
- * id. Unlike [Collection.upsert] it is not a merge patch, so fields the stored document has and [document] lacks are
- * removed, and `null` fields are kept. Meant for applying documents from elsewhere, such as a sync server, usually
+ * Inserts [document] into [collection], or stores it as the whole document with its id, as [Collection.put] does:
+ * fields the stored document has and [document] lacks are removed, and `null` fields are kept. Meant for applying documents from elsewhere, such as a sync server, usually
  * in `write(untracked = true)` so a tracked collection does not record them. A name the schema does not have gets its table, id index and id trigger, and the schema
  * keeps that name once the write commits. [document] must be a JSON object whose `id` is a UUID.
  */
