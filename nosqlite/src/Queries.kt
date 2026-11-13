@@ -4,6 +4,7 @@ import androidx.sqlite.SQLiteStatement
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Instant
+import kotlin.uuid.Uuid
 
 /** The JSON key of the id every document carries. */
 internal const val ID: String = "id"
@@ -153,7 +154,7 @@ internal object Queries {
         decode = rows {
             PendingChange(
                 id = getLong(0),
-                uid = getText(1),
+                uid = Uuid.parse(getText(1)),
                 collection = getText(2),
                 before = jsonObjectOrNull(3),
                 after = jsonObjectOrNull(4),

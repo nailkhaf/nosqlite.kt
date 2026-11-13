@@ -14,7 +14,7 @@ import kotlin.uuid.Uuid
  */
 public data class PendingChange(
     public val id: Long,
-    public val uid: String,
+    public val uid: Uuid,
     public val collection: String,
     public val before: JsonObject?,
     public val after: JsonObject?,

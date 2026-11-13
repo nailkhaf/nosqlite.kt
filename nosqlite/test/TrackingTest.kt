@@ -52,7 +52,7 @@ internal class TrackingTest {
         before: JsonObject?,
         after: JsonObject?,
         collection: String = Contacts.name,
-    ) = PendingChange(id, "", collection, before, after, Instant.fromEpochMilliseconds(0))
+    ) = PendingChange(id, Uuid.NIL, collection, before, after, Instant.fromEpochMilliseconds(0))
 
     private fun inserted(id: Long, contact: Contact) = recorded(id, null, contact.json())
 
@@ -64,7 +64,7 @@ internal class TrackingTest {
 
     /** Drops the clock and the random uid so an assertion can name the change itself. */
     private fun List<PendingChange>.withoutTime() =
-        map { it.copy(timestamp = Instant.fromEpochMilliseconds(0), uid = "") }
+        map { it.copy(timestamp = Instant.fromEpochMilliseconds(0), uid = Uuid.NIL) }
 
     private data class Recorded(
         val documentId: Uuid,
@@ -454,7 +454,7 @@ internal class TrackingTest {
         val extra = (3L..32_768L).map { id ->
             PendingChange(
                 id,
-                "",
+                Uuid.NIL,
                 Contacts.name,
                 null,
                 null,
@@ -511,7 +511,11 @@ internal class TrackingTest {
         assertEquals(4, sameDocument.size)
         assertTrue(rows.size > sameDocument.size)
         assertEquals(rows.size, rows.map { it.uid }.toSet().size)
-        for (row in rows) assertEquals(Uuid.parse(row.uid).toString(), row.uid)
+        for (row in rows) {
+            val text = row.uid.toString()
+            assertEquals('4', text[14], text)
+            assertTrue(text[19] in "89ab", text)
+        }
     }
 
     @Test
@@ -537,7 +541,6 @@ internal class TrackingTest {
             reopened.close()
         }
     }
-
 }
 
 private class SqlLog(private val log: MutableList<String>) : SQLiteDriver {
