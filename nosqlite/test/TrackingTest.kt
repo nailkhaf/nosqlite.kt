@@ -373,7 +373,7 @@ internal class TrackingTest {
         val sql = db.tempTriggerSql().joinToString("\n")
         assertTrue("OLD.data" in sql && "NEW.data" in sql)
         val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'nsq__pending_changes'").single().single()
-        assertTrue("id TEXT NOT NULL DEFAULT" in table!!)
+        assertTrue("id BLOB NOT NULL DEFAULT (randomblob(16))" in table!!)
         assertEquals(listOf(inserted(ada)), changes(db))
     }
 
@@ -523,11 +523,10 @@ internal class TrackingTest {
         assertEquals(4, sameDocument.size)
         assertTrue(rows.size > sameDocument.size)
         assertEquals(rows.size, rows.map { it.id }.toSet().size)
-        for (row in rows) {
-            val text = row.id.toString()
-            assertEquals('4', text[14], text)
-            assertTrue(text[19] in "89ab", text)
-        }
+        assertEquals(
+            listOf(listOf("blob", "16")),
+            db.querySql("SELECT DISTINCT typeof(id), length(id) FROM nsq__pending_changes"),
+        )
     }
 
     @Test

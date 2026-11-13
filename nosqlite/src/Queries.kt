@@ -139,7 +139,7 @@ internal object Queries {
     val createPendingChanges: Command<Unit> = command(
         """
         CREATE TABLE IF NOT EXISTS ${identifier(PENDING_CHANGES)} (
-            id TEXT NOT NULL DEFAULT $NEW_PENDING_ID,
+            id BLOB NOT NULL DEFAULT (randomblob(16)),
             collection TEXT NOT NULL,
             before BLOB,
             after BLOB,
@@ -156,7 +156,7 @@ internal object Queries {
         encode = {},
         decode = rows {
             PendingChange(
-                id = Uuid.parse(getText(0)),
+                id = Uuid.fromByteArray(getBlob(0)),
                 collection = getText(1),
                 before = jsonObjectOrNull(2),
                 after = jsonObjectOrNull(3),
@@ -165,10 +165,10 @@ internal object Queries {
         },
     )
 
-    /** Deletes the ids bound as one JSON array of strings, such as `["…","…"]`. */
+    /** Deletes the ids bound as one JSON array of their hex strings, such as `["…","…"]`. */
     val deletePendingChanges: Statement<List<Uuid>, Unit> = Statement(
-        sql = "DELETE FROM ${identifier(PENDING_CHANGES)} WHERE id IN (SELECT value FROM json_each(?));",
-        encode = { ids -> bindText(1, ids.joinToString(",", "[", "]") { "\"$it\"" }) },
+        sql = "DELETE FROM ${identifier(PENDING_CHANGES)} WHERE id IN (SELECT unhex(value) FROM json_each(?));",
+        encode = { ids -> bindText(1, ids.joinToString(",", "[", "]") { "\"${it.toHexString()}\"" }) },
         decode = { step() },
     )
 
@@ -248,13 +248,3 @@ private fun SQLiteStatement.jsonObjectOrNull(index: Int): JsonObject? {
     if (isNull(index)) return null
     return NoSqlite.Json.parseToJsonElement(getText(index)) as JsonObject
 }
-
-/**
- * One RFC 4122 version-4 UUID, lowercase, in the same 8-4-4-4-12 form as `Uuid.toString()`.
- * Version nibble `4`, variant nibble `8`, `9`, `a` or `b` from the low two bits of `random()`. A column default may
- * not contain a subquery, so each group comes from its own `randomblob`. The tracking triggers omit `id`, so this
- * runs exactly once, on insert.
- */
-private const val NEW_PENDING_ID =
-    "(lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-'||'4'||substr(hex(randomblob(2)),2)||'-'||" +
-        "substr('89ab',(random()&3)+1,1)||substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6))))"
