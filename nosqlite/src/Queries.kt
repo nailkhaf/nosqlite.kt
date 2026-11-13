@@ -140,7 +140,6 @@ internal object Queries {
         CREATE TABLE IF NOT EXISTS ${identifier(PENDING_CHANGES)} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             collection TEXT NOT NULL,
-            action TEXT NOT NULL,
             before BLOB,
             after BLOB,
             timestamp INTEGER NOT NULL
@@ -150,7 +149,7 @@ internal object Queries {
 
     val pendingChanges: Statement<Unit, List<PendingChange>> = Statement(
         sql = """
-            SELECT id, collection, action, json(before), json(after), timestamp
+            SELECT id, collection, json(before), json(after), timestamp
             FROM ${identifier(PENDING_CHANGES)} ORDER BY id;
         """.trimIndent(),
         encode = {},
@@ -158,10 +157,9 @@ internal object Queries {
             PendingChange(
                 id = getLong(0),
                 collection = getText(1),
-                action = pendingAction(getText(2)),
-                before = jsonObjectOrNull(3),
-                after = jsonObjectOrNull(4),
-                timestamp = Instant.fromEpochMilliseconds(getLong(5)),
+                before = jsonObjectOrNull(2),
+                after = jsonObjectOrNull(3),
+                timestamp = Instant.fromEpochMilliseconds(getLong(4)),
             )
         },
     )
@@ -199,7 +197,7 @@ internal object Queries {
         val table = "main.${collection.table}"
         val name = SqlValue.Text(collection.name).literal
         val guard = "WHEN NOT (SELECT untracked FROM ${identifier(TRACKING_STATE)})"
-        val record = "INSERT INTO ${identifier(PENDING_CHANGES)} (collection, action, before, after, timestamp) VALUES"
+        val record = "INSERT INTO ${identifier(PENDING_CHANGES)} (collection, before, after, timestamp) VALUES"
         val now = "CAST(unixepoch('subsec') * 1000 AS INTEGER)"
         return listOf(
             command("""
@@ -207,7 +205,7 @@ internal object Queries {
             AFTER INSERT ON $table
             $guard
             BEGIN
-                $record ($name, 'insert', NULL, NEW.data, $now);
+                $record ($name, NULL, NEW.data, $now);
             END;
             """.trimIndent()),
             command("""
@@ -215,7 +213,7 @@ internal object Queries {
             AFTER UPDATE ON $table
             $guard AND OLD.data IS NOT NEW.data
             BEGIN
-                $record ($name, 'update', OLD.data, NEW.data, $now);
+                $record ($name, OLD.data, NEW.data, $now);
             END;
             """.trimIndent()),
             command("""
@@ -223,7 +221,7 @@ internal object Queries {
             AFTER DELETE ON $table
             $guard
             BEGIN
-                $record ($name, 'delete', OLD.data, NULL, $now);
+                $record ($name, OLD.data, NULL, $now);
             END;
             """.trimIndent()),
         )
@@ -250,9 +248,3 @@ private fun SQLiteStatement.jsonObjectOrNull(index: Int): JsonObject? {
     return NoSqlite.Json.parseToJsonElement(getText(index)) as JsonObject
 }
 
-private fun pendingAction(text: String): PendingChange.Action = when (text) {
-    "insert" -> PendingChange.Action.Insert
-    "update" -> PendingChange.Action.Update
-    "delete" -> PendingChange.Action.Delete
-    else -> error("Unknown pending change action: $text")
-}
