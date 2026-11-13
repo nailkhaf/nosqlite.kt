@@ -71,11 +71,11 @@ internal fun requireCollectionName(name: String) {
  * Only inside `write(untracked = true)`. A name the schema does not have gets its table, id index and id trigger,
  * and the schema keeps that name once the write commits. [document] must be a JSON object whose `id` is a UUID.
  */
-context(scope: WriteScope)
+context(_: WriteScope)
 public suspend fun upsert(collection: String, document: JsonObject) {
     requireUntracked()
     requireCollectionName(collection)
-    if (scope.untracked) ensureTable(collection)
+    ensureTable(collection)
     val json = NoSqlite.Json.encodeToString(serializer<JsonObject>(), document)
     withWriteConnection(collection) { Queries.upsert(collection).execute(json) }
     changed(collection)
@@ -83,14 +83,18 @@ public suspend fun upsert(collection: String, document: JsonObject) {
 
 /**
  * Deletes the document [id] from [collection], as [Id.delete] does. Only inside `write(untracked = true)`.
- * A name the schema does not have is left untouched. The result is whether a document was deleted.
+ * A collection without a table is left untouched. The result is whether a document was deleted.
  */
-context(scope: WriteScope)
+context(_: WriteScope)
 public suspend fun delete(collection: String, id: Uuid): Boolean {
     requireUntracked()
     requireCollectionName(collection)
-    if (collection !in scope.pool.schema && collection !in scope.created) return false
-    val deleted = withWriteConnection(collection) { Queries.delete(collection, idCondition(id)).execute() }
+    // The table may exist without the schema knowing it, created by an untracked write before the database reopened.
+    val deleted = try {
+        withWriteConnection(collection) { Queries.delete(collection, idCondition(id)).execute() }
+    } catch (_: NoSqliteException.CollectionNotDeclared) {
+        return false
+    }
     if (deleted > 0) changed(collection)
     return deleted > 0
 }
@@ -209,8 +213,7 @@ internal suspend fun <R> withWriteConnection(name: String, block: suspend contex
 
 /**
  * Creates this collection's table, id index and id trigger when the schema does not have [name] and this write has
- * not created it yet, and remembers the name so the outermost write can register it after it commits. Callers decide
- * whether to ask: `if (scope.untracked) ensureTable(name)`.
+ * not created it yet, and remembers the name so the outermost write can register it after it commits.
  */
 context(scope: WriteScope)
 internal suspend fun ensureTable(name: String) {
