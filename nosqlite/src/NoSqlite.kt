@@ -33,11 +33,10 @@ public class NoSqlite(
 ) {
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
 
-    private val declared = SchemaBuilder().apply(schema)
-    private val tables = Schema(declared)
+    private val tables = Schema(SchemaBuilder().apply(schema).collections)
 
     private val connections = ConnectionPool(location, driver, dispatcher, tables) { connection ->
-        connection.transaction(Boundary.Write) { context(connection) { createSchema(declared) } }
+        connection.transaction(Boundary.Write) { context(connection) { createSchema(tables) } }
     }
 
     // Opening the writer creates the schema, so a first read on a new file finds its tables.
@@ -95,8 +94,8 @@ public class SchemaBuilder internal constructor() {
 }
 
 /** Collection names this database knows: those declared up front, plus any a committed write created by name. */
-internal class Schema(builder: SchemaBuilder) {
-    private val names = atomic(builder.collections.map { it.name }.toSet())
+internal class Schema(internal val declared: List<Collection> = emptyList()) {
+    private val names = atomic(declared.map { it.name }.toSet())
 
     /** True when [name] was declared, or a committed write already created its table by name. */
     internal operator fun contains(name: String): Boolean = name in names.value
@@ -132,12 +131,12 @@ public suspend fun <R> NoSqlite.write(
 // Creates the queue and the declared collections; safe to run again. Existing tables are never dropped.
 // One read of every managed index, then each collection is checked against that.
 context(_: Connection)
-internal suspend fun createSchema(tables: SchemaBuilder) {
+internal suspend fun createSchema(tables: Schema) {
     Queries.createPendingChanges.execute()
     Queries.createTrackingState.execute()
     Queries.seedTrackingState.execute()
     val indexes = Queries.managedIndexes.execute()
-    tables.collections.forEach { createSchema(it, indexes) }
+    tables.declared.forEach { createSchema(it, indexes) }
 }
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
