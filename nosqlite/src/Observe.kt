@@ -32,13 +32,13 @@ context(db: NoSqlite)
 public fun <T> Lookup.Many.observe(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): Flow<List<T>> =
     db.observe(index.collection) { list(serializer, query) }
 
-/** The document found, `null` while there is none, now and after every committed write to the collection. */
+/** The document with this id, `null` while there is none, now and after every committed write to the collection. */
 context(db: NoSqlite)
-public inline fun <reified T> Lookup.Unique.observe(): Flow<T?> = observe(serializer<T>())
+public inline fun <reified T> Id.observe(): Flow<T?> = observe(serializer<T>())
 
 context(db: NoSqlite)
-public fun <T> Lookup.Unique.observe(serializer: KSerializer<T>): Flow<T?> =
-    db.observe(index.collection) { get(serializer) }
+public fun <T> Id.observe(serializer: KSerializer<T>): Flow<T?> =
+    db.observe(collection) { get(serializer) }
 
 private fun <R> NoSqlite.observe(collection: Collection, read: suspend context(ReadScope) () -> R): Flow<R> = flow {
     emitAll(

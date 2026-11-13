@@ -172,8 +172,8 @@ internal class WhereTest {
             matching("cid") { "name.last" eq "Jones" },
             matching("ann", "bob", "cid") { "email" like "%@EXAMPLE.com" },
             matching("cid") { "name.last" like "jo%" },
-            matching("bob") { "id" like "b_b" },
-            matching { "id" like "b_" },
+            matching("bob") { "email" like "b_b@example.com" },
+            matching { "email" like "b_" },
             matching { "age" isIn emptyList<String>() },
             matching("ann", "cid") { "age" isIn listOf(17, 45) },
             matching("bob") { "score" isIn listOf(2.5, 3.0) },
@@ -202,7 +202,10 @@ internal class WhereTest {
     private suspend fun NoSqlite.idsWhere(condition: Where): List<String> {
         val fragment = condition.render()
         return pool().readSql {
-            statement("SELECT data ->> '$.id' FROM users WHERE ${fragment.sql} ORDER BY rowid") { statement ->
+            statement(
+                "SELECT substr(data ->> '$.email', 1, instr(data ->> '$.email', '@') - 1) " +
+                    "FROM nsq_users WHERE ${fragment.sql} ORDER BY rowid",
+            ) { statement ->
                 statement.bind(fragment.params)
                 buildList { while (statement.step()) add(statement.getText(0)) }
             }

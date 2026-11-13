@@ -3,6 +3,7 @@ package io.github.nailkhaf.nosqlite
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -15,16 +16,16 @@ internal class QueryTest {
     data class Name(val first: String, val last: String)
 
     @Serializable
-    data class User(val id: String, val name: Name, val age: Int? = null)
+    data class User(val id: Uuid, val name: Name, val age: Int? = null)
 
     object Users : Collection("users") {
         val byAge = index("age")
     }
 
-    private val ada = User("ada", Name("Ada", "Lovelace"), 36)
-    private val alan = User("alan", Name("Alan", "Turing"), 41)
-    private val grace = User("grace", Name("Grace", "Hopper"), 36)
-    private val linus = User("linus", Name("Linus", "Torvalds"))
+    private val ada = User(uuid("ada"), Name("Ada", "Lovelace"), 36)
+    private val alan = User(uuid("alan"), Name("Alan", "Turing"), 41)
+    private val grace = User(uuid("grace"), Name("Grace", "Hopper"), 36)
+    private val linus = User(uuid("linus"), Name("Linus", "Torvalds"))
 
     private suspend fun database(): NoSqlite = NoSqlite { +Users }.also { db ->
         db.write { listOf(ada, alan, grace, linus).forEach { Users.insert(it) } }

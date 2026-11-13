@@ -3,14 +3,14 @@ package io.github.nailkhaf.nosqlite
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/** Covers reading and writing documents through their indexes, and upserts. */
+/** Covers reading and writing documents through their indexes and their id. */
 internal class LookupTest {
 
     @Serializable
@@ -18,7 +18,7 @@ internal class LookupTest {
 
     @Serializable
     data class User(
-        val id: String,
+        val id: Uuid,
         val email: String,
         val name: Name,
         val age: Int,
@@ -27,44 +27,37 @@ internal class LookupTest {
     )
 
     object Users : Collection("users") {
-        val byId = unique("id")
-        val byEmail = unique("email")
-        val byNickname = unique("nickname", where = { "active".isTrue() })
-        val byFullName = unique("name.last", "name.first")
+        val byNickname = index("nickname", where = { "active".isTrue() })
         val byAge = index("age")
         val byActive = index("active")
         val byName = index("name.last", "name.first")
         val byNick = index("nickname")
     }
 
-    private val ada = User("ada", "ada@x.com", Name("Lovelace", "Ada"), 36, nickname = "countess")
-    private val alan = User("alan", "alan@x.com", Name("Turing", "Alan"), 41)
-    private val grace = User("grace", "grace@x.com", Name("Hopper", "Grace"), 36, active = false, nickname = "amazing")
-    private val byron = User("byron", "byron@x.com", Name("Lovelace", "Byron"), 36)
+    private val ada = User(uuid("ada"), "ada@x.com", Name("Lovelace", "Ada"), 36, nickname = "countess")
+    private val alan = User(uuid("alan"), "alan@x.com", Name("Turing", "Alan"), 41)
+    private val grace = User(
+        uuid("grace"),
+        "grace@x.com",
+        Name("Hopper", "Grace"),
+        36,
+        active = false,
+        nickname = "amazing",
+    )
+    private val byron = User(uuid("byron"), "byron@x.com", Name("Lovelace", "Byron"), 36)
 
     private suspend fun database(): NoSqlite = NoSqlite { +Users }.also { db ->
         db.write { listOf(ada, alan, grace, byron).forEach { Users.insert(it) } }
     }
 
     @Test
-    fun `get finds the one document of a unique lookup`() = runTest {
+    fun `get finds the document with an id`() = runTest {
         val db = database()
 
         db.read {
-            assertEquals(ada, Users.byId("ada").get<User>())
-            assertEquals(alan, Users.byEmail("alan@x.com").get<User>())
-            assertEquals(byron, Users.byFullName("Lovelace", "Byron").get<User>())
-            assertNull(Users.byId("nobody").get<User>())
+            assertEquals(ada, Users.id(ada.id).get<User>())
+            assertNull(Users.id(uuid("nobody")).get<User>())
         }
-    }
-
-    @Test
-    fun `a unique lookup takes every field and no nulls`() {
-        val prefix = assertFailsWith<IllegalArgumentException> { Users.byFullName("Lovelace") }
-        val nulls = assertFailsWith<IllegalArgumentException> { Users.byEmail(null) }
-
-        assertEquals("unique index users(name.last, name.first) takes 2 values, not 1", prefix.message)
-        assertEquals("unique index users(email) can't look up null, any number of documents can have it", nulls.message)
     }
 
     @Test
@@ -72,22 +65,22 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(ada, Users.byNickname("countess").get<User>())
-            assertNull(Users.byNickname("amazing").get<User>())
+            assertEquals(listOf(ada), Users.byNickname("countess").list<User>())
+            assertEquals(emptyList(), Users.byNickname("amazing").list<User>())
         }
     }
 
     @Test
-    fun `writes of a unique lookup tell whether there was a document`() = runTest {
+    fun `writes by id tell whether there was a document`() = runTest {
         val db = database()
 
         db.write {
-            assertTrue(Users.byId("ada").update(ada.copy(age = 37)))
-            assertFalse(Users.byId("nobody").update(ada))
-            assertTrue(Users.byId("alan").replace(alan.copy(age = 42)))
-            assertFalse(Users.byId("nobody").replace(ada))
-            assertTrue(Users.byEmail("grace@x.com").delete())
-            assertFalse(Users.byEmail("grace@x.com").delete())
+            assertTrue(Users.id(ada.id).update(ada.copy(age = 37)))
+            assertFalse(Users.id(uuid("nobody")).update(ada))
+            assertTrue(Users.id(alan.id).replace(alan.copy(age = 42)))
+            assertFalse(Users.id(uuid("nobody")).replace(ada))
+            assertTrue(Users.id(grace.id).delete())
+            assertFalse(Users.id(grace.id).delete())
         }
 
         assertEquals(listOf(ada.copy(age = 37), alan.copy(age = 42), byron), db.read { Users.list<User>() })
@@ -168,52 +161,15 @@ internal class LookupTest {
     @Test
     fun `upsert inserts a new document and updates an existing one in place`() = runTest {
         val db = database()
-        val carol = User("carol", "carol@x.com", Name("Shaw", "Carol"), 28)
+        val carol = User(uuid("carol"), "carol@x.com", Name("Shaw", "Carol"), 28)
 
         db.write {
-            Users.byEmail.upsert(carol)
-            Users.byEmail.upsert(ada.copy(id = "ada2", age = 37))
+            Users.upsert(carol)
+            Users.upsert(ada.copy(age = 37))
         }
 
-        assertEquals(listOf(ada.copy(id = "ada2", age = 37), alan, grace, byron, carol), db.read { Users.list<User>() })
-        assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM users WHERE data ->> '$.id' = 'ada2'"))
-    }
-
-    @Test
-    fun `upsert on a partial index conflicts only with the documents it indexes`() = runTest {
-        val db = database()
-        val neo = User("neo", "neo@x.com", Name("Anderson", "Thomas"), 30, nickname = "amazing")
-
-        db.write {
-            Users.byNickname.upsert(neo)
-            Users.byNickname.upsert(neo.copy(age = 31))
-        }
-
-        db.read {
-            assertEquals(neo.copy(age = 31), Users.byNickname("amazing").get<User>())
-            assertEquals(grace, Users.byId("grace").get<User>())
-        }
-    }
-
-    @Test
-    fun `upsert on a composite index updates the document with all its values`() = runTest {
-        val db = database()
-        val lord = byron.copy(id = "lord", email = "lord@x.com")
-
-        db.write { Users.byFullName.upsert(lord) }
-
-        assertEquals(lord, db.read { Users.byFullName("Lovelace", "Byron").get<User>() })
-    }
-
-    @Test
-    fun `upsert that conflicts in another unique index fails`() = runTest {
-        val db = database()
-
-        val error = assertFailsWith<NoSqliteException.UniqueViolation> {
-            db.write { Users.byEmail.upsert(alan.copy(id = "ada", email = "new@x.com", name = Name("New", "Name"))) }
-        }
-
-        assertSame(Users.byId, error.index)
+        assertEquals(listOf(ada.copy(age = 37), alan, grace, byron, carol), db.read { Users.list<User>() })
+        assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM nsq_users WHERE data ->> '$.id' = '${ada.id}'"))
     }
 
     @Test
@@ -233,7 +189,6 @@ internal class LookupTest {
     fun `a lookup rejects NaN and infinite numbers`() {
         assertFailsWith<IllegalArgumentException> { Users.byAge(Double.NaN) }
         assertFailsWith<IllegalArgumentException> { Users.byAge(Double.NEGATIVE_INFINITY) }
-        assertFailsWith<IllegalArgumentException> { Users.byId(Float.POSITIVE_INFINITY) }
     }
 
     @Test
@@ -242,9 +197,6 @@ internal class LookupTest {
             "index users(name.last, name.first) = ['Lovelace', NULL]",
             Users.byName("Lovelace", null).toString(),
         )
-        assertEquals(
-            "unique index users(nickname) where data ->> '$.active' = 1 = ['countess']",
-            Users.byNickname("countess").toString(),
-        )
+        assertEquals("users id ${ada.id}", Users.id(ada.id).toString())
     }
 }

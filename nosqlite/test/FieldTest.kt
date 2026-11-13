@@ -3,6 +3,7 @@ package io.github.nailkhaf.nosqlite
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlin.test.Test
+import kotlin.uuid.Uuid
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
@@ -10,9 +11,9 @@ import kotlin.test.assertFailsWith
 internal class FieldTest {
 
     object Users : Collection("users") {
-        val byEmail = unique(User::email)
+        val byEmail = index(User::email)
         val byName = index(User::name / Name::last, User::name / Name::first)
-        val activeNickname = unique(User::nickname, where = { User::active eq true })
+        val activeNickname = index(User::nickname, where = { User::active eq true })
     }
 
     private fun sql(block: WhereScope.() -> Where): Fragment = where(block).render()
@@ -23,8 +24,8 @@ internal class FieldTest {
         assertEquals(sql { "age" gt 18 }, sql { User::age gt 18 })
         assertEquals(sql { "age" lt 18 }, sql { User::age lt 18 })
         assertEquals(sql { "age" lte 18 }, sql { User::age lte 18 })
-        assertEquals(sql { "id" eq "ada" }, sql { User::id eq "ada" })
-        assertEquals(sql { "id" neq "ada" }, sql { User::id neq "ada" })
+        assertEquals(sql { "id" eq "ada" }, sql { StringId::id eq "ada" })
+        assertEquals(sql { "id" neq "ada" }, sql { StringId::id neq "ada" })
         assertEquals(sql { "score" eq 1.5 }, sql { User::score eq 1.5 })
         assertEquals(sql { "score" gt 0.1 }, sql { User::score gt 0.1 })
         assertEquals(sql { "active".isTrue() }, sql { User::active eq true })
@@ -33,7 +34,7 @@ internal class FieldTest {
         assertEquals(sql { "active" gt 0 }, sql { User::active gt false })
         assertEquals(sql { "age" isIn listOf(30, 40) }, sql { User::age isIn listOf(30, 40) })
         assertEquals(sql { "age" isIn emptyList<Long>() }, sql { User::age isIn emptyList() })
-        assertEquals(sql { "id" isIn emptyList<String>() }, sql { User::id isIn emptyList() })
+        assertEquals(sql { "id" isIn emptyList<String>() }, sql { StringId::id isIn emptyList() })
         assertEquals(sql { "tags" contains "kotlin" }, sql { User::tags contains "kotlin" })
         assertEquals(sql { "nickname" eq "bobby" }, sql { User::nickname eq "bobby" })
         assertEquals(sql { "nickname" like "bo%" }, sql { User::nickname like "bo%" })
@@ -80,9 +81,9 @@ internal class FieldTest {
     fun `property indexes are the same as field name indexes`() {
         // Read through the base type: Kotlin/Native fails to link an internal member read through a test object.
         val byStrings: Collection = object : Collection("users") {
-            val byEmail = unique("email")
+            val byEmail = index("email")
             val byName = index("name.last", "name.first")
-            val activeNickname = unique("nickname", where = { "active".isTrue() })
+            val activeNickname = index("nickname", where = { "active".isTrue() })
         }
 
         val byProperties: Collection = Users
@@ -159,8 +160,12 @@ internal class FieldTest {
     }
 }
 
+/** A string `id`, so the property conditions can be checked without a [Uuid] overload. */
+private class StringId(val id: String)
+
 @Serializable
 internal data class Measure(
+    val id: Uuid,
     val label: String,
     val count: Int,
     val serial: Long,
@@ -188,4 +193,4 @@ private fun measure(
     scores: List<Double> = listOf(score),
     flags: List<Boolean> = listOf(on),
     labels: List<String> = listOf(label),
-): Measure = Measure(label, count, serial, score, on, note, counts, serials, scores, flags, labels)
+): Measure = Measure(uuid(label), label, count, serial, score, on, note, counts, serials, scores, flags, labels)

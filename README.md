@@ -10,13 +10,13 @@ A Kotlin Multiplatform document store on SQLite JSONB with kotlinx.serialization
 Documents are JSON objects stored as JSONB, one STRICT table per collection. Each read decodes them into the
 `@Serializable` class it asks for, and an update is a JSON merge patch, so fields the app doesn't know yet, such as
 ones a newer backend sent, survive it. Fields are named by property references
-(`User::age`, `User::name / Name::last`) or by their JSON keys (`"age"`, `"name.last"`), and documents are addressed
-by their unique indexes.
+(`User::age`, `User::name / Name::last`) or by their JSON keys (`"age"`, `"name.last"`), and a document is addressed
+by its `id`.
 
 - JVM, Android and iOS (arm64, simulator arm64)
 - One writer and several `query_only` readers in WAL mode; read and write transactions with nested savepoints
-- Unique, composite and partial indexes on JSON fields, synced when the database opens
-- Queries with filters, array `contains`, ordering, `limit` and `offset`; lookups and upserts by index
+- Composite and partial indexes on JSON fields, synced when the database opens, plus an index on every document's id
+- Queries with filters, array `contains`, ordering, `limit` and `offset`; lookups by index and by id
 - Streaming with an open cursor (`forEach`)
 - `observe` flows that read again after each committed write to the collection
 - Optional change tracking: a tracked collection appends each insert, update and delete to a queue
@@ -53,32 +53,34 @@ with Gradle).
 ```kotlin
 import io.github.nailkhaf.nosqlite.*
 import io.github.nailkhaf.nosqlite.Collection // kotlin.collections.Collection wins over a star import
+import kotlin.uuid.Uuid
 
 @Serializable
 data class Name(val first: String, val last: String)
 
 @Serializable
-data class User(val id: String, val email: String, val name: Name, val age: Int, val tags: List<String> = emptyList())
+data class User(val id: Uuid, val email: String, val name: Name, val age: Int, val tags: List<String> = emptyList())
 
 object Users : Collection("users") {
-    val byId = unique(User::id)
-    val byEmail = unique(User::email)
     val byAge = index(User::age)
     val byName = index(User::name / Name::last, User::name / Name::first)
 }
 
 val db = NoSqlite("app.db") { +Users }
 
+val adaId = Uuid.random()
+val alanId = Uuid.random()
+
 db.write {
-    Users.insert(User("ada", "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
-    Users.byId.upsert(User("alan", "alan@example.com", Name("Alan", "Turing"), 41))
-    Users.byEmail("alan@example.com").update(User("alan", "alan@example.com", Name("Alan", "Turing"), 42))
+    Users.insert(User(adaId, "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
+    Users.upsert(User(alanId, "alan@example.com", Name("Alan", "Turing"), 41))
+    Users.id(alanId).update(User(alanId, "alan@example.com", Name("Alan", "Turing"), 42))
     Users.delete { User::age lt 18 }
 }
 
 db.read {
-    val ada: User? = Users.byId("ada").get<User>()
-    val raw: JsonObject? = Users.byId("ada").get<JsonObject>()
+    val ada: User? = Users.id(adaId).get<User>()
+    val raw: JsonObject? = Users.id(adaId).get<JsonObject>()
     val lovelaces: List<User> = Users.byName("Lovelace").list<User>()
     val adults: List<User> = Users.list<User> {
         where { (User::age gte 18) and (User::tags contains "kotlin") }
@@ -94,7 +96,7 @@ db.read {
 
 with(db) {
     Users.observe<User> { where { User::age gte 18 } }.collect { adults -> render(adults) }
-    Users.byId("ada").observe<User>().collect { ada -> render(ada) }
+    Users.id(adaId).observe<User>().collect { ada -> render(ada) }
 }
 ```
 
@@ -103,8 +105,10 @@ with(db) {
 ### Collections
 
 A collection is a name and its indexes. Create one directly, `Collection("notes")`, or extend `Collection` to
-declare indexes with `unique(...)` and `index(...)`. A database lists the collections it serves,
+declare indexes with `index(...)`. A database lists the collections it serves,
 `NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
+A collection's table is `nsq_<collection>`, its indexes are `nsq_idx_<collection>_` plus a suffix, and its triggers
+are `nsq_<collection>_` plus a suffix. Collection names can't start with `idx`.
 Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDeclared`.
 A collection's name is permanent. Opening a database without listing a collection leaves that collection's table
 and documents in place.
@@ -122,29 +126,42 @@ renamed with `@SerialName`. Keys are identifiers.
 
 ### Indexes
 
-`unique("email")` and `index("age")` take one field or several, in order, and an optional `where` that makes the index
-partial: `unique("nickname", where = { "active".isTrue() })`. Each index is named by a hash of its definition, so a
-changed index is dropped and created again when the database opens, and a removed one dropped.
+`index("age")` takes one field or several, in order, and an optional `where` that makes the index partial:
+`index("nickname", where = { "active".isTrue() })`. Each index is named `nsq_idx_<collection>_` plus a hash of its
+definition, so a changed index is dropped and created again when the database opens, and a removed one dropped.
 
-Calling an index looks documents up by its values. A unique index takes all its fields, none `null`, and finds at most
-one document: `get<T>()`, `update(value)`, `replace(value)` and `delete()` return the document or whether there was
-one. A plain index takes its leading fields, `null` matching a null or missing field, and finds any number:
-`list<T> { }`, `count()`, `update(value)`, `replace(value)` and `delete()` return the documents or how many there were.
-`upsert(value)` on a unique index inserts the document, or updates the one with its values as `update` does.
+Every collection also has an index on `id`, named `nsq_idx_<collection>_id`, which is not declared.
+Calling an index looks documents up by its values.
+It takes its leading fields, `null` matching a null or missing field, and finds any number: `list<T> { }`, `count()`,
+`update(value)`, `replace(value)` and `delete()` return the documents or how many there were.
+
+### Ids
+
+Every document needs an `id`: a `kotlin.uuid.Uuid` string, stored as `Uuid.toString()`. A `Uuid` property serializes
+to that string. SQLite checks it on every write. `id(value)` takes that `Uuid` and addresses the one document:
+`get<T>()` returns it or `null`, and
+`update(value)`, `replace(value)` and `delete()` report whether there was one. `observe` on it emits that document,
+or `null` while there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
+An id never changes: a write that would change it throws `NoSqliteException.ImmutableId`. A missing or non-UUID id
+throws `NoSqliteException.InvalidId`. A second document with the same id throws `NoSqliteException.DuplicateId`.
 
 ### Writes
 
 Inside `db.write { }`:
 
-- `insert(value)` adds a document.
+- `insert(value)` adds a document. It must encode to a JSON object whose `id` is `Uuid.toString()`.
 - `update(value) { condition }` applies the value to every match as a JSON merge patch: its fields replace theirs,
   a `null` removes one, and fields it doesn't have are kept.
-- `replace(value) { condition }` stores the value as the whole document of every match.
+- `replace(value) { condition }` stores the value as the whole document of every match. The value must carry each
+  match's id: an id is immutable.
 - `delete { condition }` deletes every match.
+- `upsert(value)` inserts the document, or merge-patches the one with its id.
 
-Each returns how many documents it touched. A write commits when its block returns and rolls back when it throws;
-a nested `write` is a savepoint that rolls back alone. A duplicate key throws `NoSqliteException.UniqueViolation`
-naming the index; caught inside the write, the transaction goes on. When another `NoSqlite` or process keeps the same
+`insert` returns nothing. The others return how many documents they touched, and the by-id forms of `update`,
+`replace` and `delete` return whether there was one. A write commits when its block returns and rolls back when it
+throws; a nested `write` is a savepoint that rolls back alone. A duplicate id throws `NoSqliteException.DuplicateId`,
+and a changed id throws `NoSqliteException.ImmutableId`; caught inside the write, the transaction goes on. When another
+`NoSqlite` or process keeps the same
 file locked for over 5 seconds, the operation throws `NoSqliteException.Busy` and can be retried; one `NoSqlite` per
 file never hits it.
 
@@ -170,8 +187,8 @@ it doesn't know yet:
 
 ```kotlin
 db.write { Users.insert(downloaded) } // a JsonObject with a "plan" field User doesn't have
-db.write { Users.byId("ada").update(ada.copy(age = 37)) } // "plan" is still there
-val upload: JsonObject? = db.read { Users.byId("ada").get<JsonObject>() }
+db.write { Users.id(ada.id).update(ada.copy(age = 37)) } // "plan" is still there
+val upload: JsonObject? = db.read { Users.id(ada.id).get<JsonObject>() }
 ```
 
 A merge patch replaces lists and merges maps like any object, so it never removes a field the value leaves out.
@@ -201,7 +218,7 @@ element, `like` for a pattern (`"title" like "%milk%"`, case-insensitive for ASC
 because `toDouble()` is not exact and `0.1f` would not match the stored real `0.1`; write a fraction as a `Double`
 (`"ratio" eq 0.1`). `Short`, `Byte` and other number types are the same. Other values compare as they are stored,
 so an enum as its serial name (`"role" eq "member"`). A `Double` that is `NaN` or infinite is rejected when the
-condition is built. The order of documents with equal sort keys is unspecified, so add a unique field as the last
+condition is built. The order of documents with equal sort keys is unspecified, so add `id` as the last
 sort key when a stable order or offset pagination matters.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
@@ -210,9 +227,10 @@ run other queries in that same transaction, one at a time.
 ### Property references
 
 Fields can also be named by property references, which the compiler checks: `User::age gte 18`,
-`User::name / Name::last` for a nested field, `User::age.asc` in `orderBy`, and `unique(User::email)` or
-`index(User::name / Name::last)` in a collection. A property reference names the field by its property name, so a
-property renamed with `@SerialName` is named by its string instead.
+`User::name / Name::last` for a nested field, `User::age.asc` in `orderBy`, and `index(User::name / Name::last)` in a
+collection. A property reference names the field by its property name, so a
+property renamed with `@SerialName` is named by its string instead. The document id is the JSON key `id`, so a property
+that serializes under another name is not the id.
 A comparison accepts a value of the property's type when that type is an SQL scalar: `String`, `Int`, `Long`,
 `Double` or `Boolean` (a boolean compares as 1 and 0). `User::age gte 18` compiles. `User::age gte "18"` does not.
 Null is `isNull()` or `isNotNull()`, including on a nullable property; the other operators take a non-null value.
@@ -228,13 +246,11 @@ the last one isn't emitted. Changes are tracked per collection.
 
 ### Change tracking
 
-`Collection("contacts", tracked = true)` records every insert, update and delete in `__pending_changes`, with
-the document before and after the change. Identity is up to the app: it reads its own id field from that JSON.
+`Collection("contacts", tracked = true)` records every insert, update and delete in `nsq__pending_changes`, with
+the document before and after the change. The document's id is its `id` field.
 
 ```kotlin
-object Contacts : Collection("contacts", tracked = true) {
-    val byId = unique(Contact::id)
-}
+object Contacts : Collection("contacts", tracked = true)
 
 val db = NoSqlite("app.db") { +Contacts }
 
@@ -249,8 +265,8 @@ db.write(untracked = true) { import(contacts) }
 runs, for example after `observe` on a tracked collection emits. `removePendingChanges` deletes exactly the given
 rows, so a change written after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
 `write(untracked = true)` records nothing and does not nest inside another write.
-The queue is append-only. A collection that is not tracked has no triggers, and a database with none of them writes
-as before. Rows queued before a collection stopped being tracked stay readable until they are removed.
+The queue is append-only. A collection that is not tracked records nothing. Rows queued before a collection stopped
+being tracked stay readable until they are removed. Every collection, tracked or not, keeps its id immutable.
 
 ## Sample
 

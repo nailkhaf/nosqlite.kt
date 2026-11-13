@@ -2,13 +2,14 @@ package io.github.nailkhaf.nosqlite
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.serializer
+import kotlin.uuid.Uuid
 
 /**
- * Documents of an index with the given values for its fields, made by calling the index. A [Unique] one is the
- * document, if any, of a unique index with values for all its fields; a [Many] one any number of documents, with
- * values for leading fields alone matching their prefix:
+ * Documents of an index with the given values for its fields, made by calling the index. A [Many] one is any number
+ * of documents, with values for leading fields alone matching their prefix. One document is addressed by its id,
+ * [Id], rather than by an index.
  * ```
- * Users.byId("ada").get()
+ * Users.id(ada).get<User>()
  * Users.byAge(36).list { orderBy { "name.last".asc } }
  * Users.byName("Lovelace").count()
  * ```
@@ -22,8 +23,6 @@ public sealed class Lookup(internal val index: Index, internal val values: List<
     override fun toString(): String = "$index = ${values.map { it.literal }}"
 
     public class Many internal constructor(index: Index, values: List<SqlValue>) : Lookup(index, values)
-
-    public class Unique internal constructor(index: UniqueIndex, values: List<SqlValue>) : Lookup(index, values)
 }
 
 /**
@@ -33,13 +32,6 @@ public sealed class Lookup(internal val index: Index, internal val values: List<
 public operator fun Index.invoke(vararg values: Any?): Lookup.Many {
     require(values.size in 1..paths.size) { "$this takes 1 to ${paths.size} values, not ${values.size}" }
     return Lookup.Many(this, values.map(::sqlValue))
-}
-
-/** Looks up [values] of all this unique index's fields, in order; none can be `null`, as nulls are never unique. */
-public operator fun UniqueIndex.invoke(vararg values: Any?): Lookup.Unique {
-    require(values.size == paths.size) { "$this takes ${paths.size} values, not ${values.size}" }
-    require(null !in values) { "$this can't look up null, any number of documents can have it" }
-    return Lookup.Unique(this, values.map(::sqlValue))
 }
 
 internal fun sqlValue(value: Any?): SqlValue = when (value) {
@@ -102,44 +94,62 @@ public suspend fun <T> Lookup.Many.replace(serializer: KSerializer<T>, value: T)
 context(_: WriteScope)
 public suspend fun Lookup.Many.delete(): Int = index.collection.delete { condition }
 
-/** The document found as [T], `null` when there is none. */
+/**
+ * The document of a collection whose id is [value]. There is at most one.
+ * The document's `id` field stores [Uuid.toString].
+ * ```
+ * Users.id(ada).get<User>()
+ * Users.id(ada).update(ada.copy(age = 37))
+ * Users.upsert(ada)
+ * ```
+ */
+public class Id internal constructor(internal val collection: Collection, public val value: Uuid) {
+    internal val condition: Where = Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
+
+    override fun toString(): String = "${collection.name} id $value"
+}
+
+/** The document of this collection with [value] as its id. */
+public fun Collection.id(value: Uuid): Id = Id(this, value)
+
+/** The document as [T], `null` when there is none. */
 context(_: ReadScope)
-public suspend inline fun <reified T> Lookup.Unique.get(): T? = get(serializer<T>())
+public suspend inline fun <reified T> Id.get(): T? = get(serializer<T>())
 
 context(_: ReadScope)
-public suspend fun <T> Lookup.Unique.get(serializer: KSerializer<T>): T? =
-    index.collection.list(serializer, Query(condition, emptyList(), limit = 1, offset = 0)).firstOrNull()
+public suspend fun <T> Id.get(serializer: KSerializer<T>): T? =
+    collection.list(serializer, Query(condition, emptyList(), limit = 1, offset = 0)).firstOrNull()
 
-/** Applies [value] as a merge patch to the document found, as `update` does; the result is whether there was one. */
+/** Applies [value] as a merge patch to the document, as `update` does; the result is whether there was one. */
 context(_: WriteScope)
-public suspend inline fun <reified T> Lookup.Unique.update(value: T): Boolean = update(serializer(), value)
-
-context(_: WriteScope)
-public suspend fun <T> Lookup.Unique.update(serializer: KSerializer<T>, value: T): Boolean =
-    index.collection.update(serializer, value) { condition } > 0
-
-/** Replaces the document found with [value]; the result is whether there was one. */
-context(_: WriteScope)
-public suspend inline fun <reified T> Lookup.Unique.replace(value: T): Boolean = replace(serializer(), value)
+public suspend inline fun <reified T> Id.update(value: T): Boolean = update(serializer(), value)
 
 context(_: WriteScope)
-public suspend fun <T> Lookup.Unique.replace(serializer: KSerializer<T>, value: T): Boolean =
-    index.collection.replace(serializer, value) { condition } > 0
+public suspend fun <T> Id.update(serializer: KSerializer<T>, value: T): Boolean =
+    collection.update(serializer, value) { condition } > 0
 
-/** Deletes the document found; the result is whether there was one. */
+/** Replaces the document with [value]; the result is whether there was one. [value] must carry the same id. */
 context(_: WriteScope)
-public suspend fun Lookup.Unique.delete(): Boolean = index.collection.delete { condition } > 0
+public suspend inline fun <reified T> Id.replace(value: T): Boolean = replace(serializer(), value)
+
+context(_: WriteScope)
+public suspend fun <T> Id.replace(serializer: KSerializer<T>, value: T): Boolean =
+    collection.replace(serializer, value) { condition } > 0
+
+/** Deletes the document; the result is whether there was one. */
+context(_: WriteScope)
+public suspend fun Id.delete(): Boolean = collection.delete { condition } > 0
 
 /**
- * Inserts [value], or applies it as a JSON merge patch to the document that has its values in this index, as `update`
- * does. A conflict in another unique index still fails with [NoSqliteException.UniqueViolation].
+ * Inserts [value], or applies it as a JSON merge patch to the document with its id, as `update` does.
+ * [value] must carry an id. An id already stored is merged; a different id is a different document.
  */
 context(_: WriteScope)
-public suspend inline fun <reified T> UniqueIndex.upsert(value: T): Unit = upsert(serializer(), value)
+public suspend inline fun <reified T> Collection.upsert(value: T): Unit = upsert(serializer(), value)
 
 context(_: WriteScope)
-public suspend fun <T> UniqueIndex.upsert(serializer: KSerializer<T>, value: T) {
-    val json = collection.encode(serializer, value)
-    collection.withConnection { Queries.upsert(this@upsert).execute(json) }
-    collection.changed()
+public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T) {
+    val json = encode(serializer, value)
+    withConnection { Queries.upsert(this@upsert).execute(json) }
+    changed()
 }

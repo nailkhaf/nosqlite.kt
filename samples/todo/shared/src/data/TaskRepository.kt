@@ -4,6 +4,7 @@ import io.github.nailkhaf.nosqlite.NoSqlite
 import io.github.nailkhaf.nosqlite.Location
 import io.github.nailkhaf.nosqlite.asc
 import io.github.nailkhaf.nosqlite.delete
+import io.github.nailkhaf.nosqlite.id
 import io.github.nailkhaf.nosqlite.insert
 import io.github.nailkhaf.nosqlite.invoke
 import io.github.nailkhaf.nosqlite.observe
@@ -24,11 +25,11 @@ class TaskRepository(location: Location) {
     }
 
     suspend fun toggle(task: Task) {
-        db.write { Tasks.byId(task.id.toString()).update(task.copy(done = !task.done)) }
+        db.write { Tasks.id(task.id).update(task.copy(done = !task.done)) }
     }
 
     suspend fun delete(task: Task) {
-        db.write { Tasks.byId(task.id.toString()).delete() }
+        db.write { Tasks.id(task.id).delete() }
     }
 
     suspend fun clearDone() {
