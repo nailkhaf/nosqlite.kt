@@ -218,14 +218,28 @@ internal class TrackingTest {
     }
 
     @Test
-    fun `a by-name change records nothing`() = runTest {
+    fun `a by-name change in a tracked write is recorded`() = runTest {
+        val db = database()
+        val older = ada.copy(age = 37)
+
+        db.write { Contacts.insert(ada) }
+        db.write {
+            put("contacts", older.json())
+            assertTrue(delete("contacts", ada.id))
+        }
+
+        assertEquals(listOf(inserted(1, ada), updated(2, ada, older), deleted(3, older)), changes(db))
+    }
+
+    @Test
+    fun `a by-name change in an untracked write records nothing`() = runTest {
         val db = database()
 
         db.write { Contacts.insert(ada) }
         db.write(untracked = true) {
-            upsert("contacts", alan.json())
+            put("contacts", alan.json())
             delete("contacts", ada.id)
-            upsert("fresh", note)
+            put("fresh", note)
         }
 
         assertEquals(listOf(inserted(1, ada)), changes(db))
