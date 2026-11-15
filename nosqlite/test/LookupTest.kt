@@ -100,6 +100,29 @@ internal class LookupTest {
     }
 
     @Test
+    fun `count of a lookup takes a condition`() = runTest {
+        val db = database()
+
+        db.read {
+            assertEquals(2, Users.byAge(36).count { "active".isTrue() })
+            assertEquals(1, Users.byAge(36).count { "name.last" eq "Hopper" })
+            assertEquals(0, Users.byNickname("amazing").count { "age" eq 36 })
+        }
+    }
+
+    @Test
+    fun `forEach of a lookup streams the documents found`() = runTest {
+        val db = database()
+        val seen = mutableListOf<User>()
+
+        db.read {
+            Users.byAge(36).forEach<User>({ orderBy { "name.first".asc } }) { seen += it }
+        }
+
+        assertEquals(listOf(ada, byron, grace), seen)
+    }
+
+    @Test
     fun `list of a lookup takes the query builder`() = runTest {
         val db = database()
 

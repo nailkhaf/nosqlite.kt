@@ -30,7 +30,7 @@ public val PendingChange.documentId: Uuid
         return Uuid.parse(id.content)
     }
 
-/** The pending changes recorded so far, ordered by id. */
+/** The pending changes recorded so far, in the order they were recorded. */
 context(_: ReadScope)
 public suspend fun pendingChanges(): List<PendingChange> = context(connection()) { Queries.pendingChanges.execute() }
 

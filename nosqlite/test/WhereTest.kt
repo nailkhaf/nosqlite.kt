@@ -33,7 +33,7 @@ internal class WhereTest {
     }
 
     @Test
-    fun `integer literals adapt to long`() {
+    fun `integer literals and Int values bind as integers`() {
         fun bound(block: WhereScope.() -> Where): SqlValue = where(block).render().params.single()
         val age = 18
 
@@ -44,10 +44,16 @@ internal class WhereTest {
         assertEquals(SqlValue.Integer(0), bound { "age" lt 0 })
         assertEquals(SqlValue.Integer(7), bound { "age" lte 7 })
         assertEquals(SqlValue.Integer(4), bound { "counts" contains 4 })
+        assertEquals(SqlValue.Integer(18), bound { "age" eq age })
+        assertEquals(SqlValue.Integer(18), bound { "counts" contains age })
         assertEquals(SqlValue.Integer(18), bound { "age" eq age.toLong() })
         assertEquals(
             listOf(SqlValue.Text("[1,2]")),
             where { "age" isIn listOf(1, 2) }.render().params,
+        )
+        assertEquals(
+            listOf(SqlValue.Text("[1,2]")),
+            where { "age" isIn listOf(1L, 2L) }.render().params,
         )
     }
 

@@ -25,8 +25,8 @@ public annotation class QueryDsl
 
 /**
  * Builds a [Where] on document fields, named by their JSON keys, compared with plain SQL values: [String],
- * [Long] and [Double], with [isTrue] and [isFalse] for booleans. An integer literal adapts to [Long]
- * (`"age" eq 18`, `"age" isIn listOf(1, 2)`); an [Int] variable needs [Int.toLong]. A [Double] must be finite
+ * [Int], [Long] and [Double], with [isTrue] and [isFalse] for booleans. `isIn` takes [Long] values: integer literals
+ * adapt (`"age" isIn listOf(1, 2)`), a `List<Int>` needs `map(Int::toLong)`. A [Double] must be finite
  * (`NaN` and infinities are rejected). [Float], [Short], [Byte] and other [Number] types have no overload:
  * widening a [Float] with `toDouble()` is not exact. Anything else is converted by the caller, as it is stored:
  * ```
@@ -39,11 +39,15 @@ public class WhereScope internal constructor() {
 
     public infix fun String.eq(value: Long): Where = compare(this, Comparison.Eq, value.sqlInteger)
 
+    public infix fun String.eq(value: Int): Where = compare(this, Comparison.Eq, value.toLong().sqlInteger)
+
     public infix fun String.eq(value: Double): Where = compare(this, Comparison.Eq, value.sqlReal)
 
     public infix fun String.neq(value: String): Where = compare(this, Comparison.Neq, SqlValue.Text(value))
 
     public infix fun String.neq(value: Long): Where = compare(this, Comparison.Neq, value.sqlInteger)
+
+    public infix fun String.neq(value: Int): Where = compare(this, Comparison.Neq, value.toLong().sqlInteger)
 
     public infix fun String.neq(value: Double): Where = compare(this, Comparison.Neq, value.sqlReal)
 
@@ -51,11 +55,15 @@ public class WhereScope internal constructor() {
 
     public infix fun String.gt(value: Long): Where = compare(this, Comparison.Gt, value.sqlInteger)
 
+    public infix fun String.gt(value: Int): Where = compare(this, Comparison.Gt, value.toLong().sqlInteger)
+
     public infix fun String.gt(value: Double): Where = compare(this, Comparison.Gt, value.sqlReal)
 
     public infix fun String.gte(value: String): Where = compare(this, Comparison.Gte, SqlValue.Text(value))
 
     public infix fun String.gte(value: Long): Where = compare(this, Comparison.Gte, value.sqlInteger)
+
+    public infix fun String.gte(value: Int): Where = compare(this, Comparison.Gte, value.toLong().sqlInteger)
 
     public infix fun String.gte(value: Double): Where = compare(this, Comparison.Gte, value.sqlReal)
 
@@ -63,11 +71,15 @@ public class WhereScope internal constructor() {
 
     public infix fun String.lt(value: Long): Where = compare(this, Comparison.Lt, value.sqlInteger)
 
+    public infix fun String.lt(value: Int): Where = compare(this, Comparison.Lt, value.toLong().sqlInteger)
+
     public infix fun String.lt(value: Double): Where = compare(this, Comparison.Lt, value.sqlReal)
 
     public infix fun String.lte(value: String): Where = compare(this, Comparison.Lte, SqlValue.Text(value))
 
     public infix fun String.lte(value: Long): Where = compare(this, Comparison.Lte, value.sqlInteger)
+
+    public infix fun String.lte(value: Int): Where = compare(this, Comparison.Lte, value.toLong().sqlInteger)
 
     public infix fun String.lte(value: Double): Where = compare(this, Comparison.Lte, value.sqlReal)
 
@@ -76,7 +88,10 @@ public class WhereScope internal constructor() {
     public infix fun String.isIn(values: Iterable<String>): Where =
         Where.In(Path(this), values.map(SqlValue::Text))
 
-    /** The field equals one of [values]; none matches nothing. Integer literals adapt to [Long]. */
+    /**
+     * The field equals one of [values]; none matches nothing. Integer literals adapt to [Long] (`listOf(1, 2)`); an
+     * `Iterable<Int>` overload would make them ambiguous, so a `List<Int>` needs `map(Int::toLong)`.
+     */
     @JvmName("isInLong")
     public infix fun String.isIn(values: Iterable<Long>): Where =
         Where.In(Path(this), values.map { it.sqlInteger })
@@ -91,6 +106,9 @@ public class WhereScope internal constructor() {
 
     /** The array field has an element equal to [value]. */
     public infix fun String.contains(value: Long): Where = Where.Contains(Path(this), value.sqlInteger)
+
+    /** The array field has an element equal to [value]. */
+    public infix fun String.contains(value: Int): Where = Where.Contains(Path(this), value.toLong().sqlInteger)
 
     /** The array field has an element equal to [value]. */
     public infix fun String.contains(value: Double): Where = Where.Contains(Path(this), value.sqlReal)

@@ -11,7 +11,7 @@ internal class Query(val condition: Where?, val orderBy: List<Order>, val limit:
  * Builds a query: which documents, in what order, and which page of them. Each part is set at most once; without
  * one, every document matches, in an unspecified order, all of them:
  * ```
- * Users.list {
+ * Users.list<User> {
  *     where { "age" gte 18 }
  *     orderBy {
  *         "age".desc

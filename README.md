@@ -132,8 +132,9 @@ definition, so a changed index is dropped and created again when the database op
 
 Every collection also has an index on `id`, named `nsq_idx_<collection>_id`, which is not declared.
 Calling an index looks documents up by its values.
-It takes its leading fields, `null` matching a null or missing field, and finds any number: `list<T> { }`, `count()`,
-`update(value)` and `delete()` return the documents or how many there were.
+It takes its leading fields, `null` matching a null or missing field, and finds any number: `list<T> { }`,
+`count { condition }`, `update(value)` and `delete()` return the documents or how many there were, and
+`forEach<T> { action }` streams them, as on a collection.
 
 ### Ids
 
@@ -156,6 +157,9 @@ Inside `db.write { }`:
   value as the whole document of every match instead; the value must carry each match's id, since an id is immutable.
 - `delete { condition }` deletes every match.
 - `upsert(value)` inserts the document, or updates the one with its id as `update` does, `merge = false` included.
+
+To change a few fields without the whole class, pass a `JsonObject` as the patch:
+`Users.id(adaId).update(buildJsonObject { put("age", 37) })`.
 
 `insert` and `upsert` return nothing. The others return how many documents they touched, and the by-id forms of
 `update` and `delete` return whether there was one. A write commits when its block returns and rolls back when it
@@ -212,10 +216,10 @@ Users.list<User> {
 }
 ```
 
-Conditions compare text, `Long` and `Double`: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `isIn`, `contains` for an array
+Conditions compare text, `Int`, `Long` and `Double`: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `isIn`, `contains` for an array
 element, `like` for a pattern (`"title" like "%milk%"`, case-insensitive for ASCII), `isTrue()`, `isFalse()`,
-`isNull()`, `isNotNull()`, combined with `and`, `or` and `not`. An integer literal adapts to `Long`, so
-`"age" eq 18` and `"age" isIn listOf(1, 2)` compile. An `Int` variable needs `.toLong()`. `Float` has no overload,
+`isNull()`, `isNotNull()`, combined with `and`, `or` and `not`. `isIn` takes `Long` values, so `"age" isIn listOf(1, 2)` compiles and a
+`List<Int>` needs `map(Int::toLong)`. `Float` has no overload,
 because `toDouble()` is not exact and `0.1f` would not match the stored real `0.1`; write a fraction as a `Double`
 (`"ratio" eq 0.1`). `Short`, `Byte` and other number types are the same. Other values compare as they are stored,
 so an enum as its serial name (`"role" eq "member"`). A `Double` that is `NaN` or infinite is rejected when the
