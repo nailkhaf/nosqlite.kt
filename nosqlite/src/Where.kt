@@ -24,51 +24,85 @@ public sealed class Where {
 public annotation class QueryDsl
 
 /**
- * Builds a [Where] on document fields, named by their JSON keys, compared with plain SQL values: [String],
- * [Long] and [Double], with [isTrue] and [isFalse] for booleans. An integer literal adapts to [Long]
- * (`"age" eq 18`, `"age" isIn listOf(1, 2)`); an [Int] variable needs [Int.toLong]. A [Double] must be finite
- * (`NaN` and infinities are rejected). [Float], [Short], [Byte] and other [Number] types have no overload:
- * widening a [Float] with `toDouble()` is not exact. Anything else is converted by the caller, as it is stored:
+ * Builds a [Where] on fields named by their JSON keys, compared with [String], [Int], [Long] or finite [Double]
+ * values, and [isTrue] or [isFalse] for booleans. [Float] has no overload, since `toDouble()` isn't exact. Other
+ * types are compared as they are stored, so an enum as its serial name:
  * ```
  * ("age" gte 18) and ("name.last" eq "Lovelace") and ("role" eq "member") and ("tags" contains "kotlin")
  * ```
  */
 @QueryDsl
 public class WhereScope internal constructor() {
+    /** The field equals [value]. */
     public infix fun String.eq(value: String): Where = compare(this, Comparison.Eq, SqlValue.Text(value))
 
+    /** The field equals [value]. */
     public infix fun String.eq(value: Long): Where = compare(this, Comparison.Eq, value.sqlInteger)
 
+    /** The field equals [value]. */
+    public infix fun String.eq(value: Int): Where = compare(this, Comparison.Eq, value.toLong().sqlInteger)
+
+    /** The field equals [value]. */
     public infix fun String.eq(value: Double): Where = compare(this, Comparison.Eq, value.sqlReal)
 
+    /** The field is present and not [value]. */
     public infix fun String.neq(value: String): Where = compare(this, Comparison.Neq, SqlValue.Text(value))
 
+    /** The field is present and not [value]. */
     public infix fun String.neq(value: Long): Where = compare(this, Comparison.Neq, value.sqlInteger)
 
+    /** The field is present and not [value]. */
+    public infix fun String.neq(value: Int): Where = compare(this, Comparison.Neq, value.toLong().sqlInteger)
+
+    /** The field is present and not [value]. */
     public infix fun String.neq(value: Double): Where = compare(this, Comparison.Neq, value.sqlReal)
 
+    /** The field is greater than [value]. */
     public infix fun String.gt(value: String): Where = compare(this, Comparison.Gt, SqlValue.Text(value))
 
+    /** The field is greater than [value]. */
     public infix fun String.gt(value: Long): Where = compare(this, Comparison.Gt, value.sqlInteger)
 
+    /** The field is greater than [value]. */
+    public infix fun String.gt(value: Int): Where = compare(this, Comparison.Gt, value.toLong().sqlInteger)
+
+    /** The field is greater than [value]. */
     public infix fun String.gt(value: Double): Where = compare(this, Comparison.Gt, value.sqlReal)
 
+    /** The field is at least [value]. */
     public infix fun String.gte(value: String): Where = compare(this, Comparison.Gte, SqlValue.Text(value))
 
+    /** The field is at least [value]. */
     public infix fun String.gte(value: Long): Where = compare(this, Comparison.Gte, value.sqlInteger)
 
+    /** The field is at least [value]. */
+    public infix fun String.gte(value: Int): Where = compare(this, Comparison.Gte, value.toLong().sqlInteger)
+
+    /** The field is at least [value]. */
     public infix fun String.gte(value: Double): Where = compare(this, Comparison.Gte, value.sqlReal)
 
+    /** The field is less than [value]. */
     public infix fun String.lt(value: String): Where = compare(this, Comparison.Lt, SqlValue.Text(value))
 
+    /** The field is less than [value]. */
     public infix fun String.lt(value: Long): Where = compare(this, Comparison.Lt, value.sqlInteger)
 
+    /** The field is less than [value]. */
+    public infix fun String.lt(value: Int): Where = compare(this, Comparison.Lt, value.toLong().sqlInteger)
+
+    /** The field is less than [value]. */
     public infix fun String.lt(value: Double): Where = compare(this, Comparison.Lt, value.sqlReal)
 
+    /** The field is at most [value]. */
     public infix fun String.lte(value: String): Where = compare(this, Comparison.Lte, SqlValue.Text(value))
 
+    /** The field is at most [value]. */
     public infix fun String.lte(value: Long): Where = compare(this, Comparison.Lte, value.sqlInteger)
 
+    /** The field is at most [value]. */
+    public infix fun String.lte(value: Int): Where = compare(this, Comparison.Lte, value.toLong().sqlInteger)
+
+    /** The field is at most [value]. */
     public infix fun String.lte(value: Double): Where = compare(this, Comparison.Lte, value.sqlReal)
 
     /** The field equals one of [values]; none matches nothing. */
@@ -76,7 +110,7 @@ public class WhereScope internal constructor() {
     public infix fun String.isIn(values: Iterable<String>): Where =
         Where.In(Path(this), values.map(SqlValue::Text))
 
-    /** The field equals one of [values]; none matches nothing. Integer literals adapt to [Long]. */
+    /** The field equals one of [values]; none matches nothing. A `List<Int>` needs `map(Int::toLong)`. */
     @JvmName("isInLong")
     public infix fun String.isIn(values: Iterable<Long>): Where =
         Where.In(Path(this), values.map { it.sqlInteger })
@@ -91,6 +125,9 @@ public class WhereScope internal constructor() {
 
     /** The array field has an element equal to [value]. */
     public infix fun String.contains(value: Long): Where = Where.Contains(Path(this), value.sqlInteger)
+
+    /** The array field has an element equal to [value]. */
+    public infix fun String.contains(value: Int): Where = Where.Contains(Path(this), value.toLong().sqlInteger)
 
     /** The array field has an element equal to [value]. */
     public infix fun String.contains(value: Double): Where = Where.Contains(Path(this), value.sqlReal)
@@ -110,10 +147,13 @@ public class WhereScope internal constructor() {
     /** The field is present and not null. */
     public fun String.isNotNull(): Where = Where.IsNotNull(Path(this))
 
+    /** Both conditions hold. */
     public infix fun Where.and(other: Where): Where = Where.And(this, other)
 
+    /** Either condition holds. */
     public infix fun Where.or(other: Where): Where = Where.Or(this, other)
 
+    /** [condition] does not hold. */
     public fun not(condition: Where): Where = Where.Not(condition)
 
     private fun compare(field: String, comparison: Comparison, value: SqlValue): Where =

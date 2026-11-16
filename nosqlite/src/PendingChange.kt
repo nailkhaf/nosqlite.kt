@@ -5,19 +5,17 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-/**
- * One recorded insert, update or delete of a tracked collection, in the order it was committed.
- * [id] is 16 random bytes assigned when the change is recorded and never changed, read as a [Uuid], so a sync layer
- * can use it as the remote id of the change and a retried upload writes the same remote document. It is random but
- * does not carry the version-4 bits.
- * [before] is the document before the change, null for an insert. [after] is the document after the change, null
- * for a delete. An update stores both. An update whose stored JSON did not change is not recorded.
- */
+/** One recorded insert, update or delete of a tracked collection. An update that changes nothing isn't recorded. */
 public data class PendingChange(
+    /** 16 random bytes, fixed when recorded, so a retried upload can reuse it as a remote id. Not a v4 UUID. */
     public val id: Uuid,
+    /** The collection's name. */
     public val collection: String,
+    /** The document before the change; `null` for an insert. */
     public val before: JsonObject?,
+    /** The document after the change; `null` for a delete. */
     public val after: JsonObject?,
+    /** When it was recorded, by SQLite's clock, in milliseconds. */
     public val timestamp: Instant,
 )
 
@@ -30,7 +28,7 @@ public val PendingChange.documentId: Uuid
         return Uuid.parse(id.content)
     }
 
-/** The pending changes recorded so far, ordered by id. */
+/** The pending changes recorded so far, in the order they were recorded. */
 context(_: ReadScope)
 public suspend fun pendingChanges(): List<PendingChange> = context(connection()) { Queries.pendingChanges.execute() }
 

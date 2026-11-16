@@ -19,11 +19,8 @@ import kotlinx.serialization.json.Json
  *     +Notes
  * }
  * ```
- * Nothing touches the file until the first [read] or [write]. Opening the write connection creates the declared
- * collections in one write transaction before anything else runs. A collection's name is permanent: a table that
- * already exists is left in place when its collection is not declared.
- * A tracked collection records each of its changes.
- * [close] closes every connection that was opened.
+ * The file is opened, and the declared collections created, on the first [read] or [write]. A table whose
+ * collection isn't declared is left in place.
  */
 public class NoSqlite(
     private val location: Location = Location.InMemory,
@@ -31,6 +28,7 @@ public class NoSqlite(
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
     schema: SchemaBuilder.() -> Unit,
 ) {
+    /** A database file at [path], with the default driver and dispatcher. */
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
 
     private val tables = Schema(SchemaBuilder().apply(schema).collections)
@@ -67,6 +65,7 @@ public class NoSqlite(
         location.delete()
     }
 
+    /** Settings shared by every database. */
     public companion object {
         /**
          * How documents are encoded and decoded: unknown keys are ignored, so a smaller class reads a projection, and
@@ -79,9 +78,11 @@ public class NoSqlite(
     }
 }
 
+/** Marks [SchemaBuilder], so its functions stay out of nested blocks. */
 @DslMarker
 public annotation class SchemaDsl
 
+/** Lists the collections a [NoSqlite] serves: `NoSqlite { +Users }`. */
 @SchemaDsl
 public class SchemaBuilder internal constructor() {
     internal val collections = mutableListOf<Collection>()
@@ -108,20 +109,14 @@ internal class Schema(internal val declared: List<Collection> = emptyList()) {
 
 /**
  * Runs [block] in a read transaction: every read in it sees one snapshot. Inside [write] it runs in that write.
- * The block runs on one connection and must stay sequential. Using the database from coroutines launched inside it
- * (`launch`, `async`, parallel flow operators) concurrently is unsupported and can crash; sequential suspension
- * inside the block is fine. Do parallel work outside the transaction, each coroutine in its own [read] or [write],
- * or gather results first and write them in one sequential block.
+ * The block runs on one connection: keep it sequential, and don't use the database from coroutines launched in it.
  */
 public suspend fun <R> NoSqlite.read(block: suspend context(ReadScope) () -> R): R = pool().read(block)
 
 /**
  * Runs [block] in a write transaction that commits when it returns and rolls back when it throws.
- * Inside another write it is a savepoint that rolls back alone. The block runs on one connection and must stay
- * sequential. Using the database from coroutines launched inside it (`launch`, `async`, parallel flow operators)
- * concurrently is unsupported and can crash; sequential suspension inside the block is fine. Do parallel work
- * outside the transaction, each coroutine in its own [read] or [write], or gather results first and write them in
- * one sequential block. Pass [untracked] to record none of the writes tracked collections do in the block.
+ * Inside another write it is a savepoint that rolls back alone. With [untracked], tracked collections record nothing.
+ * The block runs on one connection: keep it sequential, and don't use the database from coroutines launched in it.
  */
 public suspend fun <R> NoSqlite.write(
     untracked: Boolean = false,

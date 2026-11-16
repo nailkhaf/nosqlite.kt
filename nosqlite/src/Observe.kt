@@ -9,14 +9,15 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.serializer
 
 /**
- * The documents [query] selects, now and after every committed write that changed this collection: `with(db) {
- * Users.observe { where { "age" gte 18 } } }`. Writes that land while a read runs are folded into the next one, and a
- * read that finds what the previous one found emits nothing.
+ * The documents [query] selects, now and after every committed write that changed this collection:
+ * `with(db) { Users.observe<User> { where { "age" gte 18 } } }`. Writes that land while a read runs are folded into
+ * the next one, and a read that finds what the previous one found emits nothing.
  */
 context(db: NoSqlite)
 public inline fun <reified T> Collection.observe(noinline query: QueryScope.() -> Unit = {}): Flow<List<T>> =
     observe(serializer(), query)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(db: NoSqlite)
 public fun <T> Collection.observe(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): Flow<List<T>> {
     val query = query(query)
@@ -25,17 +26,19 @@ public fun <T> Collection.observe(serializer: KSerializer<T>, query: QueryScope.
 
 /** The documents found, now and after every committed write that changed the collection. */
 context(db: NoSqlite)
-public inline fun <reified T> Lookup.Many.observe(noinline query: QueryScope.() -> Unit = {}): Flow<List<T>> =
+public inline fun <reified T> Lookup.observe(noinline query: QueryScope.() -> Unit = {}): Flow<List<T>> =
     observe(serializer(), query)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(db: NoSqlite)
-public fun <T> Lookup.Many.observe(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): Flow<List<T>> =
+public fun <T> Lookup.observe(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): Flow<List<T>> =
     db.observe(index.collection) { list(serializer, query) }
 
 /** The document with this id, `null` while there is none, now and after every committed write to the collection. */
 context(db: NoSqlite)
 public inline fun <reified T> Id.observe(): Flow<T?> = observe(serializer<T>())
 
+/** As the reified overload, with an explicit [serializer]. */
 context(db: NoSqlite)
 public fun <T> Id.observe(serializer: KSerializer<T>): Flow<T?> =
     db.observe(collection) { get(serializer) }

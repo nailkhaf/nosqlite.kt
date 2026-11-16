@@ -16,13 +16,16 @@ public suspend inline fun <reified T> Collection.forEach(
     noinline action: suspend (T) -> Unit,
 ): Unit = forEach(serializer(), query, action)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(_: ReadScope)
 public suspend fun <T> Collection.forEach(
     serializer: KSerializer<T>,
     query: QueryScope.() -> Unit = {},
     action: suspend (T) -> Unit,
-) {
-    val query = query(query)
+): Unit = forEach(serializer, query(query), action)
+
+context(_: ReadScope)
+internal suspend fun <T> Collection.forEach(serializer: KSerializer<T>, query: Query, action: suspend (T) -> Unit) {
     val select = Queries.selectSql(name, query)
     withConnection {
         select.forEachRow { action(decode(name, serializer, this)) }
