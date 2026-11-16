@@ -53,13 +53,6 @@ jobs:
       - name: Run JVM tests
         run: ./kotlin test -p jvm
 
-      - name: TEMP list packaged LICENSE files
-        shell: bash
-        run: |
-          ./kotlin publish -m nosqlite mavenLocal || true
-          find build ~/.m2 -name '*nosqlite*' \( -name '*.jar' -o -name '*.aar' -o -name '*.klib' \) 2>/dev/null | while read -r f; do echo "== $f"; unzip -l "$f" | grep -i -E 'license|META-INF/$' || echo "(no LICENSE)"; done
-          find ~/.m2 -name '*.pom' -path '*nailkhaf*' -exec cat {} \; 2>/dev/null | grep -A6 '<developer>' || true
-
       - name: Save build output
         if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4
