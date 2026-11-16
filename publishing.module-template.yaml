@@ -12,6 +12,7 @@ settings:
       scm: https://github.com/nailkhaf/nosqlite.kt.git
       developers:
         - name: Nail Khafizov
+          url: https://github.com/nailkhaf
       licenses:
         - name: Apache-2.0
           url: https://www.apache.org/licenses/LICENSE-2.0.txt

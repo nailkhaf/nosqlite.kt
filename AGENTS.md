@@ -10,6 +10,8 @@ user guide, CONTRIBUTING.md covers build, CI and releasing.
 - `nosqlite/`: the library, the only published module. `src/` is common code (package `io.github.nailkhaf.nosqlite`),
   `test/` its common tests, which run on the JVM and the iOS simulator. `module.yaml` sets the platforms (jvm, android,
   iosArm64, iosSimulatorArm64), dependencies and `-Xexplicit-api=strict`.
+  `resources/META-INF/LICENSE` is a copy of the root `LICENSE` that ships inside the published artifacts; keep the
+  two identical.
 - `samples/todo/`: a Compose Multiplatform sample app (`shared`, `androidApp`, `iosApp`, `jvmApp`). `shared` has
   `TaskRepositoryTest`.
 - `project.yaml` lists the modules, `libs.versions.toml` the dependency versions, `publishing.module-template.yaml` the
