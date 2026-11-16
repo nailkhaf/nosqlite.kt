@@ -8,8 +8,7 @@ internal class Order(val path: Path, val descending: Boolean) {
 internal data class Query(val condition: Where?, val orderBy: List<Order>, val limit: Int, val offset: Int)
 
 /**
- * Builds a query: which documents, in what order, and which page of them. Each part is set at most once; without
- * one, every document matches, in an unspecified order, all of them:
+ * Builds a query: which documents, in what order, and which page. Each part is set at most once:
  * ```
  * Users.list<User> {
  *     where { "age" gte 18 }
@@ -21,8 +20,7 @@ internal data class Query(val condition: Where?, val orderBy: List<Order>, val l
  *     offset(40)
  * }
  * ```
- * The order of documents with equal sort keys is unspecified, so add `id` as the last sort key when a
- * stable order or offset pagination matters.
+ * Documents with equal sort keys come in an unspecified order; sort by `id` last for stable pages.
  */
 @QueryDsl
 public class QueryScope internal constructor() {
@@ -31,6 +29,7 @@ public class QueryScope internal constructor() {
     private var limit: Int? = null
     private var offset: Int? = null
 
+    /** Which documents match [condition]. */
     public fun where(condition: WhereScope.() -> Where) {
         check(this.condition == null) { "where is already set" }
         this.condition = WhereScope().condition()
@@ -42,12 +41,14 @@ public class QueryScope internal constructor() {
         orderBy = OrderScope().apply(keys).keys.toList()
     }
 
+    /** At most [limit] documents; must be positive. */
     public fun limit(limit: Int) {
         check(this.limit == null) { "limit is already set" }
         require(limit > 0) { "Limit must be positive: $limit" }
         this.limit = limit
     }
 
+    /** Skips the first [offset] documents; must not be negative. */
     public fun offset(offset: Int) {
         check(this.offset == null) { "offset is already set" }
         require(offset >= 0) { "Offset must not be negative: $offset" }

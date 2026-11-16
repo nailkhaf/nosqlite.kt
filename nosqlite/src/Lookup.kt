@@ -61,6 +61,7 @@ context(_: ReadScope)
 public suspend inline fun <reified T> Lookup.list(noinline query: QueryScope.() -> Unit = {}): List<T> =
     list(serializer(), query)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(_: ReadScope)
 public suspend fun <T> Lookup.list(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): List<T> =
     index.collection.list(serializer, withCondition(query(query)))
@@ -87,6 +88,7 @@ public suspend inline fun <reified T> Lookup.forEach(
     noinline action: suspend (T) -> Unit,
 ): Unit = forEach(serializer(), query, action)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(_: ReadScope)
 public suspend fun <T> Lookup.forEach(
     serializer: KSerializer<T>,
@@ -99,6 +101,7 @@ context(_: WriteScope)
 public suspend inline fun <reified T> Lookup.update(value: T, merge: Boolean = true): Int =
     update(serializer(), value, merge)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(_: WriteScope)
 public suspend fun <T> Lookup.update(serializer: KSerializer<T>, value: T, merge: Boolean = true): Int =
     index.collection.update(serializer, value, merge) { condition }
@@ -132,6 +135,7 @@ public fun Collection.id(value: Uuid): Id = Id(this, value)
 context(_: ReadScope)
 public suspend inline fun <reified T> Id.get(): T? = get(serializer<T>())
 
+/** As the reified overload, with an explicit [serializer]. */
 context(_: ReadScope)
 public suspend fun <T> Id.get(serializer: KSerializer<T>): T? =
     collection.list(serializer, Query(condition, emptyList(), limit = 1, offset = 0)).firstOrNull()
@@ -144,6 +148,7 @@ context(_: WriteScope)
 public suspend inline fun <reified T> Id.update(value: T, merge: Boolean = true): Boolean =
     update(serializer(), value, merge)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(_: WriteScope)
 public suspend fun <T> Id.update(serializer: KSerializer<T>, value: T, merge: Boolean = true): Boolean =
     collection.update(serializer, value, merge) { condition } > 0
@@ -160,6 +165,7 @@ context(_: WriteScope)
 public suspend inline fun <reified T> Collection.upsert(value: T, merge: Boolean = true): Unit =
     upsert(serializer(), value, merge)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(_: WriteScope)
 public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T, merge: Boolean = true) {
     val json = encode(serializer, value)

@@ -16,6 +16,7 @@ public suspend inline fun <reified T> Collection.forEach(
     noinline action: suspend (T) -> Unit,
 ): Unit = forEach(serializer(), query, action)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(_: ReadScope)
 public suspend fun <T> Collection.forEach(
     serializer: KSerializer<T>,

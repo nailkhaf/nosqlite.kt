@@ -17,6 +17,7 @@ context(db: NoSqlite)
 public inline fun <reified T> Collection.observe(noinline query: QueryScope.() -> Unit = {}): Flow<List<T>> =
     observe(serializer(), query)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(db: NoSqlite)
 public fun <T> Collection.observe(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): Flow<List<T>> {
     val query = query(query)
@@ -28,6 +29,7 @@ context(db: NoSqlite)
 public inline fun <reified T> Lookup.observe(noinline query: QueryScope.() -> Unit = {}): Flow<List<T>> =
     observe(serializer(), query)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(db: NoSqlite)
 public fun <T> Lookup.observe(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): Flow<List<T>> =
     db.observe(index.collection) { list(serializer, query) }
@@ -36,6 +38,7 @@ public fun <T> Lookup.observe(serializer: KSerializer<T>, query: QueryScope.() -
 context(db: NoSqlite)
 public inline fun <reified T> Id.observe(): Flow<T?> = observe(serializer<T>())
 
+/** As the reified overload, with an explicit [serializer]. */
 context(db: NoSqlite)
 public fun <T> Id.observe(serializer: KSerializer<T>): Flow<T?> =
     db.observe(collection) { get(serializer) }

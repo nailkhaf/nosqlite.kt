@@ -9,11 +9,9 @@ import kotlin.reflect.KProperty1
 import kotlin.uuid.Uuid
 
 /**
- * A named set of JSON object documents, stored in its own table. The documents are the JSON itself: each read decodes
- * them into the type it asks for, and a typed write changes only the fields its type declares, so fields the app
- * doesn't know yet survive. Declare each collection once, as an object extending it, and list it in `NoSqlite { }`.
- * Every document has an `id`, stored as [kotlin.uuid.Uuid.toString]: required, unique and immutable. Pass `tracked = true` to
- * record every insert, update and delete.
+ * A named set of JSON object documents in its own table. Each read decodes into the type it names, so one collection
+ * serves any class. Declare it as an object and list it in `NoSqlite { }`. Every document has a unique, immutable
+ * `id`, a [kotlin.uuid.Uuid] string. With [tracked], every insert, update and delete is recorded.
  * ```
  * object Notes : Collection("notes")
  *
@@ -67,11 +65,8 @@ internal fun requireCollectionName(name: String) {
 }
 
 /**
- * [Collection.upsert] addressed by the collection's name, for code that has only the name, such as a replicator,
- * usually inside `write(untracked = true)` so a tracked collection does not record it. With [merge] = false the
- * document replaces the stored one whole, so fields it leaves out are removed and `null` fields are kept. A name the
- * schema does not have gets its table, id index and id trigger, and the schema keeps that name once the write
- * commits. [document] must be a JSON object whose `id` is a UUID.
+ * [Collection.upsert] by the collection's name, for code that has only the name, such as a replicator. A name the
+ * schema doesn't have yet gets its table. [document] must have a UUID `id`.
  */
 context(_: WriteScope)
 public suspend fun upsert(collection: String, document: JsonObject, merge: Boolean = true) {
@@ -103,6 +98,7 @@ public suspend fun delete(collection: String, id: Uuid): Boolean {
 context(_: WriteScope)
 public suspend inline fun <reified T> Collection.insert(value: T): Unit = insert(serializer(), value)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(_: WriteScope)
 public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
     val json = encode(serializer, value)
@@ -115,6 +111,7 @@ context(_: ReadScope)
 public suspend inline fun <reified T> Collection.list(noinline query: QueryScope.() -> Unit = {}): List<T> =
     list(serializer(), query)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(_: ReadScope)
 public suspend fun <T> Collection.list(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): List<T> =
     list(serializer, query(query))
@@ -129,10 +126,9 @@ public suspend fun Collection.count(condition: (WhereScope.() -> Where)? = null)
     withConnection { Queries.count(name, condition?.let(::where)).execute() }
 
 /**
- * Updates every document matching [condition] with [value], so match on `id` to update one. With [merge] (the
- * default) [value] is a JSON merge patch: its fields replace theirs, a `null` removes one, and fields it doesn't have
- * are kept. Without it [value] is stored as each whole document, so it must carry each match's id. The result is how
- * many documents were updated.
+ * Updates every document matching [condition] with [value]. With [merge], [value] is a JSON merge patch: its fields
+ * replace theirs, a `null` removes one, and the rest are kept. Without it, [value] replaces each document whole and
+ * must carry its id. Returns how many were updated.
  */
 context(_: WriteScope)
 public suspend inline fun <reified T> Collection.update(
@@ -141,6 +137,7 @@ public suspend inline fun <reified T> Collection.update(
     noinline condition: WhereScope.() -> Where,
 ): Int = update(serializer(), value, merge, condition)
 
+/** As the reified overload, with an explicit [serializer]. */
 context(_: WriteScope)
 public suspend fun <T> Collection.update(
     serializer: KSerializer<T>,
