@@ -5,7 +5,7 @@ internal class Order(val path: Path, val descending: Boolean) {
     override fun toString(): String = "$path ${if (descending) "desc" else "asc"}"
 }
 
-internal class Query(val condition: Where?, val orderBy: List<Order>, val limit: Int, val offset: Int)
+internal data class Query(val condition: Where?, val orderBy: List<Order>, val limit: Int, val offset: Int)
 
 /**
  * Builds a query: which documents, in what order, and which page of them. Each part is set at most once; without

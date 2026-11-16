@@ -67,7 +67,7 @@ public suspend fun <T> Lookup.list(serializer: KSerializer<T>, query: QueryScope
 
 /** [query] restricted to the documents found. */
 internal fun Lookup.withCondition(query: Query): Query =
-    Query(query.condition?.let { Where.And(condition, it) } ?: condition, query.orderBy, query.limit, query.offset)
+    query.copy(condition = query.condition?.let { Where.And(condition, it) } ?: condition)
 
 /** How many documents are found; with [condition], how many of them match it as well. */
 context(_: ReadScope)
