@@ -3,7 +3,7 @@ settings:
   publishing:
     enabled: true
     group: io.github.nailkhaf
-    version: 0.0.1
+    version: 0.0.2
     mavenCentral: enabled
     signArtifacts: true
     publishSources: true
