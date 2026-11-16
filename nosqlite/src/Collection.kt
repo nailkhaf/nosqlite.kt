@@ -66,7 +66,8 @@ internal fun requireCollectionName(name: String) {
 
 /**
  * [Collection.upsert] by the collection's name, for code that has only the name, such as a replicator. A name the
- * schema doesn't have yet gets its table. [document] must have a UUID `id`.
+ * schema doesn't have yet gets its table. [document] must have a UUID `id`. Any valid name is written to, so check
+ * [collection] against the names you expect when it comes from a source you don't trust, such as a remote peer.
  */
 context(_: WriteScope)
 public suspend fun upsert(collection: String, document: JsonObject, merge: Boolean = true) {
