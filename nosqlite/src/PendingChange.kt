@@ -20,8 +20,8 @@ public data class PendingChange(
     public val timestamp: Instant,
 )
 
-/** The version key [removePendingChanges] bumps. A collection name can't contain spaces, so none can match it. */
-internal const val PENDING_CHANGES_REMOVED: String = "pending changes removed"
+/** The version key [removePendingChanges] bumps. A collection name can't contain `-`, so none can match it. */
+internal const val PENDING_CHANGES_REMOVED: String = "pending-changes-removed"
 
 /** The document's `id`, taken from [PendingChange.after], or from [PendingChange.before] when that is null. */
 public val PendingChange.documentId: Uuid
