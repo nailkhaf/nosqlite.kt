@@ -46,6 +46,9 @@ public class NoSqlite(
     /** How many committed writes changed each collection; one no write changed yet is missing. */
     internal val versions = MutableStateFlow(emptyMap<String, Long>())
 
+    /** The declared collections that record their changes. */
+    internal val tracked: List<String> = tables.declared.filter { it.tracked }.map { it.name }
+
     internal suspend fun pool(): ConnectionPool = ready.get()
 
     internal fun committed(changed: Set<String>) {

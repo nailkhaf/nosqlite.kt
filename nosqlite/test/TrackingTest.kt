@@ -4,6 +4,12 @@ import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.SQLiteStatement
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -566,6 +572,84 @@ private class SqlLog(private val log: MutableList<String>) : SQLiteDriver {
             }
         }
     }
-}
 
-private object Fresh : Collection("fresh")
+    private fun TestScope.observedDatabase() = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
+        +Contacts
+        +Notes
+    }
+
+    /** Collects [flow] in the background from now on, without the clock and the random ids. */
+    private fun TestScope.collect(flow: Flow<List<PendingChange>>): List<List<PendingChange>> {
+        val values = mutableListOf<List<PendingChange>>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { flow.toList(values) }
+        return object : AbstractList<List<PendingChange>>() {
+            override val size get() = values.size
+            override fun get(index: Int) = values[index].withoutTime()
+        }
+    }
+
+    @Test
+    fun `pendingChanges takes a limit and an offset`() = runTest {
+        val db = database()
+        db.write {
+            Contacts.insert(ada)
+            Contacts.insert(alan)
+            Contacts.insert(grace)
+        }
+
+        val page = db.read { pendingChanges(limit = 1, offset = 1) }.withoutTime()
+
+        assertEquals(listOf(inserted(alan)), page)
+        assertEquals(listOf(inserted(grace)), db.read { pendingChanges(offset = 2) }.withoutTime())
+        assertFailsWith<IllegalArgumentException> { db.read { pendingChanges(limit = 0) } }
+        assertFailsWith<IllegalArgumentException> { db.read { pendingChanges(offset = -1) } }
+    }
+
+    @Test
+    fun `observePendingChanges emits after each tracked write and each removal`() = runTest {
+        val db = observedDatabase()
+        val queues = collect(with(db) { observePendingChanges() })
+
+        db.write { Contacts.insert(ada) }
+        db.write { Contacts.id(ada.id).update(ada.copy(age = 37)) }
+        db.write { Contacts.id(ada.id).delete() }
+        db.write { removePendingChanges(pendingChanges(limit = 2)) }
+
+        assertEquals(
+            listOf(
+                emptyList(),
+                listOf(inserted(ada)),
+                listOf(inserted(ada), updated(ada, ada.copy(age = 37))),
+                listOf(inserted(ada), updated(ada, ada.copy(age = 37)), deleted(ada.copy(age = 37))),
+                listOf(deleted(ada.copy(age = 37))),
+            ),
+            queues,
+        )
+    }
+
+    @Test
+    fun `observePendingChanges skips writes that record nothing`() = runTest {
+        val db = observedDatabase()
+        val queues = collect(with(db) { observePendingChanges() })
+
+        db.write { Notes.insert(note) }
+        db.write(untracked = true) { Contacts.insert(ada) }
+        runCatching { db.write { Contacts.insert(alan); error("rolled back") } }
+        db.write { Contacts.insert(grace) }
+
+        assertEquals(listOf(emptyList(), listOf(inserted(grace))), queues)
+    }
+
+    @Test
+    fun `observePendingChanges pages the queue`() = runTest {
+        val db = observedDatabase()
+        val queues = collect(with(db) { observePendingChanges(limit = 1, offset = 1) })
+
+        db.write { Contacts.insert(ada) }
+        db.write { Contacts.insert(alan) }
+        db.write { Contacts.insert(grace) }
+
+        assertEquals(listOf(emptyList(), listOf(inserted(alan))), queues)
+        assertFailsWith<IllegalArgumentException> { with(db) { observePendingChanges(limit = 0).first() } }
+    }
+}

@@ -19,7 +19,7 @@ by its `id`.
 - Queries with filters, array `contains`, ordering, `limit` and `offset`; lookups by index and by id
 - Streaming with an open cursor (`forEach`)
 - `observe` flows that read again after each committed write to the collection
-- Optional change tracking: a tracked collection appends each insert, update and delete to a queue
+- Optional change tracking: a tracked collection appends each insert, update and delete to a queue, which can be observed
 
 ## Installation
 
@@ -272,9 +272,23 @@ db.write(untracked = true) {
 }
 ```
 
-`pendingChanges()` returns the queue in the order the changes were recorded. Read it whenever sync
-runs, for example after `observe` on a tracked collection emits. `removePendingChanges` deletes exactly the given
-rows, so a change written after they were read stays. Each row is timestamped with SQLite's clock, in milliseconds.
+`pendingChanges(limit, offset)` returns the queue in the order the changes were recorded, all of it by default.
+`observePendingChanges(limit, offset)` runs in a `NoSqlite` context and returns a `Flow` that reads it now and again
+after every committed write that changed a tracked collection or removed pending changes, folding and skipping reads
+as `observe` does. `removePendingChanges` deletes exactly the given rows, so a change written after they were read
+stays.
+
+```kotlin
+with(db) {
+    observePendingChanges(limit = 100).filter { it.isNotEmpty() }.collect { changes ->
+        sync(changes)
+        db.write { removePendingChanges(changes) }
+    }
+}
+```
+
+Collect it with `collect`, not `collectLatest`, so a new change doesn't cancel an upload halfway; changes recorded
+during the upload are read once it returns. Each row is timestamped with SQLite's clock, in milliseconds.
 `write(untracked = true)` records nothing and does not nest inside another write. `upsert(name, document, merge)` and
 `delete(name, id)` are `upsert` and `delete` addressed by the collection's name, for code that has only the name,
 such as a replicator, usually in an untracked write so they are not recorded. With `merge = false` the document

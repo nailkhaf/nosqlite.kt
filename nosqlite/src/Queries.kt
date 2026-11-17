@@ -147,12 +147,16 @@ internal object Queries {
         """.trimIndent(),
     )
 
-    val pendingChanges: Statement<Unit, List<PendingChange>> = Statement(
+    /** Binds the limit and the offset. */
+    val pendingChanges: Statement<Pair<Int, Int>, List<PendingChange>> = Statement(
         sql = """
             SELECT id, collection, json(before), json(after), timestamp
-            FROM ${identifier(PENDING_CHANGES)} ORDER BY rowid;
+            FROM ${identifier(PENDING_CHANGES)} ORDER BY rowid LIMIT ? OFFSET ?;
         """.trimIndent(),
-        encode = {},
+        encode = { (limit, offset) ->
+            bindLong(1, limit.toLong())
+            bindLong(2, offset.toLong())
+        },
         decode = rows {
             PendingChange(
                 id = Uuid.fromByteArray(getBlob(0)),
