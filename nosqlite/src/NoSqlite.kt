@@ -31,7 +31,7 @@ public class NoSqlite(
     /** A database file at [path], with the default driver and dispatcher. */
     public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
 
-    private val tables = Schema(SchemaBuilder().apply(schema).collections)
+    internal val tables = Schema(SchemaBuilder().apply(schema).collections)
 
     private val connections = ConnectionPool(location, driver, dispatcher, tables) { connection ->
         connection.transaction(Boundary.Write) { context(connection) { createSchema(tables) } }
@@ -96,6 +96,9 @@ public class SchemaBuilder internal constructor() {
 
 /** Collection names this database knows: those declared up front, plus any a committed write created by name. */
 internal class Schema(internal val declared: List<Collection> = emptyList()) {
+    /** The declared collections that record their changes. */
+    internal val tracked: List<String> = declared.filter { it.tracked }.map { it.name }
+
     private val names = atomic(declared.map { it.name }.toSet())
 
     /** True when [name] was declared, or a committed write already created its table by name. */

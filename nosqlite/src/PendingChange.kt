@@ -1,5 +1,6 @@
 package io.github.nailkhaf.nosqlite
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.Instant
@@ -19,6 +20,9 @@ public data class PendingChange(
     public val timestamp: Instant,
 )
 
+/** The version key [removePendingChanges] bumps. A collection name can't contain `-`, so none can match it. */
+internal const val PENDING_CHANGES_REMOVED: String = "pending-changes-removed"
+
 /** The document's `id`, taken from [PendingChange.after], or from [PendingChange.before] when that is null. */
 public val PendingChange.documentId: Uuid
     get() {
@@ -28,13 +32,30 @@ public val PendingChange.documentId: Uuid
         return Uuid.parse(id.content)
     }
 
-/** The pending changes recorded so far, in the order they were recorded. */
+/**
+ * The pending changes recorded so far, in the order they were recorded: at most [limit], after skipping [offset].
+ * [limit] must be positive and [offset] not negative.
+ */
 context(_: ReadScope)
-public suspend fun pendingChanges(): List<PendingChange> = context(connection()) { Queries.pendingChanges.execute() }
+public suspend fun pendingChanges(limit: Int = Int.MAX_VALUE, offset: Int = 0): List<PendingChange> {
+    require(limit > 0) { "Limit must be positive: $limit" }
+    require(offset >= 0) { "Offset must not be negative: $offset" }
+    return context(connection()) { Queries.pendingChanges.execute(limit to offset) }
+}
+
+/**
+ * [pendingChanges] with [limit] and [offset], now and after every committed write that changed a tracked collection
+ * or removed pending changes. Writes that land while a read runs are folded into the next one, and a read that finds
+ * what the previous one found emits nothing.
+ */
+context(db: NoSqlite)
+public fun observePendingChanges(limit: Int = Int.MAX_VALUE, offset: Int = 0): Flow<List<PendingChange>> =
+    db.observe(db.tables.tracked + PENDING_CHANGES_REMOVED) { pendingChanges(limit, offset) }
 
 /** Deletes exactly these rows. A change written after they were read stays. */
 context(_: WriteScope)
 public suspend fun removePendingChanges(changes: List<PendingChange>) {
     if (changes.isEmpty()) return
     context(connection()) { Queries.deletePendingChanges.execute(changes.map { it.id }) }
+    changed(PENDING_CHANGES_REMOVED)
 }

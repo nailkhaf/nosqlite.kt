@@ -21,7 +21,7 @@ public inline fun <reified T> Collection.observe(noinline query: QueryScope.() -
 context(db: NoSqlite)
 public fun <T> Collection.observe(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): Flow<List<T>> {
     val query = query(query)
-    return db.observe(this) { list(serializer, query) }
+    return db.observe(listOf(name)) { list(serializer, query) }
 }
 
 /** The documents found, now and after every committed write that changed the collection. */
@@ -32,7 +32,7 @@ public inline fun <reified T> Lookup.observe(noinline query: QueryScope.() -> Un
 /** As the reified overload, with an explicit [serializer]. */
 context(db: NoSqlite)
 public fun <T> Lookup.observe(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): Flow<List<T>> =
-    db.observe(index.collection) { list(serializer, query) }
+    db.observe(listOf(index.collection.name)) { list(serializer, query) }
 
 /** The document with this id, `null` while there is none, now and after every committed write to the collection. */
 context(db: NoSqlite)
@@ -41,11 +41,12 @@ public inline fun <reified T> Id.observe(): Flow<T?> = observe(serializer<T>())
 /** As the reified overload, with an explicit [serializer]. */
 context(db: NoSqlite)
 public fun <T> Id.observe(serializer: KSerializer<T>): Flow<T?> =
-    db.observe(collection) { get(serializer) }
+    db.observe(listOf(collection.name)) { get(serializer) }
 
-private fun <R> NoSqlite.observe(collection: Collection, read: suspend context(ReadScope) () -> R): Flow<R> = flow {
+// Reads now, and again when the version of any of [names] moves.
+internal fun <R> NoSqlite.observe(names: List<String>, read: suspend context(ReadScope) () -> R): Flow<R> = flow {
     emitAll(
-        versions.map { it[collection.name] }
+        versions.map { versions -> names.map { versions[it] } }
             .distinctUntilChanged()
             .map { read(read) },
     )
