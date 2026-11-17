@@ -653,3 +653,5 @@ private class SqlLog(private val log: MutableList<String>) : SQLiteDriver {
         }
     }
 }
+
+private object Fresh : Collection("fresh")
