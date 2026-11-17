@@ -47,7 +47,9 @@ public suspend fun pendingChanges(limit: Int = Int.MAX_VALUE, offset: Int = 0): 
  */
 context(db: NoSqlite)
 public fun observePendingChanges(limit: Int = Int.MAX_VALUE, offset: Int = 0): Flow<List<PendingChange>> =
-    db.observe(db.tracked + PENDING_CHANGES) { pendingChanges(limit, offset) }
+    db.observe(db.tables.declared.filter { it.tracked }.map { it.name } + PENDING_CHANGES) {
+        pendingChanges(limit, offset)
+    }
 
 /** Deletes exactly these rows. A change written after they were read stays. */
 context(_: WriteScope)
