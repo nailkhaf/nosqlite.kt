@@ -20,6 +20,9 @@ public data class PendingChange(
     public val timestamp: Instant,
 )
 
+/** The version key [removePendingChanges] bumps. A collection name can't contain spaces, so none can match it. */
+internal const val PENDING_CHANGES_REMOVED: String = "pending changes removed"
+
 /** The document's `id`, taken from [PendingChange.after], or from [PendingChange.before] when that is null. */
 public val PendingChange.documentId: Uuid
     get() {
@@ -47,7 +50,7 @@ public suspend fun pendingChanges(limit: Int = Int.MAX_VALUE, offset: Int = 0): 
  */
 context(db: NoSqlite)
 public fun observePendingChanges(limit: Int = Int.MAX_VALUE, offset: Int = 0): Flow<List<PendingChange>> =
-    db.observe(db.tables.declared.filter { it.tracked }.map { it.name } + PENDING_CHANGES) {
+    db.observe(db.tables.declared.filter { it.tracked }.map { it.name } + PENDING_CHANGES_REMOVED) {
         pendingChanges(limit, offset)
     }
 
@@ -56,5 +59,5 @@ context(_: WriteScope)
 public suspend fun removePendingChanges(changes: List<PendingChange>) {
     if (changes.isEmpty()) return
     context(connection()) { Queries.deletePendingChanges.execute(changes.map { it.id }) }
-    changed(PENDING_CHANGES)
+    changed(PENDING_CHANGES_REMOVED)
 }
