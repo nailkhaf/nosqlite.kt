@@ -558,20 +558,6 @@ internal class TrackingTest {
             reopened.close()
         }
     }
-}
-
-private class SqlLog(private val log: MutableList<String>) : SQLiteDriver {
-    private val bundled = BundledSQLiteDriver()
-
-    override fun open(fileName: String): SQLiteConnection {
-        val sqlite = bundled.open(fileName)
-        return object : SQLiteConnection by sqlite {
-            override fun prepare(sql: String): SQLiteStatement {
-                log += sql
-                return sqlite.prepare(sql)
-            }
-        }
-    }
 
     private fun TestScope.observedDatabase() = NoSqlite(dispatcher = UnconfinedTestDispatcher(testScheduler)) {
         +Contacts
@@ -651,5 +637,19 @@ private class SqlLog(private val log: MutableList<String>) : SQLiteDriver {
 
         assertEquals(listOf(emptyList(), listOf(inserted(alan))), queues)
         assertFailsWith<IllegalArgumentException> { with(db) { observePendingChanges(limit = 0).first() } }
+    }
+}
+
+private class SqlLog(private val log: MutableList<String>) : SQLiteDriver {
+    private val bundled = BundledSQLiteDriver()
+
+    override fun open(fileName: String): SQLiteConnection {
+        val sqlite = bundled.open(fileName)
+        return object : SQLiteConnection by sqlite {
+            override fun prepare(sql: String): SQLiteStatement {
+                log += sql
+                return sqlite.prepare(sql)
+            }
+        }
     }
 }
