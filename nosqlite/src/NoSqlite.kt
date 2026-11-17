@@ -96,6 +96,9 @@ public class SchemaBuilder internal constructor() {
 
 /** Collection names this database knows: those declared up front, plus any a committed write created by name. */
 internal class Schema(internal val declared: List<Collection> = emptyList()) {
+    /** The declared collections that record their changes. */
+    internal val tracked: List<String> = declared.filter { it.tracked }.map { it.name }
+
     private val names = atomic(declared.map { it.name }.toSet())
 
     /** True when [name] was declared, or a committed write already created its table by name. */
