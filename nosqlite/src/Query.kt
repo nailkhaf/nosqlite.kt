@@ -61,7 +61,8 @@ public class QueryScope internal constructor() {
 /** Collects sort keys: `"age".desc` sorts by age, largest first. */
 @QueryDsl
 public class OrderScope internal constructor() {
-    internal val keys: MutableList<Order> = mutableListOf()
+    internal val keys: List<Order>
+        field = mutableListOf()
 
     /** Smallest first; null and missing values come first. */
     public val String.asc: Unit get() = add(Order(Path(this), descending = false))

@@ -13,12 +13,7 @@ internal const val ID: String = "id"
 internal val ID_VALUE: String = Path(ID).sql
 
 /** Lowercase canonical UUID text, the form [kotlin.uuid.Uuid.toString] returns, as a SQLite `GLOB`. */
-internal val CANONICAL_UUID_GLOB: String =
-    "[0-9a-f]".repeat(8) + "-" +
-        "[0-9a-f]".repeat(4) + "-" +
-        "[0-9a-f]".repeat(4) + "-" +
-        "[0-9a-f]".repeat(4) + "-" +
-        "[0-9a-f]".repeat(12)
+internal val CANONICAL_UUID_GLOB: String = listOf(8, 4, 4, 4, 12).joinToString("-") { "[0-9a-f]".repeat(it) }
 
 internal const val PENDING_CHANGES: String = "${PREFIX}_pending_changes"
 
@@ -47,7 +42,7 @@ internal object Queries {
         sql = """
             SELECT tbl_name, name
             FROM sqlite_schema
-            WHERE type = 'index' AND name GLOB '${INDEX_PREFIX}*'
+            WHERE type = 'index' AND name GLOB '$INDEX_PREFIX*'
         """.trimIndent(),
         encode = {},
         decode = {
@@ -236,7 +231,7 @@ internal object Queries {
 internal fun identifier(name: String): String = "\"${name.replace("\"", "\"\"")}\""
 
 private fun where(condition: Where?): Fragment =
-    condition?.let { Fragment(" WHERE ") + it.render() } ?: Fragment.Empty
+    condition?.let { Fragment(" WHERE ") + it.render() } ?: Fragment.EMPTY
 
 // A row per document a write touched, counted as they come: androidx.sqlite has no changes().
 private const val RETURNING = " RETURNING 1;"

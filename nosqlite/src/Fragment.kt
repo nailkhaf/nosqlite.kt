@@ -22,7 +22,7 @@ internal val SqlValue.literal: String
 // SQL and its bound parameters travel together, so they can't drift apart.
 internal data class Fragment(val sql: String, val params: List<SqlValue> = emptyList()) {
     companion object {
-        val Empty = Fragment("")
+        val EMPTY = Fragment("")
     }
 }
 
@@ -36,8 +36,8 @@ internal fun List<Fragment>.joinToFragment(separator: String, prefix: String = "
 internal fun <O> Fragment.statement(decode: SQLiteStatement.() -> O): Statement<Unit, O> =
     Statement(sql, encode = { bind(params) }, decode = decode)
 
-internal fun SQLiteStatement.bind(params: List<SqlValue>, startIndex: Int = 1) =
-    params.forEachIndexed { offset, param ->
+internal fun SQLiteStatement.bind(params: List<SqlValue>, startIndex: Int = 1) {
+    for ((offset, param) in params.withIndex()) {
         val index = startIndex + offset
         when (param) {
             is SqlValue.Text -> bindText(index, param.value)
@@ -46,3 +46,4 @@ internal fun SQLiteStatement.bind(params: List<SqlValue>, startIndex: Int = 1) =
             SqlValue.Null -> bindNull(index)
         }
     }
+}

@@ -3,7 +3,7 @@ package io.github.nailkhaf.nosqlite
 import androidx.sqlite.SQLiteConnection
 
 /** The oldest SQLite with `jsonb()` and `jsonb_patch()`. */
-internal const val MinSqliteVersion: String = "3.45.0"
+internal const val MIN_SQLITE_VERSION: String = "3.45.0"
 
 internal fun SQLiteConnection.version(): String =
     prepare("SELECT sqlite_version()").use { statement ->
@@ -12,7 +12,7 @@ internal fun SQLiteConnection.version(): String =
     }
 
 internal fun requireSupported(version: String) {
-    if (compareVersions(version, MinSqliteVersion) < 0) throw NoSqliteException.UnsupportedSqlite(version)
+    if (compareVersions(version, MIN_SQLITE_VERSION) < 0) throw NoSqliteException.UnsupportedSqlite(version)
 }
 
 private fun compareVersions(a: String, b: String): Int {

@@ -97,7 +97,7 @@ internal class StorageTest {
     fun `list pages with limit and offset`() = runTest {
         val db = NoSqlite { +Users }
         val people = (1..5).map { buildJsonObject { put("id", uuid("p$it").toString()); put("age", it) } }
-        db.write { people.forEach { Users.insert(it) } }
+        db.write { for (person in people) Users.insert(person) }
 
         db.read {
             assertEquals(people.subList(0, 2), Users.list<JsonObject> { orderBy { "age".asc }; limit(2) })
@@ -332,7 +332,7 @@ internal class StorageTest {
     @Test
     fun `a batch of by-name upserts creates the table once`() = runTest {
         var creates = 0
-        val driver = SteppingDriver(notesTableSql) { creates += 1 }
+        val driver = SteppingDriver(NOTES_TABLE_SQL) { creates += 1 }
         val db = NoSqlite(driver = driver) { }
         val first = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
         val second = buildJsonObject { put("id", uuid("note-2").toString()); put("text", "yo") }
@@ -486,7 +486,7 @@ internal class StorageTest {
 
     @Test
     fun `a failed create is tried again in the same untracked write`() = runTest {
-        val driver = FailingDriver(notesTableSql, times = 1)
+        val driver = FailingDriver(NOTES_TABLE_SQL, times = 1)
         val db = NoSqlite(driver = driver) { }
         val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
 
@@ -617,7 +617,7 @@ internal class StorageTest {
 
 private fun idIndexName(collection: Collection): String = Queries.idIndexName(collection.name)
 
-private val notesTableSql = """
+private val NOTES_TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS "nsq_notes" (
         data BLOB NOT NULL,
         CONSTRAINT document_id CHECK (json_type(data, '$.id') IS 'text' AND ($ID_VALUE) GLOB '$CANONICAL_UUID_GLOB')

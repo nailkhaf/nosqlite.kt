@@ -42,6 +42,7 @@ public abstract class Collection(public val name: String, public val tracked: Bo
     protected fun index(vararg fields: Field<*, *>, where: (WhereScope.() -> Where)? = null): Index =
         index(*fields.map { it.path }.toTypedArray(), where = where)
 
+    /** An index on [properties], named by their property names. */
     protected fun index(vararg properties: KProperty1<*, *>, where: (WhereScope.() -> Where)? = null): Index =
         index(*properties.map { it.field }.toTypedArray(), where = where)
 
@@ -62,37 +63,6 @@ internal fun requireCollectionName(name: String) {
     require(tableName(name) != PENDING_CHANGES && tableName(name) != TRACKING_STATE) {
         "Collection name is reserved: '$name'"
     }
-}
-
-/**
- * [Collection.upsert] by the collection's name, for code that has only the name, such as a replicator. A name the
- * schema doesn't have yet gets its table. [document] must have a UUID `id`. Any valid name is written to, so check
- * [collection] against the names you expect when it comes from a source you don't trust, such as a remote peer.
- */
-context(_: WriteScope)
-public suspend fun upsert(collection: String, document: JsonObject, merge: Boolean = true) {
-    requireCollectionName(collection)
-    ensureTable(collection)
-    val json = NoSqlite.Json.encodeToString(serializer<JsonObject>(), document)
-    withWriteConnection(collection) { Queries.upsert(collection, merge).execute(json) }
-    changed(collection)
-}
-
-/**
- * [Id.delete] addressed by the collection's name: deletes the document [id] from [collection].
- * A collection without a table is left untouched. The result is whether a document was deleted.
- */
-context(_: WriteScope)
-public suspend fun delete(collection: String, id: Uuid): Boolean {
-    requireCollectionName(collection)
-    // The table may exist without the schema knowing it, created by name before the database reopened.
-    val deleted = try {
-        withWriteConnection(collection) { Queries.delete(collection, idCondition(id)).execute() }
-    } catch (_: NoSqliteException.CollectionNotDeclared) {
-        return false
-    }
-    if (deleted > 0) changed(collection)
-    return deleted > 0
 }
 
 /** Inserts [value] as a new document; it must encode to a JSON object. */
@@ -152,12 +122,59 @@ public suspend fun <T> Collection.update(
     return updated
 }
 
+/**
+ * Inserts [value], or changes the document with its id: with [merge] it applies [value] as a JSON merge patch, as
+ * `update` does, and without it stores [value] as the whole document. [value] must carry an id.
+ */
+context(_: WriteScope)
+public suspend inline fun <reified T> Collection.upsert(value: T, merge: Boolean = true): Unit =
+    upsert(serializer(), value, merge)
+
+/** As the reified overload, with an explicit [serializer]. */
+context(_: WriteScope)
+public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T, merge: Boolean = true) {
+    val json = encode(serializer, value)
+    withWriteConnection { Queries.upsert(name, merge).execute(json) }
+    changed()
+}
+
+/**
+ * [Collection.upsert] by the collection's name, for code that has only the name, such as a replicator. A name the
+ * schema doesn't have yet gets its table. [document] must have a UUID `id`. Any valid name is written to, so check
+ * [collection] against the names you expect when it comes from a source you don't trust, such as a remote peer.
+ */
+context(_: WriteScope)
+public suspend fun upsert(collection: String, document: JsonObject, merge: Boolean = true) {
+    requireCollectionName(collection)
+    ensureTable(collection)
+    val json = NoSqlite.Json.encodeToString(serializer<JsonObject>(), document)
+    withWriteConnection(collection) { Queries.upsert(collection, merge).execute(json) }
+    changed(collection)
+}
+
 /** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
 public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
     val deleted = withWriteConnection { Queries.delete(name, where(condition)).execute() }
     if (deleted > 0) changed()
     return deleted
+}
+
+/**
+ * [Id.delete] addressed by the collection's name: deletes the document [id] from [collection].
+ * A collection without a table is left untouched. The result is whether a document was deleted.
+ */
+context(_: WriteScope)
+public suspend fun delete(collection: String, id: Uuid): Boolean {
+    requireCollectionName(collection)
+    // The table may exist without the schema knowing it, created by name before the database reopened.
+    val deleted = try {
+        withWriteConnection(collection) { Queries.delete(collection, idCondition(id)).execute() }
+    } catch (_: NoSqliteException.CollectionNotDeclared) {
+        return false
+    }
+    if (deleted > 0) changed(collection)
+    return deleted > 0
 }
 
 // Collection names are SQL identifiers, so they are part of the SQL text, quoted; everything else is bound.
@@ -203,7 +220,7 @@ context(scope: WriteScope)
 internal suspend fun ensureTable(name: String) {
     if (name in scope.pool.schema || name in scope.created) return
     context(connection()) {
-        Queries.createTable(name).forEach { it.execute() }
+        for (command in Queries.createTable(name)) command.execute()
     }
     scope.created += name
 }
@@ -211,7 +228,7 @@ internal suspend fun ensureTable(name: String) {
 private val ErrorCode = Regex("^Error code: (\\d+)")
 
 // SQLITE_BUSY and SQLITE_LOCKED, with their extended codes, which keep the primary code in the low byte.
-private val BusyCodes = setOf(5, 6)
+private val BUSY_CODES = setOf(5, 6)
 
 /**
  * Runs [block], making SQLite's errors typed: a locked database for any statement, and for one about [collection]
@@ -225,7 +242,7 @@ internal inline fun <R> mapErrors(collection: String? = null, block: () -> R): R
     val message = e.message.orEmpty()
     val code = ErrorCode.find(message)?.groupValues?.get(1)?.toInt()
     when {
-        code != null && (code and 0xFF) in BusyCodes -> throw NoSqliteException.Busy(e)
+        code != null && (code and 0xFF) in BUSY_CODES -> throw NoSqliteException.Busy(e)
 
         collection == null -> throw e
 

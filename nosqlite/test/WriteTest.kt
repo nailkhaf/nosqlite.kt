@@ -26,7 +26,7 @@ internal class WriteTest {
 
     private suspend fun seeded(): NoSqlite {
         val db = NoSqlite { +Users }
-        db.write { listOf(ann, bob, cid).forEach { Users.insert(it) } }
+        db.write { for (user in listOf(ann, bob, cid)) Users.insert(user) }
         return db
     }
 

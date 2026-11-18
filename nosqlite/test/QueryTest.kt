@@ -28,7 +28,7 @@ internal class QueryTest {
     private val linus = User(uuid("linus"), Name("Linus", "Torvalds"))
 
     private suspend fun database(): NoSqlite = NoSqlite { +Users }.also { db ->
-        db.write { listOf(ada, alan, grace, linus).forEach { Users.insert(it) } }
+        db.write { for (user in listOf(ada, alan, grace, linus)) Users.insert(user) }
     }
 
     @Test

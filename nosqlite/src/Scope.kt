@@ -15,8 +15,10 @@ public open class ReadScope internal constructor(internal val connection: Connec
  * Inside `write { }`: documents can also be inserted, updated and deleted.
  * A nested write is a savepoint that rolls back alone.
  */
-public class WriteScope internal constructor(connection: Connection, pool: ConnectionPool) :
-    ReadScope(connection, pool) {
+public class WriteScope internal constructor(
+    connection: Connection,
+    pool: ConnectionPool,
+) : ReadScope(connection, pool) {
     // The collections this transaction changed: a savepoint hands its own to the enclosing write when it releases.
     internal val changed: MutableSet<String> = mutableSetOf()
 
@@ -77,7 +79,7 @@ internal suspend fun <R> ConnectionPool.write(
             }
         }.also {
             onCommit(scope.changed.toSet())
-            scope.created.forEach { schema.register(it) }
+            for (name in scope.created) schema.register(name)
         }
     }
 }
@@ -109,7 +111,7 @@ internal suspend fun <R> Connection.transaction(boundary: Boundary, block: suspe
     } catch (e: Throwable) {
         withContext(NonCancellable) {
             try {
-                boundary.rollback.forEach { execute(it) }
+                for (sql in boundary.rollback) execute(sql)
             } catch (suppressed: Throwable) {
                 e.addSuppressed(suppressed)
             }

@@ -47,7 +47,7 @@ internal class LookupTest {
     private val byron = User(uuid("byron"), "byron@x.com", Name("Lovelace", "Byron"), 36)
 
     private suspend fun database(): NoSqlite = NoSqlite { +Users }.also { db ->
-        db.write { listOf(ada, alan, grace, byron).forEach { Users.insert(it) } }
+        db.write { for (user in listOf(ada, alan, grace, byron)) Users.insert(user) }
     }
 
     @Test

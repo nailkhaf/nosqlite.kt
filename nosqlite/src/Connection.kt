@@ -59,6 +59,16 @@ internal class Connection(private val sqlite: SQLiteConnection) {
     }
 
     companion object {
+        private val PRAGMAS = listOf(
+            "PRAGMA journal_mode = WAL;",
+            "PRAGMA foreign_keys = ON;",
+            "PRAGMA synchronous = NORMAL;",
+            "PRAGMA temp_store = MEMORY;",
+            "PRAGMA busy_timeout = 5000;",
+            "PRAGMA cache_size = -4000;",
+            "PRAGMA journal_size_limit = 4194304;",
+        )
+
         /** Opens [location]; a [queryOnly] connection refuses to write. Opening a file blocks the thread. */
         fun open(driver: SQLiteDriver, location: Location, queryOnly: Boolean = false): Connection {
             val sqlite = driver.open(
@@ -69,7 +79,7 @@ internal class Connection(private val sqlite: SQLiteConnection) {
             )
             try {
                 requireSupported(sqlite.version())
-                for (pragma in Pragmas) sqlite.execSQL(pragma)
+                for (pragma in PRAGMAS) sqlite.execSQL(pragma)
                 if (queryOnly) sqlite.execSQL("PRAGMA query_only = ON;")
             } catch (e: Throwable) {
                 sqlite.close()
@@ -77,15 +87,5 @@ internal class Connection(private val sqlite: SQLiteConnection) {
             }
             return Connection(sqlite)
         }
-
-        private val Pragmas = listOf(
-            "PRAGMA journal_mode = WAL;",
-            "PRAGMA foreign_keys = ON;",
-            "PRAGMA synchronous = NORMAL;",
-            "PRAGMA temp_store = MEMORY;",
-            "PRAGMA busy_timeout = 5000;",
-            "PRAGMA cache_size = -4000;",
-            "PRAGMA journal_size_limit = 4194304;",
-        )
     }
 }

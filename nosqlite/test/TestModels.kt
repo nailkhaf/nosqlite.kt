@@ -40,13 +40,10 @@ internal data class User(
  */
 internal fun uuid(label: String): Uuid {
     val text = LABEL_IDS[label]?.let { n ->
-        "00000000-0000-4000-8000-" + n.toString(16).padStart(12, '0')
+        "00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}"
     } ?: run {
         val hex = fnv1a64(label) + fnv1a64(".$label")
-        hex.substring(0, 8) + "-" +
-            hex.substring(8, 12) + "-" +
-            "4" + hex.substring(13, 16) + "-" +
-            "8" + hex.substring(17, 20) + "-" +
+        "${hex.substring(0, 8)}-${hex.substring(8, 12)}-4${hex.substring(13, 16)}-8${hex.substring(17, 20)}-" +
             hex.substring(20, 32)
     }
     return Uuid.parse(text)
