@@ -43,9 +43,6 @@ public class NoSqlite(
     /** How many committed writes changed each collection; one no write changed yet is missing. */
     internal val versions = MutableStateFlow(emptyMap<String, Long>())
 
-    /** A database file at [path], with the default driver and dispatcher. */
-    public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
-
     internal suspend fun pool(): ConnectionPool = ready.get()
 
     internal fun committed(changed: Set<String>) {
@@ -77,6 +74,10 @@ public class NoSqlite(
         }
     }
 }
+
+/** A database file at [path], with the default driver and dispatcher. */
+public fun NoSqlite(path: String, schema: SchemaBuilder.() -> Unit): NoSqlite =
+    NoSqlite(Location.File(path), schema = schema)
 
 /** Marks [SchemaBuilder], so its functions stay out of nested blocks. */
 @DslMarker

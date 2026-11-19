@@ -57,12 +57,12 @@ internal val Number.sqlValue: SqlValue
 
 /** The documents found that [query] selects, as [T]; its condition, if any, must hold as well. */
 context(_: ReadScope)
-public suspend inline fun <reified T> Lookup.list(noinline query: QueryScope.() -> Unit = {}): List<T> =
+public suspend inline fun <reified T> Lookup.list(noinline query: QueryBlock = {}): List<T> =
     list(serializer(), query)
 
 /** As the reified overload, with an explicit [serializer]. */
 context(_: ReadScope)
-public suspend fun <T> Lookup.list(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): List<T> =
+public suspend fun <T> Lookup.list(serializer: KSerializer<T>, query: QueryBlock = {}): List<T> =
     index.collection.list(serializer, withCondition(query(query)))
 
 /** [query] restricted to the documents found. */
@@ -71,7 +71,7 @@ internal fun Lookup.withCondition(query: Query): Query =
 
 /** How many documents are found; with [condition], how many of them match it as well. */
 context(_: ReadScope)
-public suspend fun Lookup.count(condition: (WhereScope.() -> Where)? = null): Long {
+public suspend fun Lookup.count(condition: Condition? = null): Long {
     val found = this.condition
     val extra = condition?.let(::where) ?: return index.collection.count { found }
     return index.collection.count { Where.And(found, extra) }
@@ -83,7 +83,7 @@ public suspend fun Lookup.count(condition: (WhereScope.() -> Where)? = null): Lo
  */
 context(_: ReadScope)
 public suspend inline fun <reified T> Lookup.forEach(
-    noinline query: QueryScope.() -> Unit = {},
+    noinline query: QueryBlock = {},
     noinline action: suspend (T) -> Unit,
 ): Unit = forEach(serializer(), query, action)
 
@@ -91,7 +91,7 @@ public suspend inline fun <reified T> Lookup.forEach(
 context(_: ReadScope)
 public suspend fun <T> Lookup.forEach(
     serializer: KSerializer<T>,
-    query: QueryScope.() -> Unit = {},
+    query: QueryBlock = {},
     action: suspend (T) -> Unit,
 ): Unit = index.collection.forEach(serializer, withCondition(query(query)), action)
 

@@ -35,15 +35,15 @@ public abstract class Collection(public val name: String, public val tracked: Bo
         field = mutableListOf()
 
     /** An index on [fields], in order; with [where] only matching documents are indexed. */
-    protected fun index(vararg fields: String, where: (WhereScope.() -> Where)? = null): Index =
+    protected fun index(vararg fields: String, where: Condition? = null): Index =
         register(Index(this, fields.map(::Path), where?.let(::where)))
 
     /** An index on property [fields], named by their property names. */
-    protected fun index(vararg fields: Field<*, *>, where: (WhereScope.() -> Where)? = null): Index =
+    protected fun index(vararg fields: Field<*, *>, where: Condition? = null): Index =
         index(*fields.map { it.path }.toTypedArray(), where = where)
 
     /** An index on [properties], named by their property names. */
-    protected fun index(vararg properties: KProperty1<*, *>, where: (WhereScope.() -> Where)? = null): Index =
+    protected fun index(vararg properties: KProperty1<*, *>, where: Condition? = null): Index =
         index(*properties.map { it.field }.toTypedArray(), where = where)
 
     private fun <I : Index> register(index: I): I {
@@ -79,12 +79,12 @@ public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
 
 /** The documents [query] selects, as [T]; without one, every document in an unspecified order. */
 context(_: ReadScope)
-public suspend inline fun <reified T> Collection.list(noinline query: QueryScope.() -> Unit = {}): List<T> =
+public suspend inline fun <reified T> Collection.list(noinline query: QueryBlock = {}): List<T> =
     list(serializer(), query)
 
 /** As the reified overload, with an explicit [serializer]. */
 context(_: ReadScope)
-public suspend fun <T> Collection.list(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): List<T> =
+public suspend fun <T> Collection.list(serializer: KSerializer<T>, query: QueryBlock = {}): List<T> =
     list(serializer, query(query))
 
 context(_: ReadScope)
@@ -93,7 +93,7 @@ internal suspend fun <T> Collection.list(serializer: KSerializer<T>, query: Quer
 
 /** How many documents match [condition], or all of them without one. */
 context(_: ReadScope)
-public suspend fun Collection.count(condition: (WhereScope.() -> Where)? = null): Long =
+public suspend fun Collection.count(condition: Condition? = null): Long =
     withConnection { Queries.count(name, condition?.let(::where)).execute() }
 
 /**
@@ -105,7 +105,7 @@ context(_: WriteScope)
 public suspend inline fun <reified T> Collection.update(
     value: T,
     merge: Boolean = true,
-    noinline condition: WhereScope.() -> Where,
+    noinline condition: Condition,
 ): Int = update(serializer(), value, merge, condition)
 
 /** As the reified overload, with an explicit [serializer]. */
@@ -114,7 +114,7 @@ public suspend fun <T> Collection.update(
     serializer: KSerializer<T>,
     value: T,
     merge: Boolean = true,
-    condition: WhereScope.() -> Where,
+    condition: Condition,
 ): Int {
     val json = encode(serializer, value)
     val updated = withWriteConnection { Queries.update(name, json, merge, where(condition)).execute() }
@@ -154,7 +154,7 @@ public suspend fun upsert(collection: String, document: JsonObject, merge: Boole
 
 /** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
-public suspend fun Collection.delete(condition: WhereScope.() -> Where): Int {
+public suspend fun Collection.delete(condition: Condition): Int {
     val deleted = withWriteConnection { Queries.delete(name, where(condition)).execute() }
     if (deleted > 0) changed()
     return deleted
