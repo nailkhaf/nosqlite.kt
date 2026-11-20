@@ -19,6 +19,9 @@ public sealed class Where {
     override fun toString(): String = render(inline = true).sql
 }
 
+/** A filter built in [WhereScope]: `{ "age" gte 18 }`. */
+public typealias Condition = WhereScope.() -> Where
+
 /** Marks the query builders, so an outer builder's functions don't leak into an inner block. */
 @DslMarker
 public annotation class QueryDsl
@@ -164,7 +167,7 @@ internal enum class Comparison(val sql: String) {
     Eq("="), Neq("!="), Gt(">"), Gte(">="), Lt("<"), Lte("<="), Like("LIKE"),
 }
 
-internal fun where(block: WhereScope.() -> Where): Where = WhereScope().block()
+internal fun where(block: Condition): Where = WhereScope().block()
 
 /** A finite [Double] as a SQL real; `NaN` and infinities are rejected. */
 internal val Double.sqlReal: SqlValue

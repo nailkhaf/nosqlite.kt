@@ -32,7 +32,7 @@ internal class StreamingTest {
     private suspend fun database(): NoSqlite = NoSqlite {
         +Users
         +Log
-    }.also { db -> db.write { users.forEach { Users.insert(it) } } }
+    }.also { db -> db.write { for (user in users) Users.insert(user) } }
 
     private val orders = listOf<QueryScope.() -> Unit>(
         { },

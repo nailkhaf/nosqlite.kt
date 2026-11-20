@@ -28,9 +28,6 @@ public class NoSqlite(
     dispatcher: CoroutineDispatcher = Dispatchers.IO,
     schema: SchemaBuilder.() -> Unit,
 ) {
-    /** A database file at [path], with the default driver and dispatcher. */
-    public constructor(path: String, schema: SchemaBuilder.() -> Unit) : this(Location.File(path), schema = schema)
-
     internal val tables = Schema(SchemaBuilder().apply(schema).collections)
 
     private val connections = ConnectionPool(location, driver, dispatcher, tables) { connection ->
@@ -78,6 +75,10 @@ public class NoSqlite(
     }
 }
 
+/** A database file at [path], with the default driver and dispatcher. */
+public fun NoSqlite(path: String, schema: SchemaBuilder.() -> Unit): NoSqlite =
+    NoSqlite(Location.File(path), schema = schema)
+
 /** Marks [SchemaBuilder], so its functions stay out of nested blocks. */
 @DslMarker
 public annotation class SchemaDsl
@@ -85,7 +86,8 @@ public annotation class SchemaDsl
 /** Lists the collections a [NoSqlite] serves: `NoSqlite { +Users }`. */
 @SchemaDsl
 public class SchemaBuilder internal constructor() {
-    internal val collections = mutableListOf<Collection>()
+    internal val collections: List<Collection>
+        field = mutableListOf()
 
     /** Declares this collection; each name can be declared once. */
     public operator fun Collection.unaryPlus() {
@@ -134,7 +136,7 @@ internal suspend fun createSchema(tables: Schema) {
     Queries.createTrackingState.execute()
     Queries.seedTrackingState.execute()
     val indexes = Queries.managedIndexes.execute()
-    tables.declared.forEach { createSchema(it, indexes) }
+    for (collection in tables.declared) createSchema(collection, indexes)
 }
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
@@ -145,11 +147,13 @@ internal suspend fun createSchema(
     collection: Collection,
     indexes: Map<String, List<String>>,
 ) {
-    Queries.createTable(collection.name).forEach { it.execute() }
+    for (command in Queries.createTable(collection.name)) command.execute()
     val current = indexes[tableName(collection.name)].orEmpty()
     val wanted = collection.indexes.associateBy { it.name }
     val idIndex = Queries.idIndexName(collection.name)
     current.filter { it != idIndex && it !in wanted }.forEach { Queries.dropIndex(it).execute() }
     wanted.filterKeys { it !in current }.values.forEach { Queries.createIndex(it).execute() }
-    if (collection.tracked) Queries.trackingTriggers(collection.name).forEach { it.execute() }
+    if (collection.tracked) {
+        for (trigger in Queries.trackingTriggers(collection.name)) trigger.execute()
+    }
 }

@@ -5,31 +5,47 @@ import kotlinx.serialization.serializer
 import kotlin.uuid.Uuid
 
 /**
- * Documents of an index with the given values for its fields, made by calling the index: any number of documents,
- * with values for leading fields alone matching their prefix. One document is addressed by its id, [Id], rather than
- * by an index.
+ * Documents addressed in one collection: by an index's values, [Many], or by id, [Id].
  * ```
  * Users.id(ada).get<User>()
  * Users.byAge(36).list<User> { orderBy { "name.last".asc } }
  * Users.byName("Lovelace").count()
  * ```
  */
-public class Lookup internal constructor(internal val index: Index, internal val values: List<SqlValue>) {
-    // A partial index's own condition is part of every lookup, so only the documents it indexes match.
-    internal val condition: Where = index.paths.zip(values) { path, value ->
-        if (value == SqlValue.Null) Where.IsNull(path) else Where.Compare(path, Comparison.Eq, value)
-    }.plus(listOfNotNull(index.where)).reduce { left, right -> Where.And(left, right) }
+public sealed class Lookup(internal val collection: Collection) {
+    internal abstract val condition: Where
 
-    override fun toString(): String = "$index = ${values.map { it.literal }}"
+    /**
+     * Documents of an index with the given values for its fields, made by calling the index: any number of
+     * documents, with values for leading fields alone matching their prefix.
+     */
+    public class Many internal constructor(
+        internal val index: Index,
+        internal val values: List<SqlValue>,
+    ) : Lookup(index.collection) {
+        // A partial index's own condition is part of every lookup, so only the documents it indexes match.
+        override val condition: Where = index.paths.zip(values) { path, value ->
+            if (value == SqlValue.Null) Where.IsNull(path) else Where.Compare(path, Comparison.Eq, value)
+        }.plus(listOfNotNull(index.where)).reduce { left, right -> Where.And(left, right) }
+
+        override fun toString(): String = "$index = ${values.map { it.literal }}"
+    }
+
+    /** The document whose id is [value]; there is at most one. Its `id` field stores [Uuid.toString]. */
+    public class Id internal constructor(collection: Collection, public val value: Uuid) : Lookup(collection) {
+        override val condition: Where = idCondition(value)
+
+        override fun toString(): String = "${collection.name} id $value"
+    }
 }
 
 /**
  * Looks up [values] of this index's fields, in order; leading fields alone match their prefix. A `null` value matches
  * a null or missing field.
  */
-public operator fun Index.invoke(vararg values: Any?): Lookup {
+public operator fun Index.invoke(vararg values: Any?): Lookup.Many {
     require(values.size in 1..paths.size) { "$this takes 1 to ${paths.size} values, not ${values.size}" }
-    return Lookup(this, values.map(::sqlValue))
+    return Lookup.Many(this, values.map(::sqlValue))
 }
 
 internal fun sqlValue(value: Any?): SqlValue = when (value) {
@@ -58,24 +74,24 @@ internal val Number.sqlValue: SqlValue
 
 /** The documents found that [query] selects, as [T]; its condition, if any, must hold as well. */
 context(_: ReadScope)
-public suspend inline fun <reified T> Lookup.list(noinline query: QueryScope.() -> Unit = {}): List<T> =
+public suspend inline fun <reified T> Lookup.Many.list(noinline query: QueryBlock = {}): List<T> =
     list(serializer(), query)
 
 /** As the reified overload, with an explicit [serializer]. */
 context(_: ReadScope)
-public suspend fun <T> Lookup.list(serializer: KSerializer<T>, query: QueryScope.() -> Unit = {}): List<T> =
-    index.collection.list(serializer, withCondition(query(query)))
+public suspend fun <T> Lookup.Many.list(serializer: KSerializer<T>, query: QueryBlock = {}): List<T> =
+    collection.list(serializer, withCondition(query(query)))
 
 /** [query] restricted to the documents found. */
-internal fun Lookup.withCondition(query: Query): Query =
+internal fun Lookup.Many.withCondition(query: Query): Query =
     query.copy(condition = query.condition?.let { Where.And(condition, it) } ?: condition)
 
 /** How many documents are found; with [condition], how many of them match it as well. */
 context(_: ReadScope)
-public suspend fun Lookup.count(condition: (WhereScope.() -> Where)? = null): Long {
+public suspend fun Lookup.Many.count(condition: Condition? = null): Long {
     val found = this.condition
-    val extra = condition?.let(::where) ?: return index.collection.count { found }
-    return index.collection.count { Where.And(found, extra) }
+    val extra = condition?.let(::where) ?: return collection.count { found }
+    return collection.count { Where.And(found, extra) }
 }
 
 /**
@@ -83,61 +99,46 @@ public suspend fun Lookup.count(condition: (WhereScope.() -> Where)? = null): Lo
  * an open cursor, in the current transaction.
  */
 context(_: ReadScope)
-public suspend inline fun <reified T> Lookup.forEach(
-    noinline query: QueryScope.() -> Unit = {},
+public suspend inline fun <reified T> Lookup.Many.forEach(
+    noinline query: QueryBlock = {},
     noinline action: suspend (T) -> Unit,
 ): Unit = forEach(serializer(), query, action)
 
 /** As the reified overload, with an explicit [serializer]. */
 context(_: ReadScope)
-public suspend fun <T> Lookup.forEach(
+public suspend fun <T> Lookup.Many.forEach(
     serializer: KSerializer<T>,
-    query: QueryScope.() -> Unit = {},
+    query: QueryBlock = {},
     action: suspend (T) -> Unit,
-): Unit = index.collection.forEach(serializer, withCondition(query(query)), action)
+): Unit = collection.forEach(serializer, withCondition(query(query)), action)
 
 /** Updates the documents found with [value], as `update` does; the result is how many were updated. */
 context(_: WriteScope)
-public suspend inline fun <reified T> Lookup.update(value: T, merge: Boolean = true): Int =
+public suspend inline fun <reified T> Lookup.Many.update(value: T, merge: Boolean = true): Int =
     update(serializer(), value, merge)
 
 /** As the reified overload, with an explicit [serializer]. */
 context(_: WriteScope)
-public suspend fun <T> Lookup.update(serializer: KSerializer<T>, value: T, merge: Boolean = true): Int =
-    index.collection.update(serializer, value, merge) { condition }
+public suspend fun <T> Lookup.Many.update(serializer: KSerializer<T>, value: T, merge: Boolean = true): Int =
+    collection.update(serializer, value, merge) { condition }
 
 /** Deletes the documents found; the result is how many were deleted. */
 context(_: WriteScope)
-public suspend fun Lookup.delete(): Int = index.collection.delete { condition }
+public suspend fun Lookup.Many.delete(): Int = collection.delete { condition }
 
 internal fun idCondition(value: Uuid): Where =
     Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
 
-/**
- * The document of a collection whose id is [value]. There is at most one.
- * The document's `id` field stores [Uuid.toString].
- * ```
- * Users.id(ada).get<User>()
- * Users.id(ada).update(ada.copy(age = 37))
- * Users.upsert(ada)
- * ```
- */
-public class Id internal constructor(internal val collection: Collection, public val value: Uuid) {
-    internal val condition: Where = idCondition(value)
-
-    override fun toString(): String = "${collection.name} id $value"
-}
-
 /** The document of this collection with [value] as its id. */
-public fun Collection.id(value: Uuid): Id = Id(this, value)
+public fun Collection.id(value: Uuid): Lookup.Id = Lookup.Id(this, value)
 
 /** The document as [T], `null` when there is none. */
 context(_: ReadScope)
-public suspend inline fun <reified T> Id.get(): T? = get(serializer<T>())
+public suspend inline fun <reified T> Lookup.Id.get(): T? = get(serializer<T>())
 
 /** As the reified overload, with an explicit [serializer]. */
 context(_: ReadScope)
-public suspend fun <T> Id.get(serializer: KSerializer<T>): T? =
+public suspend fun <T> Lookup.Id.get(serializer: KSerializer<T>): T? =
     collection.list(serializer, Query(condition, emptyList(), limit = 1, offset = 0)).firstOrNull()
 
 /**
@@ -145,30 +146,14 @@ public suspend fun <T> Id.get(serializer: KSerializer<T>): T? =
  * then [value] must carry the same id. The result is whether there was one.
  */
 context(_: WriteScope)
-public suspend inline fun <reified T> Id.update(value: T, merge: Boolean = true): Boolean =
+public suspend inline fun <reified T> Lookup.Id.update(value: T, merge: Boolean = true): Boolean =
     update(serializer(), value, merge)
 
 /** As the reified overload, with an explicit [serializer]. */
 context(_: WriteScope)
-public suspend fun <T> Id.update(serializer: KSerializer<T>, value: T, merge: Boolean = true): Boolean =
+public suspend fun <T> Lookup.Id.update(serializer: KSerializer<T>, value: T, merge: Boolean = true): Boolean =
     collection.update(serializer, value, merge) { condition } > 0
 
 /** Deletes the document; the result is whether there was one. */
 context(_: WriteScope)
-public suspend fun Id.delete(): Boolean = collection.delete { condition } > 0
-
-/**
- * Inserts [value], or changes the document with its id: with [merge] it applies [value] as a JSON merge patch, as
- * `update` does, and without it stores [value] as the whole document. [value] must carry an id.
- */
-context(_: WriteScope)
-public suspend inline fun <reified T> Collection.upsert(value: T, merge: Boolean = true): Unit =
-    upsert(serializer(), value, merge)
-
-/** As the reified overload, with an explicit [serializer]. */
-context(_: WriteScope)
-public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T, merge: Boolean = true) {
-    val json = encode(serializer, value)
-    withWriteConnection { Queries.upsert(name, merge).execute(json) }
-    changed()
-}
+public suspend fun Lookup.Id.delete(): Boolean = collection.delete { condition } > 0

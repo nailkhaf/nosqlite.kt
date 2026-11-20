@@ -85,7 +85,7 @@ private class Slots(private val size: Int, private val open: suspend () -> Conne
     /** Closes the idle connections; one in use closes when it comes back, and [use] fails from now on. */
     suspend fun close(): Unit = lock.withLock {
         closed = true
-        idle.forEach { it.close() }
+        for (connection in idle) connection.close()
         idle.clear()
     }
 }

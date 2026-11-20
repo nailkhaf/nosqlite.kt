@@ -12,7 +12,7 @@ import kotlinx.serialization.serializer
  */
 context(_: ReadScope)
 public suspend inline fun <reified T> Collection.forEach(
-    noinline query: QueryScope.() -> Unit = {},
+    noinline query: QueryBlock = {},
     noinline action: suspend (T) -> Unit,
 ): Unit = forEach(serializer(), query, action)
 
@@ -20,7 +20,7 @@ public suspend inline fun <reified T> Collection.forEach(
 context(_: ReadScope)
 public suspend fun <T> Collection.forEach(
     serializer: KSerializer<T>,
-    query: QueryScope.() -> Unit = {},
+    query: QueryBlock = {},
     action: suspend (T) -> Unit,
 ): Unit = forEach(serializer, query(query), action)
 

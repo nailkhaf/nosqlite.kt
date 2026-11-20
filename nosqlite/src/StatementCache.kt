@@ -23,15 +23,18 @@ internal class StatementCache(private val capacity: Int = 64) {
         statement.reset()
         statement.clearBindings()
         val dropped = lock.withLock {
-            if (sql in statements) return@withLock statement
-            statements[sql] = statement
-            if (statements.size > capacity) statements.remove(statements.keys.first()) else null
+            if (sql in statements) {
+                statement
+            } else {
+                statements[sql] = statement
+                if (statements.size > capacity) statements.remove(statements.keys.first()) else null
+            }
         }
         dropped?.close()
     }
 
     suspend fun close() {
         val all = lock.withLock { statements.values.toList().also { statements.clear() } }
-        all.forEach { it.close() }
+        for (statement in all) statement.close()
     }
 }

@@ -41,7 +41,7 @@ class TaskRepositoryTest {
 
     @Test
     fun `delete removes one task and clearDone every done one`() = runTest {
-        listOf("milk", "bread", "eggs", "tea").forEach { repository.add(it) }
+        for (title in listOf("milk", "bread", "eggs", "tea")) repository.add(title)
         val tasks = repository.tasks.first()
         val milk = tasks.single { it.title == "milk" }
         val bread = tasks.single { it.title == "bread" }

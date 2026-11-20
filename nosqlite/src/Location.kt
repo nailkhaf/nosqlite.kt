@@ -28,7 +28,7 @@ internal suspend fun Location.delete() {
 
         is Location.File -> withContext(Dispatchers.IO) {
             for (suffix in listOf("", "-wal", "-shm")) {
-                SystemFileSystem.delete(Path(path + suffix), mustExist = false)
+                SystemFileSystem.delete(Path("$path$suffix"), mustExist = false)
             }
         }
     }

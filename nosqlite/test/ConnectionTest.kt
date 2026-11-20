@@ -13,7 +13,7 @@ internal class ConnectionTest {
     private suspend fun connectionWithRows(vararg values: String): Connection =
         Connection.open(CountingDriver(), Location.InMemory).apply {
             createTable()
-            values.forEach { insert(it) }
+            for (value in values) insert(value)
         }
 
     @Test

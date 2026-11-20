@@ -5,6 +5,9 @@ internal class Order(val path: Path, val descending: Boolean) {
     override fun toString(): String = "$path ${if (descending) "desc" else "asc"}"
 }
 
+/** The parts of a query, set in [QueryScope]: `{ where { "age" gte 18 } }`. */
+public typealias QueryBlock = QueryScope.() -> Unit
+
 internal data class Query(val condition: Where?, val orderBy: List<Order>, val limit: Int, val offset: Int)
 
 /**
@@ -30,7 +33,7 @@ public class QueryScope internal constructor() {
     private var offset: Int? = null
 
     /** Which documents match [condition]. */
-    public fun where(condition: WhereScope.() -> Where) {
+    public fun where(condition: Condition) {
         check(this.condition == null) { "where is already set" }
         this.condition = WhereScope().condition()
     }
@@ -61,7 +64,8 @@ public class QueryScope internal constructor() {
 /** Collects sort keys: `"age".desc` sorts by age, largest first. */
 @QueryDsl
 public class OrderScope internal constructor() {
-    internal val keys: MutableList<Order> = mutableListOf()
+    internal val keys: List<Order>
+        field = mutableListOf()
 
     /** Smallest first; null and missing values come first. */
     public val String.asc: Unit get() = add(Order(Path(this), descending = false))
@@ -74,4 +78,4 @@ public class OrderScope internal constructor() {
     }
 }
 
-internal fun query(block: QueryScope.() -> Unit): Query = QueryScope().apply(block).build()
+internal fun query(block: QueryBlock): Query = QueryScope().apply(block).build()

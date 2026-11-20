@@ -7,10 +7,11 @@ import io.github.nailkhaf.todo.ui.App
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.NSUserDomainMask
+import platform.UIKit.UIViewController
 
 private val repository by lazy {
     val documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, true).first() as String
     TaskRepository(Location.File("$documents/todo.db"))
 }
 
-fun ViewController() = ComposeUIViewController { App(repository) }
+fun ViewController(): UIViewController = ComposeUIViewController { App(repository) }
