@@ -161,7 +161,7 @@ public suspend fun Collection.delete(condition: Condition): Int {
 }
 
 /**
- * [Id.delete] addressed by the collection's name: deletes the document [id] from [collection].
+ * [Lookup.Id.delete] addressed by the collection's name: deletes the document [id] from [collection].
  * A collection without a table is left untouched. The result is whether a document was deleted.
  */
 context(_: WriteScope)
