@@ -9,7 +9,7 @@ import kotlin.uuid.Uuid
  * ```
  * Users.id(ada).get<User>()
  * Users.byAge(36).list<User> { orderBy { "name.last".asc } }
- * Users.byName("Lovelace").count()
+ * Users.byName("Lovelace", "Ada").count()
  * ```
  */
 public sealed class Lookup(internal val collection: Collection) {
@@ -17,7 +17,7 @@ public sealed class Lookup(internal val collection: Collection) {
 
     /**
      * Documents of an index with the given values for its fields, made by calling the index: any number of
-     * documents, with values for leading fields alone matching their prefix.
+     * documents, in id order.
      */
     public class Many internal constructor(
         internal val index: Index,
@@ -40,11 +40,11 @@ public sealed class Lookup(internal val collection: Collection) {
 }
 
 /**
- * Looks up [values] of this index's fields, in order; leading fields alone match their prefix. A `null` value matches
- * a null or missing field.
+ * Looks up [values] of this index's fields, one per field and in order. A `null` value matches a null or missing
+ * field. The index walks its matches in id order, since every index entry ends with the id.
  */
 public operator fun Index.invoke(vararg values: Any?): Lookup.Many {
-    require(values.size in 1..paths.size) { "$this takes 1 to ${paths.size} values, not ${values.size}" }
+    require(values.size == paths.size) { "$this takes ${paths.size} values, not ${values.size}" }
     return Lookup.Many(this, values.map(::sqlValue))
 }
 

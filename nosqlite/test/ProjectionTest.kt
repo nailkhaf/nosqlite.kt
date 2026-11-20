@@ -129,7 +129,7 @@ internal class ProjectionTest {
             """,
         )
         val inserted = json("""{"id":"$alan","address":{"city":"Wilmslow"},"settings":{},"nickname":null}""")
-        assertEquals(listOf(inserted, kept), db.read { Profiles.list<JsonObject>() })
+        assertEquals(listOf(kept, inserted), db.read { Profiles.list<JsonObject>() })
     }
 
     private fun json(text: String): JsonObject = Json.parseToJsonElement(text).jsonObject

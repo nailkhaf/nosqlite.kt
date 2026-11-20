@@ -23,8 +23,8 @@ internal data class Query(val condition: Where?, val orderBy: List<Order>, val l
  *     offset(40)
  * }
  * ```
- * Results always end with `id` descending as the last sort key, unless [orderBy] already sorts by `id`: without
- * [orderBy] they come by id, and documents with equal sort keys come by id. With UUID v7 ids that is newest first.
+ * Documents with equal sort keys come in id order when an index covers the keys, since every index entry ends with
+ * the id; sort by `id` last to guarantee it.
  */
 @QueryDsl
 public class QueryScope internal constructor() {

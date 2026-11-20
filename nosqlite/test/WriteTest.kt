@@ -40,7 +40,7 @@ internal class WriteTest {
         val updated = db.write { Users.update(replacement) { "id" eq ann.id.toString() } }
 
         assertEquals(1, updated)
-        assertEquals(listOf(bob, replacement, cid), db.users())
+        assertEquals(listOf(cid, replacement, bob), db.users())
     }
 
     @Test
@@ -57,7 +57,7 @@ internal class WriteTest {
         val updated = db.write { Raw.update(done) { "done".isFalse() } }
 
         assertEquals(2, updated)
-        assertEquals(listOf(b, a), db.read { Raw.list<JsonObject>() })
+        assertEquals(listOf(a, b), db.read { Raw.list<JsonObject>() })
     }
 
     @Test
@@ -93,7 +93,7 @@ internal class WriteTest {
             assertEquals(0, Users.delete { "id" eq uuid("nobody").toString() })
         }
 
-        assertEquals(listOf(bob, ann, cid), db.users())
+        assertEquals(listOf(cid, ann, bob), db.users())
     }
 
     @Test
@@ -115,7 +115,7 @@ internal class WriteTest {
         val expected = buildJsonObject { put("id", uuid("a").toString()); put("age", 31) }
         assertEquals(1, patched)
         val untouched = buildJsonObject { put("id", uuid("b").toString()); put("age", 40) }
-        assertEquals(listOf(untouched, expected), db.read { Raw.list<JsonObject>() })
+        assertEquals(listOf(expected, untouched), db.read { Raw.list<JsonObject>() })
     }
 
     @Test

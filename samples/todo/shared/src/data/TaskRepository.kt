@@ -18,7 +18,7 @@ import kotlin.uuid.Uuid
 class TaskRepository(location: Location) {
     private val db = NoSqlite(location) { +Tasks }
 
-    /** Open tasks first, each group newest first, because ids are UUID v7 and ties sort by id descending. */
+    /** Open tasks first. Tasks with the same done value have an unspecified order. */
     val tasks: Flow<List<Task>> = with(db) { Tasks.observe<Task> { orderBy { Task::done.asc } } }
 
     // Uuid.generateV7() is still experimental.

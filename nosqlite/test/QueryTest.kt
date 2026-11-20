@@ -22,10 +22,6 @@ internal class QueryTest {
         val byAge = index("age")
     }
 
-    object UsersByAgeAndId : Collection("users") {
-        val byAgeAndId = index("age", "id")
-    }
-
     private val ada = User(uuid("ada"), Name("Ada", "Lovelace"), 36)
     private val alan = User(uuid("alan"), Name("Alan", "Turing"), 41)
     private val grace = User(uuid("grace"), Name("Grace", "Hopper"), 36)
@@ -106,61 +102,46 @@ internal class QueryTest {
     }
 
     @Test
-    fun `sorting a large page by an indexed field walks the index and sorts only ties`() = runTest {
+    fun `sorting by an indexed field reads the index in order`() = runTest {
         val db = database()
+        val sql = Queries.selectSql(Users.name, query { orderBy { "age".asc } }).sql
 
-        for (order in listOf<OrderScope.() -> Unit>({ "age".asc }, { "age".desc })) {
-            val plan = db.plan(Users.name, query { orderBy(order) }, page = 100)
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
 
-            assertTrue(Users.byAge.name in plan, plan)
-            assertTrue("TEMP B-TREE FOR LAST TERM OF ORDER BY" in plan, plan)
+        assertTrue(Users.byAge.name in plan, plan)
+        assertFalse("TEMP B-TREE" in plan, plan)
+    }
+
+    @Test
+    fun `a descending sort on an indexed field uses the index without a temp b-tree`() = runTest {
+        val db = database()
+        val sql = Queries.selectSql(Users.name, query { orderBy { "age".desc } }).sql
+
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
+
+        assertTrue(Users.byAge.name in plan, plan)
+        assertFalse("TEMP B-TREE" in plan, plan)
+    }
+
+    @Test
+    fun `without orderBy documents come in id order, whatever order they were written in`() = runTest {
+        val db = NoSqlite { +Users }
+        db.write { for (user in listOf(linus, grace, alan, ada)) Users.insert(user) }
+
+        db.read {
+            assertEquals(listOf(ada, alan, grace, linus), Users.list<User>())
+            assertEquals(listOf(grace, linus), Users.list<User> { limit(2); offset(2) })
         }
     }
 
     @Test
-    fun `without orderBy documents come by id newest first`() = runTest {
-        val db = database()
+    fun `equal keys of an indexed sort come in id order`() = runTest {
+        val db = NoSqlite { +Users }
+        db.write { for (user in listOf(linus, grace, alan, ada)) Users.insert(user) }
 
-        val users = db.read { Users.list<User>() }
+        val users = db.read { Users.list<User> { orderBy { "age".asc } } }
 
-        assertEquals(listOf(ada, alan, grace, linus).sortedByDescending { it.id.toString() }, users)
-    }
-
-    @Test
-    fun `without orderBy the id index gives the order without a temp b-tree`() = runTest {
-        val db = database()
-
-        val plan = db.plan(Users.name, query { }, page = 1)
-
-        assertTrue(Queries.idIndexName(Users.name) in plan, plan)
-        assertFalse("TEMP B-TREE" in plan, plan)
-    }
-
-    @Test
-    fun `equal sort keys come by id newest first`() = runTest {
-        val db = database()
-
-        val users = db.read { Users.list<User> { orderBy { "age".desc } } }
-
-        assertEquals(listOf(alan, grace, ada, linus), users)
-    }
-
-    @Test
-    fun `an index on the field and id gives a descending order without a temp b-tree`() = runTest {
-        val db = NoSqlite { +UsersByAgeAndId }
-
-        val plan = db.plan(UsersByAgeAndId.name, query { orderBy { "age".desc } }, page = 1)
-
-        assertTrue(UsersByAgeAndId.byAgeAndId.name in plan, plan)
-        assertFalse("TEMP B-TREE" in plan, plan)
-    }
-
-    @Test
-    fun `an id sort key is not repeated`() {
-        val sql = Queries.selectSql(Users.name, query { orderBy { "id".asc } }).sql
-
-        assertEquals(1, Regex("ORDER BY").findAll(sql).count())
-        assertTrue("ORDER BY ${Path("id").sql} ASC LIMIT" in sql, sql)
+        assertEquals(listOf(linus, ada, grace, alan), users)
     }
 
     @Test
@@ -200,7 +181,7 @@ internal class QueryTest {
         assertEquals(emptyList(), query.orderBy)
         assertEquals(Int.MAX_VALUE, query.limit)
         assertEquals(0, query.offset)
-        assertTrue("ORDER BY ${Path("id").sql} DESC LIMIT" in Queries.selectSql(Users.name, query).sql)
+        assertFalse("ORDER BY" in Queries.selectSql(Users.name, query).sql)
     }
 
     @Test
@@ -219,11 +200,5 @@ internal class QueryTest {
         val db = NoSqlite { +Users }
 
         assertEquals(0, db.read { Users.count() })
-    }
-
-    /** The query plan of [query] on [collection], with [page] as its limit and offset. */
-    private suspend fun NoSqlite.plan(collection: String, query: Query, page: Int): String {
-        val sql = Queries.selectSql(collection, query).sql
-        return querySql("EXPLAIN QUERY PLAN $sql".replace("?", "$page")).joinToString { it.last()!! }
     }
 }

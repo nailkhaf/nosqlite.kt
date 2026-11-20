@@ -210,7 +210,7 @@ internal class WhereTest {
         return pool().readSql {
             statement(
                 "SELECT substr(data ->> '$.email', 1, instr(data ->> '$.email', '@') - 1) " +
-                    "FROM nsq_users WHERE ${fragment.sql} ORDER BY rowid",
+                    "FROM nsq_users WHERE ${fragment.sql} ORDER BY data ->> '$.email'",
             ) { statement ->
                 statement.bind(fragment.params)
                 buildList { while (statement.step()) add(statement.getText(0)) }

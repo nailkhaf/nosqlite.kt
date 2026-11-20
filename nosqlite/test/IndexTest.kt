@@ -43,7 +43,6 @@ internal class IndexTest {
         val sql = db.querySql("SELECT sql FROM sqlite_schema WHERE type = 'index'").map { it.single() }.toSet()
         assertEquals(
             setOf(
-                """CREATE UNIQUE INDEX "${idIndexName(Users)}" ON "nsq_users" (data ->> '$.id')""",
                 """CREATE INDEX "${Users.byEmail.name}" ON "nsq_users" (data ->> '$.email')""",
                 """CREATE INDEX "${Users.byAge.name}" ON "nsq_users" (data ->> '$.age')""",
                 """CREATE INDEX "${Users.byName.name}" ON "nsq_users" (data ->> '$.name.last', data ->> '$.name.first')""",
@@ -57,7 +56,6 @@ internal class IndexTest {
     @Test
     fun `index names hash their definition`() {
         assertTrue(Users.byEmail.name.matches(Regex("nsq_idx_users_[0-9a-f]{16}")))
-        assertEquals("nsq_idx_users_id", idIndexName(Users))
         // Read through the base type: Kotlin/Native fails to link an internal member read through a test object.
         val collection: Collection = Users
         assertEquals(4, collection.indexes.map { it.name }.toSet().size)
@@ -84,9 +82,8 @@ internal class IndexTest {
 
             val db = NoSqlite(location) { +after }
 
-            assertEquals(setOf(after.byEmail.name, after.byLastName.name, idIndexName(after)), db.indexNames())
+            assertEquals(setOf(after.byEmail.name, after.byLastName.name), db.indexNames())
             assertEquals(before.byEmail.name, after.byEmail.name)
-            assertEquals(idIndexName(before), idIndexName(after))
             db.close()
         }
     }
@@ -104,7 +101,7 @@ internal class IndexTest {
 
             val db = NoSqlite(location) { +wider }
 
-            assertEquals(setOf(wider.byEmail.name, idIndexName(wider)), db.indexNames())
+            assertEquals(setOf(wider.byEmail.name), db.indexNames())
             assertTrue(plain.byEmail.name != wider.byEmail.name)
             db.close()
         }
@@ -162,7 +159,7 @@ internal class IndexTest {
     }
 
     @Test
-    fun `getting a document by id uses the id index`() = runTest {
+    fun `getting a document by id searches the primary key`() = runTest {
         val db = NoSqlite { +Users }
         val sql = Queries.selectSql(
             Users.name,
@@ -171,19 +168,25 @@ internal class IndexTest {
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "'${ada.id}'")).joinToString { it.last()!! }
 
-        assertTrue(idIndexName(Users) in plan, plan)
+        assertTrue("USING PRIMARY KEY" in plan, plan)
     }
 
     @Test
-    fun `a condition on id uses the id index`() = runTest {
+    fun `a condition on id searches the primary key`() = runTest {
         val db = NoSqlite { +Users }
-        val condition = where { "id" eq ada.id.toString() }.render(inline = true).sql
+        val one = Query(where { "id" eq ada.id.toString() }, emptyList(), limit = 1, offset = 0)
+        val many = Query(where { "id" isIn listOf(ada.id.toString(), alan.id.toString()) }, emptyList(), 2, 0)
 
-        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM nsq_users WHERE $condition").joinToString {
-            it.last()!!
+        for (query in listOf(one, many)) {
+            val select = Queries.selectSql(Users.name, query)
+            // Each parameter spelled out as its literal, in order, since querySql binds nothing.
+            val params = select.params.iterator()
+            val sql = Regex("\\?").replace(select.sql) { params.next().literal }
+
+            val plan = db.querySql("EXPLAIN QUERY PLAN $sql").joinToString { it.last()!! }
+
+            assertTrue("USING PRIMARY KEY" in plan, plan)
         }
-
-        assertTrue(idIndexName(Users) in plan, plan)
     }
 
     @Test
@@ -191,7 +194,7 @@ internal class IndexTest {
         val db = NoSqlite { +Users }
         val condition = where { ("nickname" eq "twin") and "active".isTrue() }.render(inline = true).sql
 
-        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT rowid FROM nsq_users WHERE $condition").joinToString {
+        val plan = db.querySql("EXPLAIN QUERY PLAN SELECT id FROM nsq_users WHERE $condition").joinToString {
             it.last()!!
         }
 
@@ -204,7 +207,7 @@ internal class IndexTest {
         val core = Team(uuid("core"), "core", Name("Ada", "Lovelace"))
         db.write { Teams.insert(core) }
 
-        assertEquals(setOf(Teams.byLead.name, Teams.byLeadFirst.name, idIndexName(Teams)), db.indexNames())
+        assertEquals(setOf(Teams.byLead.name, Teams.byLeadFirst.name), db.indexNames())
         assertEquals(listOf(core), db.read { Teams.list<Team> { where { "lead.last" eq "Lovelace" } } })
     }
 
@@ -229,7 +232,7 @@ internal class IndexTest {
         assertEquals(listOf(ada), db.read { users.list<User>() })
         assertEquals(listOf(ada), db.read { usersId.list<User>() })
         assertEquals(
-            setOf(users.byEmail.name, usersId.byEmail.name, idIndexName(users), idIndexName(usersId)),
+            setOf(users.byEmail.name, usersId.byEmail.name),
             db.indexNames(),
         )
     }
@@ -244,7 +247,7 @@ internal class IndexTest {
         ).map { it.single()!! }
         val collection: Collection = Users
 
-        assertEquals(setOf(idIndexName(Users)) + collection.indexes.map { it.name }, names.toSet())
+        assertEquals(collection.indexes.map { it.name }.toSet(), names.toSet())
         assertTrue(names.all { it.startsWith("nsq_idx_users_") && ':' !in it })
     }
 
@@ -260,6 +263,3 @@ internal class IndexTest {
         assertEquals("Collection 'twice' declares index twice(age) more than once", error.message)
     }
 }
-
-/** Kotlin/Native cannot link an internal member read through a test object. */
-private fun idIndexName(collection: Collection): String = Queries.idIndexName(collection.name)

@@ -77,7 +77,7 @@ public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
     changed()
 }
 
-/** The documents [query] selects, as [T], or every document without one; ties come by id, descending. */
+/** The documents [query] selects, as [T]; without one, every document, in id order. */
 context(_: ReadScope)
 public suspend inline fun <reified T> Collection.list(noinline query: QueryBlock = {}): List<T> =
     list(serializer(), query)
@@ -212,7 +212,7 @@ internal suspend fun <R> withWriteConnection(name: String, block: suspend contex
     mapErrors(name) { context(connection()) { block() } }
 
 /**
- * Creates this collection's table, id index and id trigger when the schema does not have [name] and this write has
+ * Creates this collection's table and id trigger when the schema does not have [name] and this write has
  * not created it yet, and remembers the name so the outermost write can register it after it commits. A savepoint
  * hands the names it created to the enclosing write when it releases.
  */
@@ -249,7 +249,9 @@ internal inline fun <R> mapErrors(collection: String? = null, block: () -> R): R
         "no such table: ${tableName(collection)}" in message ->
             throw NoSqliteException.CollectionNotDeclared(collection, e)
 
-        "CHECK constraint failed: document_id" in message ->
+        // A missing or non-hex id leaves the key NULL before the check runs.
+        "CHECK constraint failed: document_id" in message ||
+            "NOT NULL constraint failed: ${tableName(collection)}.$ID_KEY" in message ->
             throw NoSqliteException.InvalidId(collection, e)
 
         "UNIQUE constraint failed" in message -> throw NoSqliteException.DuplicateId(collection, e)

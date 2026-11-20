@@ -12,11 +12,11 @@ class TaskRepositoryTest {
     private suspend fun titles(): List<Pair<String, Boolean>> = repository.tasks.first().map { it.title to it.done }
 
     @Test
-    fun `added tasks are listed newest first`() = runTest {
+    fun `added tasks are listed`() = runTest {
         repository.add("milk")
         repository.add("bread")
 
-        assertEquals(listOf("bread" to false, "milk" to false), titles())
+        assertEquals(setOf("milk" to false, "bread" to false), titles().toSet())
     }
 
     @Test
