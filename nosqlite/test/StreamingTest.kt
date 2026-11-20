@@ -80,7 +80,7 @@ internal class StreamingTest {
             }
         }
 
-        assertEquals(users.map { it.id to users.size * 2 }, pairs)
+        assertEquals(users.sortedBy { it.id.toString() }.map { it.id to users.size * 2 }, pairs)
     }
 
     @Test
@@ -107,7 +107,7 @@ internal class StreamingTest {
         }
 
         assertEquals(3, visited)
-        assertEquals(users, db.read { Users.list<User>() })
+        assertEquals(users.sortedBy { it.id.toString() }, db.read { Users.list<User>() })
     }
 
     @Test

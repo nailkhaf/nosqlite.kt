@@ -68,8 +68,8 @@ object Users : Collection("users") {
 
 val db = NoSqlite("app.db") { +Users }
 
-val adaId = Uuid.random()
-val alanId = Uuid.random()
+val adaId = Uuid.generateV7()
+val alanId = Uuid.generateV7()
 
 db.write {
     Users.insert(User(adaId, "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
@@ -81,7 +81,7 @@ db.write {
 db.read {
     val ada: User? = Users.id(adaId).get<User>()
     val raw: JsonObject? = Users.id(adaId).get<JsonObject>()
-    val lovelaces: List<User> = Users.byName("Lovelace").list<User>()
+    val lovelaces: List<User> = Users.byName("Lovelace", "Ada").list<User>()
     val adults: List<User> = Users.list<User> {
         where { (User::age gte 18) and (User::tags contains "kotlin") }
         orderBy {
@@ -130,16 +130,18 @@ renamed with `@SerialName`. Keys are identifiers.
 `index("nickname", where = { "active".isTrue() })`. Each index is named `nsq_idx_<collection>_` plus a hash of its
 definition, so a changed index is dropped and created again when the database opens, and a removed one dropped.
 
-Every collection also has an index on `id`, named `nsq_idx_<collection>_id`, which is not declared.
-Calling an index looks documents up by its values.
-It takes its leading fields, `null` matching a null or missing field, and finds any number: `list<T> { }`,
+Calling an index looks documents up by its values: one per field, in order, `null` matching a null or missing field.
+Fewer values throw. It finds any number: `list<T> { }`,
 `count { condition }`, `update(value)` and `delete()` return the documents or how many there were, and
 `forEach<T> { action }` streams them, as on a collection.
 
 ### Ids
 
 Every document needs an `id`: a `kotlin.uuid.Uuid` string, stored as `Uuid.toString()`. A `Uuid` property serializes
-to that string. SQLite checks it on every write. `id(value)` takes that `Uuid` and addresses the one document:
+to that string. SQLite checks it on every write. Create ids with `Uuid.generateV7()`: v7 ids start with their
+creation time, so id order is creation order, oldest first (see Reads and queries). Any UUID works, but
+`Uuid.random()` (v4) ids sort in no meaningful order. `generateV7()` needs
+`@OptIn(ExperimentalUuidApi::class)`. `id(value)` takes that `Uuid` and addresses the one document:
 `get<T>()` returns it or `null`, and
 `update(value)` and `delete()` report whether there was one. `observe` on it emits that document, or `null` while
 there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
@@ -223,8 +225,14 @@ element, `like` for a pattern (`"title" like "%milk%"`, case-insensitive for ASC
 because `toDouble()` is not exact and `0.1f` would not match the stored real `0.1`; write a fraction as a `Double`
 (`"ratio" eq 0.1`). `Short`, `Byte` and other number types are the same. Other values compare as they are stored,
 so an enum as its serial name (`"role" eq "member"`). A `Double` that is `NaN` or infinite is rejected when the
-condition is built. The order of documents with equal sort keys is unspecified, so add `id` as the last
-sort key when a stable order or offset pagination matters.
+condition is built.
+
+A collection's table is keyed by the id, so documents are stored in id order, and SQLite ends every index entry with
+the id. Nothing is added to a query's `ORDER BY`, so this costs nothing: a query without `orderBy` reads documents in
+id order, oldest first with v7 ids, and an index lookup returns its matches in id order. A range condition on an
+indexed field, such as `User::age gt 18`, returns them by that field, then id. Ties of `orderBy` keys come in id order
+when an index covers those keys. SQL itself promises no order without `ORDER BY`; sort by `id` (`orderBy {
+User::id.desc }`, newest first) where the order must be guaranteed, which the key makes cheap.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
 run other queries in that same transaction, one at a time.
@@ -293,7 +301,7 @@ during the upload are read once it returns. Each row is timestamped with SQLite'
 `delete(name, id)` are `upsert` and `delete` addressed by the collection's name, for code that has only the name,
 such as a replicator, usually in an untracked write so they are not recorded. With `merge = false` the document
 replaces the stored one whole, so fields it leaves out are removed and `null` fields are kept.
-A name the schema does not have gets its table, id index, and id trigger, and the schema keeps that name once the
+A name the schema does not have gets its table and id trigger, and the schema keeps that name once the
 write commits. `delete` of a collection that has no table does nothing. A typed write or a read whose table does not
 exist still fails with `CollectionNotDeclared`.
 The queue is append-only. A collection that is not tracked records nothing. Rows queued before a collection stopped

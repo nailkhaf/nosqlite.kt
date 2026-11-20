@@ -9,8 +9,14 @@ import kotlin.uuid.Uuid
 /** The JSON key of the id every document carries. */
 internal const val ID: String = "id"
 
-/** The SQL expression of [ID]. The id index covers it, and an id lookup compares [Path.sql] for the same key. */
+/** The SQL expression of [ID] in the document. */
 internal val ID_VALUE: String = Path(ID).sql
+
+/** The primary key column: the document's id as its 16 bytes, so rows and every index entry end with it. */
+internal const val ID_KEY: String = "id"
+
+/** The 16 bytes of the canonical UUID text [text], an SQL expression; `NULL` when it isn't hex. */
+internal fun idBytes(text: String): String = "unhex(replace($text, '-', ''))"
 
 /** Lowercase canonical UUID text, the form [kotlin.uuid.Uuid.toString] returns, as a SQLite `GLOB`. */
 internal val CANONICAL_UUID_GLOB: String = listOf(8, 4, 4, 4, 12).joinToString("-") { "[0-9a-f]".repeat(it) }
@@ -22,18 +28,28 @@ internal const val TRACKING_STATE: String = "${PREFIX}_tracking_state"
 internal object Queries {
 
     /**
-     * The collection table, then its id index `nsq_idx_<collection>_id`, then the trigger
-     * `nsq_<collection>_id_immutable`, in that order. The caller runs them in its write transaction.
+     * The collection table, then the trigger `nsq_<collection>_id_immutable`. The caller runs them in its write
+     * transaction.
      */
     fun createTable(collection: String): List<Command<Unit>> =
-        listOf(createTableCommand(collection), idIndex(collection), idTrigger(collection))
+        listOf(createTableCommand(collection), idTrigger(collection))
 
+    /**
+     * A `WITHOUT ROWID` table keyed by the id's 16 bytes: rows are stored in id order and SQLite ends every index
+     * entry with the key, so a query without `orderBy`, and ties within an index, come in id order. The key is a
+     * plain column, since SQLite rejects a generated one as a primary key; the check keeps it equal to the id in the
+     * document.
+     */
     private fun createTableCommand(collection: String): Command<Unit> = command(
         """
         CREATE TABLE IF NOT EXISTS ${table(collection)} (
+            $ID_KEY BLOB NOT NULL PRIMARY KEY,
             data BLOB NOT NULL,
-            CONSTRAINT document_id CHECK (json_type(data, '$.$ID') IS 'text' AND ($ID_VALUE) GLOB '$CANONICAL_UUID_GLOB')
-        ) STRICT;
+            CONSTRAINT document_id CHECK (
+                json_type(data, '$.$ID') IS 'text' AND ($ID_VALUE) GLOB '$CANONICAL_UUID_GLOB'
+                AND $ID_KEY = ${idBytes(ID_VALUE)}
+            )
+        ) STRICT, WITHOUT ROWID;
         """.trimIndent(),
     )
 
@@ -52,13 +68,6 @@ internal object Queries {
         },
     )
 
-    fun idIndexName(collection: String): String = indexName(collection, "id")
-
-    private fun idIndex(collection: String): Command<Unit> = command(
-        "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(idIndexName(collection))} " +
-            "ON ${table(collection)} ($ID_VALUE);",
-    )
-
     fun createIndex(index: Index): Command<Unit> = command(
         "CREATE INDEX ${identifier(index.name)} ON ${table(index.collection.name)} ${index.definition};",
     )
@@ -69,10 +78,12 @@ internal object Queries {
         selectSql(collection, query).statement(rows { decode(collection, serializer, this) })
 
     fun selectSql(collection: String, query: Query): Fragment {
-        // No implicit rowid: a descending key must be able to walk its index backwards.
+        // No ORDER BY of its own: the table and its indexes already end in id order.
         val order = query.orderBy
             .takeIf { it.isNotEmpty() }
-            ?.joinToString(", ", prefix = " ORDER BY ") { "${it.path.sql} ${if (it.descending) "DESC" else "ASC"}" }
+            ?.joinToString(", ", prefix = " ORDER BY ") {
+                "${it.path.orderSql} ${if (it.descending) "DESC" else "ASC"}"
+            }
             .orEmpty()
         val page = Fragment(
             "$order LIMIT ? OFFSET ?;",
@@ -103,8 +114,9 @@ internal object Queries {
      * the delete trigger.
      */
     fun upsert(collection: String, merge: Boolean): Statement<String, Unit> = Statement(
-        sql = "INSERT INTO ${table(collection)} (data) VALUES (jsonb(?1)) " +
-            "ON CONFLICT ($ID_VALUE) DO UPDATE SET data = ${if (merge) "jsonb_patch(data, ?1)" else "excluded.data"};",
+        // `WHERE true` tells SQLite the ON CONFLICT belongs to the INSERT, not to a join in the SELECT.
+        sql = "${insertSql(collection)} WHERE true " +
+            "ON CONFLICT ($ID_KEY) DO UPDATE SET data = ${if (merge) "jsonb_patch(data, ?1)" else "excluded.data"};",
         encode = { json -> bindText(1, json) },
         decode = { step() },
     )
@@ -125,7 +137,7 @@ internal object Queries {
     """.trimIndent())
 
     fun insert(collection: String): Statement<String, Unit> = Statement(
-        sql = "INSERT INTO ${table(collection)} (data) VALUES (jsonb(?));",
+        sql = "${insertSql(collection)};",
         encode = { json -> bindText(1, json) },
         decode = { step() },
     )
@@ -226,6 +238,15 @@ internal object Queries {
         )
     }
 }
+
+/** Inserts the JSON bound as `?1`, with the key taken from its id so the JSON is bound once. */
+private fun insertSql(collection: String): String =
+    "INSERT INTO ${table(collection)} ($ID_KEY, data) " +
+        "SELECT ${idBytes("j ->> '$.$ID'")}, j FROM (SELECT jsonb(?1) AS j)"
+
+/** The SQL a sort key orders by: the primary key for `id`, which sorts like the canonical id text. */
+private val Path.orderSql: String
+    get() = if (field == ID) ID_KEY else sql
 
 // Identifiers can't be bound, so they are quoted into the SQL text with their own quotes doubled.
 internal fun identifier(name: String): String = "\"${name.replace("\"", "\"\"")}\""

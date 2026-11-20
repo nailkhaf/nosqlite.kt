@@ -11,6 +11,7 @@ import io.github.nailkhaf.nosqlite.observe
 import io.github.nailkhaf.nosqlite.update
 import io.github.nailkhaf.nosqlite.write
 import kotlinx.coroutines.flow.Flow
+import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 /** The tasks, stored in a nosqlite database at [location]. */
@@ -20,8 +21,10 @@ class TaskRepository(location: Location) {
     /** Open tasks first. Tasks with the same done value have an unspecified order. */
     val tasks: Flow<List<Task>> = with(db) { Tasks.observe<Task> { orderBy { Task::done.asc } } }
 
+    // Uuid.generateV7() is still experimental.
+    @OptIn(ExperimentalUuidApi::class)
     suspend fun add(title: String) {
-        db.write { Tasks.insert(Task(Uuid.random(), title)) }
+        db.write { Tasks.insert(Task(Uuid.generateV7(), title)) }
     }
 
     suspend fun toggle(task: Task) {

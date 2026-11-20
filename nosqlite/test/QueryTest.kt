@@ -124,6 +124,27 @@ internal class QueryTest {
     }
 
     @Test
+    fun `without orderBy documents come in id order whatever order they were written in`() = runTest {
+        val db = NoSqlite { +Users }
+        db.write { for (user in listOf(linus, grace, alan, ada)) Users.insert(user) }
+
+        db.read {
+            assertEquals(listOf(ada, alan, grace, linus), Users.list<User>())
+            assertEquals(listOf(grace, linus), Users.list<User> { limit(2); offset(2) })
+        }
+    }
+
+    @Test
+    fun `equal keys of an indexed sort come in id order`() = runTest {
+        val db = NoSqlite { +Users }
+        db.write { for (user in listOf(linus, grace, alan, ada)) Users.insert(user) }
+
+        val users = db.read { Users.list<User> { orderBy { "age".asc } } }
+
+        assertEquals(listOf(linus, ada, grace, alan), users)
+    }
+
+    @Test
     fun `invalid order fields are rejected`() {
         val error = assertFailsWith<IllegalArgumentException> { query { orderBy { "first name".desc } } }
 

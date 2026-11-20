@@ -91,7 +91,7 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(ada, grace, byron), Users.byAge(36).list<User>())
+            assertEquals(listOf(ada, byron, grace), Users.byAge(36).list<User>())
             assertEquals(3, Users.byAge(36).count())
             assertEquals(listOf(grace), Users.byActive(false).list<User>())
             assertEquals(emptyList(), Users.byAge(99).list<User>())
@@ -137,12 +137,23 @@ internal class LookupTest {
     }
 
     @Test
-    fun `leading values of a composite index find its prefix`() = runTest {
+    fun `a composite index finds documents by all its values`() = runTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(ada, byron), Users.byName("Lovelace").list<User>())
             assertEquals(listOf(ada), Users.byName("Lovelace", "Ada").list<User>())
+            assertEquals(listOf(byron), Users.byName("Lovelace", "Byron").list<User>())
+        }
+    }
+
+    @Test
+    fun `lookups return their documents in id order`() = runTest {
+        val db = NoSqlite { +Users }
+        db.write { for (user in listOf(grace, byron, ada)) Users.insert(user) }
+
+        db.read {
+            assertEquals(listOf(ada, byron, grace), Users.byAge(36).list<User>())
+            assertEquals(listOf(ada, byron, grace), Users.byAge(36).list<User> { limit(3) })
         }
     }
 
@@ -167,13 +178,13 @@ internal class LookupTest {
             assertEquals(1, Users.byAge(41).delete())
         }
 
-        assertEquals(listOf(ada, grace.copy(age = 51), byron), db.read { Users.list<User>() })
+        assertEquals(listOf(ada, byron, grace.copy(age = 51)), db.read { Users.list<User>() })
     }
 
     @Test
     fun `a lookup reads through its index`() = runTest {
         val db = database()
-        val lookup = Users.byName("Lovelace")
+        val lookup = Users.byName("Lovelace", "Ada")
         val sql = Queries.selectSql(Users.name, Query(lookup.condition, emptyList(), limit = 1, offset = 0)).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "'x'")).joinToString { it.last()!! }
@@ -191,19 +202,24 @@ internal class LookupTest {
             Users.upsert(ada.copy(age = 37))
         }
 
-        assertEquals(listOf(ada.copy(age = 37), alan, grace, byron, carol), db.read { Users.list<User>() })
-        assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM nsq_users WHERE data ->> '$.id' = '${ada.id}'"))
+        assertEquals(listOf(ada.copy(age = 37), alan, byron, grace, carol), db.read { Users.list<User>() })
+        assertEquals(
+            listOf(listOf("1")),
+            db.querySql("SELECT count(*) FROM nsq_users WHERE data ->> '$.id' = '${ada.id}'"),
+        )
     }
 
     @Test
-    fun `a lookup takes one value per field at most and plain values only`() {
+    fun `a lookup takes one value per field and plain values only`() {
         val none = assertFailsWith<IllegalArgumentException> { Users.byName() }
+        val fewer = assertFailsWith<IllegalArgumentException> { Users.byName("Lovelace") }
         val many = assertFailsWith<IllegalArgumentException> { Users.byName("Lovelace", "Ada", "King") }
         val type = assertFailsWith<IllegalArgumentException> { Users.byAge('a') }
         val float = assertFailsWith<IllegalArgumentException> { Users.byAge(0.1f) }
 
-        assertEquals("index users(name.last, name.first) takes 1 to 2 values, not 0", none.message)
-        assertEquals("index users(name.last, name.first) takes 1 to 2 values, not 3", many.message)
+        assertEquals("index users(name.last, name.first) takes 2 values, not 0", none.message)
+        assertEquals("index users(name.last, name.first) takes 2 values, not 1", fewer.message)
+        assertEquals("index users(name.last, name.first) takes 2 values, not 3", many.message)
         assertEquals("Unsupported value: Char", type.message)
         assertEquals(FLOAT_IS_NOT_AN_SQL_REAL, float.message)
     }

@@ -197,11 +197,20 @@ internal fun Where.render(inline: Boolean = false): Fragment {
     fun value(value: SqlValue): Fragment = if (inline) Fragment(value.literal) else Fragment("?", listOf(value))
 
     return when (this) {
+        // An id equal to a text finds its row by the key; the id text is compared too, so the match stays exact.
+        is Where.Compare if !inline && path.field == ID && comparison == Comparison.Eq && value is SqlValue.Text ->
+            Fragment("($ID_KEY = ${idBytes("?")} AND ${path.sql} = ?)", listOf(value, value))
+
         is Where.Compare -> Fragment("${path.sql} ${comparison.sql} ") + value(value)
 
         is Where.In ->
             when {
                 values.isEmpty() -> Fragment("0 = 1")
+                !inline && path.field == ID && values.all { it is SqlValue.Text } -> Fragment(
+                    "($ID_KEY IN (SELECT ${idBytes("value")} FROM json_each(?)) AND " +
+                        "${path.sql} IN (SELECT value FROM json_each(?)))",
+                    listOf(values.jsonArray, values.jsonArray),
+                )
                 inline -> values.map(::value).joinToFragment(", ", prefix = "${path.sql} IN (", postfix = ")")
                 // One parameter however many values, so SQLite's limit on parameters never applies.
                 else -> Fragment("${path.sql} IN (SELECT value FROM json_each(?))", listOf(values.jsonArray))

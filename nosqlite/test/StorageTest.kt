@@ -157,12 +157,7 @@ internal class StorageTest {
         assertEquals(
             listOf(
                 listOf(
-                    """
-                    CREATE TABLE "nsq_users" (
-                        data BLOB NOT NULL,
-                        CONSTRAINT document_id CHECK (json_type(data, '$.id') IS 'text' AND (data ->> '$.id') GLOB '$CANONICAL_UUID_GLOB')
-                    ) STRICT
-                    """.trimIndent(),
+                    tableSql("nsq_users"),
                 ),
             ),
             db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'nsq_users'"),
@@ -298,19 +293,14 @@ internal class StorageTest {
         assertEquals(
             listOf(
                 listOf(
-                    """
-                    CREATE TABLE "nsq_notes" (
-                        data BLOB NOT NULL,
-                        CONSTRAINT document_id CHECK (json_type(data, '$.id') IS 'text' AND (data ->> '$.id') GLOB '$CANONICAL_UUID_GLOB')
-                    ) STRICT
-                    """.trimIndent(),
+                    tableSql("nsq_notes"),
                 ),
             ),
             db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'nsq_notes'"),
         )
         val notes: Collection = Notes
         assertEquals(
-            listOf(listOf("""CREATE UNIQUE INDEX "${idIndexName(notes)}" ON "nsq_notes" ($ID_VALUE)""")),
+            emptyList(),
             db.querySql("SELECT sql FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'nsq_notes'"),
         )
         assertEquals(
@@ -499,27 +489,6 @@ internal class StorageTest {
     }
 
     @Test
-    fun `a failed id index is created when the untracked write tries again`() = runTest {
-        val notes: Collection = Notes
-        val indexSql = "CREATE UNIQUE INDEX IF NOT EXISTS ${identifier(idIndexName(notes))} " +
-            "ON ${table(notes.name)} ($ID_VALUE);"
-        val driver = FailingDriver(indexSql, times = 1)
-        val db = NoSqlite(driver = driver) { }
-        val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
-
-        db.write(untracked = true) {
-            assertFails { upsert("notes", note) }
-            upsert("notes", note)
-        }
-
-        assertEquals(
-            listOf(listOf(idIndexName(notes))),
-            db.querySql("SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'nsq_notes'"),
-        )
-        assertEquals(1L, db.read { Notes.count() })
-    }
-
-    @Test
     fun `collection declared twice is rejected`() {
         val error = assertFailsWith<IllegalArgumentException> {
             NoSqlite {
@@ -577,7 +546,7 @@ internal class StorageTest {
         val db = NoSqlite { +People }
         db.write { People.insert(User(uuid("ada"), "ada", 36)) }
         db.pool().writeSql {
-            execute("""INSERT INTO nsq_people (data) VALUES (jsonb('{"id":"${uuid("x")}","name":1}'))""")
+            execute(rawInsert("nsq_people", uuid("x"), """{"name":1}"""))
         }
 
         val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.list<User>() } }
@@ -591,7 +560,8 @@ internal class StorageTest {
         val db = NoSqlite { +People }
         db.write { People.insert(User(uuid("ada"), "ada", 36)) }
         db.pool().writeSql {
-            execute("""INSERT INTO nsq_people (data) VALUES (jsonb('{"id":"${uuid("x")}","name":1}'))""")
+            // Its id sorts between ada and alan, so forEach reaches it second.
+            execute(rawInsert("nsq_people", uuid("ada2"), """{"name":1}"""))
         }
         db.write { People.insert(User(uuid("alan"), "alan", 41)) }
         val seen = mutableListOf<String>()
@@ -605,7 +575,7 @@ internal class StorageTest {
     fun `document its class rejects names its collection`() = runTest {
         val db = NoSqlite { +Adults }
         db.pool().writeSql {
-            execute("""INSERT INTO nsq_adults (data) VALUES (jsonb('{"id":"${uuid("kid")}","age":17}'))""")
+            execute(rawInsert("nsq_adults", uuid("kid"), """{"age":17}"""))
         }
 
         val error = assertFailsWith<NoSqliteException.DecodingFailed> { db.read { Adults.list<Adult>() } }
@@ -615,11 +585,20 @@ internal class StorageTest {
     }
 }
 
-private fun idIndexName(collection: Collection): String = Queries.idIndexName(collection.name)
-
-private val NOTES_TABLE_SQL = """
-    CREATE TABLE IF NOT EXISTS "nsq_notes" (
+/** The `CREATE TABLE` of a collection's table, as `sqlite_schema` stores it. */
+private fun tableSql(table: String): String = """
+    CREATE TABLE "$table" (
+        id BLOB NOT NULL PRIMARY KEY,
         data BLOB NOT NULL,
-        CONSTRAINT document_id CHECK (json_type(data, '$.id') IS 'text' AND ($ID_VALUE) GLOB '$CANONICAL_UUID_GLOB')
-    ) STRICT;
+        CONSTRAINT document_id CHECK (
+            json_type(data, '$.id') IS 'text' AND ($ID_VALUE) GLOB '$CANONICAL_UUID_GLOB'
+            AND id = unhex(replace($ID_VALUE, '-', ''))
+        )
+    ) STRICT, WITHOUT ROWID
 """.trimIndent()
+
+private val NOTES_TABLE_SQL = tableSql("nsq_notes").replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS") + ";"
+
+/** Inserts [json] with [id] added, bypassing the library, so a test can store what it would reject. */
+private fun rawInsert(table: String, id: Uuid, json: String): String =
+    "INSERT INTO $table (id, data) VALUES (unhex('${id.toHexString()}'), jsonb_set(jsonb('$json'), '$.id', '$id'));"

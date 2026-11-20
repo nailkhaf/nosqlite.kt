@@ -23,7 +23,8 @@ internal data class Query(val condition: Where?, val orderBy: List<Order>, val l
  *     offset(40)
  * }
  * ```
- * Documents with equal sort keys come in an unspecified order; sort by `id` last for stable pages.
+ * Documents with equal sort keys come in id order when an index covers the keys, since every index entry ends with
+ * the id; sort by `id` last to guarantee it.
  */
 @QueryDsl
 public class QueryScope internal constructor() {

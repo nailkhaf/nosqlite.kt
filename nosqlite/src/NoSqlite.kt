@@ -140,8 +140,7 @@ internal suspend fun createSchema(tables: Schema) {
 }
 
 // Indexes are matched by name, which hashes their definition: undeclared ones are dropped, new ones created.
-// A tracked collection also gets its temp triggers on this connection. The id index is not one of these:
-// [Queries.createTable] makes it, and this step only leaves its fixed name in place.
+// A tracked collection also gets its temp triggers on this connection. The id needs no index: it is the table's key.
 context(_: Connection)
 internal suspend fun createSchema(
     collection: Collection,
@@ -150,8 +149,7 @@ internal suspend fun createSchema(
     for (command in Queries.createTable(collection.name)) command.execute()
     val current = indexes[tableName(collection.name)].orEmpty()
     val wanted = collection.indexes.associateBy { it.name }
-    val idIndex = Queries.idIndexName(collection.name)
-    current.filter { it != idIndex && it !in wanted }.forEach { Queries.dropIndex(it).execute() }
+    current.filter { it !in wanted }.forEach { Queries.dropIndex(it).execute() }
     wanted.filterKeys { it !in current }.values.forEach { Queries.createIndex(it).execute() }
     if (collection.tracked) {
         for (trigger in Queries.trackingTriggers(collection.name)) trigger.execute()

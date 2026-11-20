@@ -40,7 +40,7 @@ internal class WriteTest {
         val updated = db.write { Users.update(replacement) { "id" eq ann.id.toString() } }
 
         assertEquals(1, updated)
-        assertEquals(listOf(replacement, bob, cid), db.users())
+        assertEquals(listOf(cid, replacement, bob), db.users())
     }
 
     @Test
@@ -93,7 +93,7 @@ internal class WriteTest {
             assertEquals(0, Users.delete { "id" eq uuid("nobody").toString() })
         }
 
-        assertEquals(listOf(ann, bob, cid), db.users())
+        assertEquals(listOf(cid, ann, bob), db.users())
     }
 
     @Test
