@@ -124,7 +124,7 @@ internal class QueryTest {
     }
 
     @Test
-    fun `without orderBy documents come in id order, whatever order they were written in`() = runTest {
+    fun `without orderBy documents come in id order whatever order they were written in`() = runTest {
         val db = NoSqlite { +Users }
         db.write { for (user in listOf(linus, grace, alan, ada)) Users.insert(user) }
 
