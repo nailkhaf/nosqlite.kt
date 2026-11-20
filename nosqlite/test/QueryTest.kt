@@ -22,6 +22,10 @@ internal class QueryTest {
         val byAge = index("age")
     }
 
+    object UsersByAgeAndId : Collection("users") {
+        val byAgeAndId = index("age", "id")
+    }
+
     private val ada = User(uuid("ada"), Name("Ada", "Lovelace"), 36)
     private val alan = User(uuid("alan"), Name("Alan", "Turing"), 41)
     private val grace = User(uuid("grace"), Name("Grace", "Hopper"), 36)
@@ -109,18 +113,66 @@ internal class QueryTest {
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
 
         assertTrue(Users.byAge.name in plan, plan)
-        assertFalse("TEMP B-TREE" in plan, plan)
+        assertFalse("TEMP B-TREE FOR ORDER BY" in plan, plan)
     }
 
     @Test
-    fun `a descending sort on an indexed field uses the index without a temp b-tree`() = runTest {
+    fun `a descending sort on an indexed field walks the index and sorts only ties by id`() = runTest {
         val db = database()
         val sql = Queries.selectSql(Users.name, query { orderBy { "age".desc } }).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
 
         assertTrue(Users.byAge.name in plan, plan)
+        assertFalse("TEMP B-TREE FOR ORDER BY" in plan, plan)
+    }
+
+    @Test
+    fun `without orderBy documents come by id`() = runTest {
+        val db = database()
+
+        val users = db.read { Users.list<User>() }
+
+        assertEquals(listOf(ada, alan, grace, linus).sortedBy { it.id.toString() }, users)
+    }
+
+    @Test
+    fun `without orderBy the id index gives the order without a temp b-tree`() = runTest {
+        val db = database()
+        val sql = Queries.selectSql(Users.name, query { }).sql
+
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
+
+        assertTrue(Queries.idIndexName(Users.name) in plan, plan)
         assertFalse("TEMP B-TREE" in plan, plan)
+    }
+
+    @Test
+    fun `id breaks ties of the given sort keys`() = runTest {
+        val db = database()
+
+        val users = db.read { Users.list<User> { orderBy { "age".desc } } }
+
+        assertEquals(listOf(alan, ada, grace, linus), users)
+    }
+
+    @Test
+    fun `an index ending with id gives an ascending order without a temp b-tree`() = runTest {
+        val db = NoSqlite { +UsersByAgeAndId }
+        val sql = Queries.selectSql(UsersByAgeAndId.name, query { orderBy { "age".asc } }).sql
+
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
+
+        assertTrue(UsersByAgeAndId.byAgeAndId.name in plan, plan)
+        assertFalse("TEMP B-TREE" in plan, plan)
+    }
+
+    @Test
+    fun `an id sort key is not repeated`() {
+        val sql = Queries.selectSql(Users.name, query { orderBy { "id".desc } }).sql
+
+        assertEquals(1, Regex("ORDER BY").findAll(sql).count())
+        assertTrue(sql.contains("ORDER BY ${Path("id").sql} DESC LIMIT"), sql)
     }
 
     @Test
@@ -160,7 +212,7 @@ internal class QueryTest {
         assertEquals(emptyList(), query.orderBy)
         assertEquals(Int.MAX_VALUE, query.limit)
         assertEquals(0, query.offset)
-        assertFalse("ORDER BY" in Queries.selectSql(Users.name, query).sql)
+        assertTrue("ORDER BY ${Path("id").sql} ASC LIMIT" in Queries.selectSql(Users.name, query).sql)
     }
 
     @Test

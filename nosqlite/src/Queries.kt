@@ -69,11 +69,10 @@ internal object Queries {
         selectSql(collection, query).statement(rows { decode(collection, serializer, this) })
 
     fun selectSql(collection: String, query: Query): Fragment {
-        // No implicit rowid: a descending key must be able to walk its index backwards.
-        val order = query.orderBy
-            .takeIf { it.isNotEmpty() }
-            ?.joinToString(", ", prefix = " ORDER BY ") { "${it.path.sql} ${if (it.descending) "DESC" else "ASC"}" }
-            .orEmpty()
+        // `id` breaks ties, so the order is deterministic. Not rowid, which `VACUUM` may renumber.
+        val keys = query.orderBy.map { "${it.path.sql} ${if (it.descending) "DESC" else "ASC"}" }
+        val tieBreaker = "$ID_VALUE ASC".takeIf { query.orderBy.none { it.path.field == ID } }
+        val order = (keys + listOfNotNull(tieBreaker)).joinToString(", ", prefix = " ORDER BY ")
         val page = Fragment(
             "$order LIMIT ? OFFSET ?;",
             listOf(SqlValue.Integer(query.limit.toLong()), SqlValue.Integer(query.offset.toLong())),

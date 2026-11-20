@@ -17,11 +17,11 @@ import kotlin.uuid.Uuid
 class TaskRepository(location: Location) {
     private val db = NoSqlite(location) { +Tasks }
 
-    /** Open tasks first. Tasks with the same done value have an unspecified order. */
+    /** Open tasks first, each group in creation order, because ids are UUID v7 and ties sort by id. */
     val tasks: Flow<List<Task>> = with(db) { Tasks.observe<Task> { orderBy { Task::done.asc } } }
 
     suspend fun add(title: String) {
-        db.write { Tasks.insert(Task(Uuid.random(), title)) }
+        db.write { Tasks.insert(Task(Uuid.generateV7(), title)) }
     }
 
     suspend fun toggle(task: Task) {

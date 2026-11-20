@@ -68,8 +68,8 @@ object Users : Collection("users") {
 
 val db = NoSqlite("app.db") { +Users }
 
-val adaId = Uuid.random()
-val alanId = Uuid.random()
+val adaId = Uuid.generateV7()
+val alanId = Uuid.generateV7()
 
 db.write {
     Users.insert(User(adaId, "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
@@ -139,7 +139,9 @@ It takes its leading fields, `null` matching a null or missing field, and finds 
 ### Ids
 
 Every document needs an `id`: a `kotlin.uuid.Uuid` string, stored as `Uuid.toString()`. A `Uuid` property serializes
-to that string. SQLite checks it on every write. `id(value)` takes that `Uuid` and addresses the one document:
+to that string. SQLite checks it on every write. Create ids with `Uuid.generateV7()`: v7 ids start with their
+creation time, and queries sort by id last, so documents come in the order they were created. Any UUID works, but
+`Uuid.random()` (v4) ids sort in no meaningful order. `id(value)` takes that `Uuid` and addresses the one document:
 `get<T>()` returns it or `null`, and
 `update(value)` and `delete()` report whether there was one. `observe` on it emits that document, or `null` while
 there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
@@ -223,8 +225,10 @@ element, `like` for a pattern (`"title" like "%milk%"`, case-insensitive for ASC
 because `toDouble()` is not exact and `0.1f` would not match the stored real `0.1`; write a fraction as a `Double`
 (`"ratio" eq 0.1`). `Short`, `Byte` and other number types are the same. Other values compare as they are stored,
 so an enum as its serial name (`"role" eq "member"`). A `Double` that is `NaN` or infinite is rejected when the
-condition is built. The order of documents with equal sort keys is unspecified, so add `id` as the last
-sort key when a stable order or offset pagination matters.
+condition is built. Every query sorts by `id` last, so the order is deterministic and offset pages are stable:
+without `orderBy` documents come by id, and documents with equal sort keys come by id. If `orderBy` already has `id`,
+nothing is added. Sorting by an indexed field still reads that index, and only documents that tie on it are sorted
+by id; for an ascending sort, an index that ends with `id` (`index(User::age, User::id)`) avoids even that.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
 run other queries in that same transaction, one at a time.

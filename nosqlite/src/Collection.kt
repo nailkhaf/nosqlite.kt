@@ -77,7 +77,7 @@ public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
     changed()
 }
 
-/** The documents [query] selects, as [T]; without one, every document in an unspecified order. */
+/** The documents [query] selects, as [T]; without one, every document. Ties in the order, and no order, sort by id. */
 context(_: ReadScope)
 public suspend inline fun <reified T> Collection.list(noinline query: QueryBlock = {}): List<T> =
     list(serializer(), query)

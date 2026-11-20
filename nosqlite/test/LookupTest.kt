@@ -91,7 +91,7 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(ada, grace, byron), Users.byAge(36).list<User>())
+            assertEquals(listOf(ada, byron, grace), Users.byAge(36).list<User>())
             assertEquals(3, Users.byAge(36).count())
             assertEquals(listOf(grace), Users.byActive(false).list<User>())
             assertEquals(emptyList(), Users.byAge(99).list<User>())
@@ -167,7 +167,7 @@ internal class LookupTest {
             assertEquals(1, Users.byAge(41).delete())
         }
 
-        assertEquals(listOf(ada, grace.copy(age = 51), byron), db.read { Users.list<User>() })
+        assertEquals(listOf(ada, byron, grace.copy(age = 51)), db.read { Users.list<User>() })
     }
 
     @Test
@@ -191,7 +191,7 @@ internal class LookupTest {
             Users.upsert(ada.copy(age = 37))
         }
 
-        assertEquals(listOf(ada.copy(age = 37), alan, grace, byron, carol), db.read { Users.list<User>() })
+        assertEquals(listOf(ada.copy(age = 37), alan, byron, grace, carol), db.read { Users.list<User>() })
         assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM nsq_users WHERE data ->> '$.id' = '${ada.id}'"))
     }
 
