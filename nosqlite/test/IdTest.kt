@@ -48,7 +48,7 @@ internal class IdTest {
         assertEquals(0, db.read { Users.count() })
 
         db.write { Users.insert(buildJsonObject { put("id", canonical); put("name", "Ada") }) }
-        val stored = db.read { Users.id(Uuid.parse(canonical)).get<JsonObject>() }!!
+        val stored = db.read { Users.byId(Uuid.parse(canonical)).get<JsonObject>() }!!
             .getValue("id").jsonPrimitive.content
 
         assertEquals(canonical, stored)
@@ -69,7 +69,7 @@ internal class IdTest {
             assertEquals("Id of a document in 'users' is immutable", error.message)
         }
 
-        assertEquals(ada, db.read { Users.id(adaId).get<JsonObject>() })
+        assertEquals(ada, db.read { Users.byId(adaId).get<JsonObject>() })
     }
 
     @Test
@@ -79,15 +79,15 @@ internal class IdTest {
         db.write { Users.insert(ada) }
 
         val cleared = assertFailsWith<NoSqliteException.ImmutableId> {
-            db.write { Users.id(adaId).update(buildJsonObject { put("id", JsonNull) }) }
+            db.write { Users.byId(adaId).update(buildJsonObject { put("id", JsonNull) }) }
         }
         val rewritten = assertFailsWith<NoSqliteException.ImmutableId> {
-            db.write { Users.id(adaId).update(buildJsonObject { put("id", "ada") }) }
+            db.write { Users.byId(adaId).update(buildJsonObject { put("id", "ada") }) }
         }
 
         assertEquals("users", cleared.collection)
         assertEquals("users", rewritten.collection)
-        assertEquals(ada, db.read { Users.id(adaId).get<JsonObject>() })
+        assertEquals(ada, db.read { Users.byId(adaId).get<JsonObject>() })
     }
 
     @Test
@@ -97,16 +97,16 @@ internal class IdTest {
         db.write { Users.insert(ada) }
 
         val update = assertFailsWith<NoSqliteException.ImmutableId> {
-            db.write { Users.id(adaId).update(buildJsonObject { put("id", alanId.toString()) }) }
+            db.write { Users.byId(adaId).update(buildJsonObject { put("id", alanId.toString()) }) }
         }
         val replace = assertFailsWith<NoSqliteException.ImmutableId> {
-            db.write { Users.id(adaId).update(person(alanId), merge = false) }
+            db.write { Users.byId(adaId).update(person(alanId), merge = false) }
         }
 
         assertEquals("users", update.collection)
         assertEquals("Id of a document in 'users' is immutable", update.message)
         assertEquals("users", replace.collection)
-        assertEquals(ada, db.read { Users.id(adaId).get<JsonObject>() })
+        assertEquals(ada, db.read { Users.byId(adaId).get<JsonObject>() })
     }
 
     @Test
@@ -116,7 +116,7 @@ internal class IdTest {
         db.write {
             Users.insert(person(adaId))
             assertFailsWith<NoSqliteException.ImmutableId> {
-                Users.id(adaId).update(buildJsonObject { put("id", alanId.toString()) })
+                Users.byId(adaId).update(buildJsonObject { put("id", alanId.toString()) })
             }
             Users.insert(person(alanId))
         }
@@ -137,8 +137,8 @@ internal class IdTest {
 
         assertEquals("users", error.collection)
         assertEquals("Duplicate id in 'users'", error.message)
-        assertEquals(ada, db.read { Users.id(adaId).get<JsonObject>() })
-        assertNull(db.read { Users.id(alanId).get<JsonObject>() })
+        assertEquals(ada, db.read { Users.byId(adaId).get<JsonObject>() })
+        assertNull(db.read { Users.byId(alanId).get<JsonObject>() })
     }
 
     @Test
@@ -161,7 +161,7 @@ internal class IdTest {
 
         db.write { Users.upsert(buildJsonObject { put("id", adaId.toString()); put("name", "Augusta") }) }
 
-        assertEquals(person(adaId, name = "Augusta", plan = "pro"), db.read { Users.id(adaId).get<JsonObject>() })
+        assertEquals(person(adaId, name = "Augusta", plan = "pro"), db.read { Users.byId(adaId).get<JsonObject>() })
     }
 
     @Test
@@ -175,8 +175,8 @@ internal class IdTest {
             Users.upsert(person(alanId), merge = false)
         }
 
-        assertEquals(augusta, db.read { Users.id(adaId).get<JsonObject>() })
-        assertEquals(person(alanId), db.read { Users.id(alanId).get<JsonObject>() })
+        assertEquals(augusta, db.read { Users.byId(adaId).get<JsonObject>() })
+        assertEquals(person(alanId), db.read { Users.byId(alanId).get<JsonObject>() })
     }
 
     @Test
@@ -197,10 +197,10 @@ internal class IdTest {
 
             val reopened = NoSqlite(location) { +Users }
             val update = assertFailsWith<NoSqliteException.ImmutableId> {
-                reopened.write { Users.id(adaId).update(buildJsonObject { put("id", alanId.toString()) }) }
+                reopened.write { Users.byId(adaId).update(buildJsonObject { put("id", alanId.toString()) }) }
             }
             assertEquals("users", update.collection)
-            assertEquals(ada, reopened.read { Users.id(adaId).get<JsonObject>() })
+            assertEquals(ada, reopened.read { Users.byId(adaId).get<JsonObject>() })
             reopened.close()
         }
     }

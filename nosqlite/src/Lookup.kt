@@ -7,8 +7,8 @@ import kotlin.uuid.Uuid
 /**
  * Documents addressed in one collection: by an index's values, [Many], or by id, [Id].
  * ```
- * Users.id(ada).get<User>()
- * Users.byAge(36).list<User> { orderBy { "name.last".asc } }
+ * Users.byId(ada).get<User>()
+ * Users.byAge(36).list<User> { orderBy { Users.byName.asc } }
  * Users.byName("Lovelace", "Ada").count()
  * ```
  */
@@ -20,13 +20,10 @@ public sealed class Lookup(internal val collection: Collection) {
      * documents, in id order.
      */
     public class Many internal constructor(
-        internal val index: Index,
+        internal val index: FieldIndex,
         internal val values: List<SqlValue>,
     ) : Lookup(index.collection) {
-        // A partial index's own condition is part of every lookup, so only the documents it indexes match.
-        override val condition: Where = index.paths.zip(values) { path, value ->
-            if (value == SqlValue.Null) Where.IsNull(path) else Where.Compare(path, Comparison.Eq, value)
-        }.plus(listOfNotNull(index.where)).reduce { left, right -> Where.And(left, right) }
+        override val condition: Where = index.equal(values)
 
         override fun toString(): String = "$index = ${values.map { it.literal }}"
     }
@@ -43,10 +40,21 @@ public sealed class Lookup(internal val collection: Collection) {
  * Looks up [values] of this index's fields, one per field and in order. A `null` value matches a null or missing
  * field. The index walks its matches in id order, since every index entry ends with the id.
  */
-public operator fun Index.invoke(vararg values: Any?): Lookup.Many {
+public operator fun FieldIndex.invoke(vararg values: Any?): Lookup.Many = Lookup.Many(this, sqlValues(values))
+
+/** One SQL value per field of this index, in order; any other number throws. */
+internal fun FieldIndex.sqlValues(values: Array<out Any?>): List<SqlValue> {
     require(values.size == paths.size) { "$this takes ${paths.size} values, not ${values.size}" }
-    return Lookup.Many(this, values.map(::sqlValue))
+    return values.map(::sqlValue)
 }
+
+/**
+ * Every field of this index equal to its value, `null` matching a null or missing field, with a partial index's own
+ * condition, so only the documents it indexes match.
+ */
+internal fun FieldIndex.equal(values: List<SqlValue>): Where = paths.zip(values) { path, value ->
+    if (value == SqlValue.Null) Where.IsNull(path) else Where.Compare(path, Comparison.Eq, value)
+}.plus(listOfNotNull(where)).reduce { left, right -> Where.And(left, right) }
 
 internal fun sqlValue(value: Any?): SqlValue = when (value) {
     null -> SqlValue.Null
@@ -129,8 +137,8 @@ public suspend fun Lookup.Many.delete(): Int = collection.delete { condition }
 internal fun idCondition(value: Uuid): Where =
     Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
 
-/** The document of this collection with [value] as its id. */
-public fun Collection.id(value: Uuid): Lookup.Id = Lookup.Id(this, value)
+/** The document of this collection with [value] as its id: `Users.byId(ada.id)`. */
+public operator fun IdIndex.invoke(value: Uuid): Lookup.Id = Lookup.Id(collection, value)
 
 /** The document as [T], `null` when there is none. */
 context(_: ReadScope)

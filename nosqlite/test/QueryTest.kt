@@ -20,6 +20,11 @@ internal class QueryTest {
 
     object Users : Collection("users") {
         val byAge = index("age")
+        val byName = index("name.last", "name.first")
+    }
+
+    object Teams : Collection("teams") {
+        val byName = index("name")
     }
 
     private val ada = User(uuid("ada"), Name("Ada", "Lovelace"), 36)
@@ -145,6 +150,76 @@ internal class QueryTest {
     }
 
     @Test
+    fun `an index sorts by its fields then by id`() = runTest {
+        val db = database()
+
+        db.read {
+            assertEquals(listOf(linus, ada, grace, alan), Users.list<User> { orderBy { Users.byAge.asc } })
+            assertEquals(listOf(alan, grace, ada, linus), Users.list<User> { orderBy { Users.byAge.desc } })
+            assertEquals(listOf(grace, ada, linus, alan), Users.list<User> { orderBy { Users.byName.asc } })
+        }
+    }
+
+    @Test
+    fun `byId sorts by id alone`() = runTest {
+        val db = database()
+
+        db.read {
+            assertEquals(listOf(ada, alan, grace, linus), Users.list<User> { orderBy { Users.byId.asc } })
+            assertEquals(listOf(linus, grace, alan, ada), Users.list<User> { orderBy { Users.byId.desc } })
+        }
+    }
+
+    @Test
+    fun `a field sort ends with the id in the direction of its last key`() = runTest {
+        val db = database()
+
+        db.read {
+            assertEquals(listOf(alan, grace, ada, linus), Users.list<User> { orderBy { "age".desc } })
+            assertEquals(listOf(linus, ada, grace, alan), Users.list<User> { orderBy { "age".asc } })
+        }
+        assertEquals(
+            " ORDER BY data ->> '$.age' DESC, id DESC LIMIT ? OFFSET ?;",
+            Queries.selectSql(Users.name, query { orderBy { "age".desc } }).sql.substringAfter("nsq_users"),
+        )
+    }
+
+    @Test
+    fun `a sort stops at the id`() {
+        val sql = Queries.selectSql(Users.name, query { orderBy { "id".asc; "age".desc } }).sql
+
+        assertEquals(" ORDER BY id ASC LIMIT ? OFFSET ?;", sql.substringAfter("nsq_users"))
+    }
+
+    @Test
+    fun `sorting by an index and its id reads the index without sorting`() = runTest {
+        val db = database()
+
+        for ((index, order) in listOf<Pair<FieldIndex, QueryBlock>>(
+            Users.byAge to { orderBy { Users.byAge.asc } },
+            Users.byAge to { orderBy { Users.byAge.desc } },
+            Users.byName to { orderBy { Users.byName.asc } },
+            Users.byName to { orderBy { Users.byName.desc } },
+        )) {
+            val sql = Queries.selectSql(Users.name, query { order(); limit(2) }).sql
+
+            val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
+
+            assertTrue(index.name in plan, plan)
+            assertFalse("TEMP B-TREE" in plan, plan)
+        }
+    }
+
+    @Test
+    fun `sorting by an index of another collection is rejected`() {
+        val error = assertFailsWith<IllegalArgumentException> {
+            Queries.selectSql(Users.name, query { orderBy { Teams.byName.asc } })
+        }
+
+        assertEquals("Collection 'users' can't sort by an index of 'teams'", error.message)
+    }
+
+    @Test
     fun `invalid order fields are rejected`() {
         val error = assertFailsWith<IllegalArgumentException> { query { orderBy { "first name".desc } } }
 
@@ -156,6 +231,10 @@ internal class QueryTest {
         val query = query { orderBy { "name.last".asc; "age".desc } }
 
         assertEquals("[name.last asc, age desc]", query.orderBy.toString())
+        assertEquals(
+            "[name.last desc, name.first desc, id desc]",
+            query { orderBy { Users.byName.desc } }.orderBy.toString(),
+        )
     }
 
     @Test

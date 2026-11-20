@@ -74,20 +74,17 @@ val alanId = Uuid.generateV7()
 db.write {
     Users.insert(User(adaId, "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
     Users.upsert(User(alanId, "alan@example.com", Name("Alan", "Turing"), 41))
-    Users.id(alanId).update(User(alanId, "alan@example.com", Name("Alan", "Turing"), 42))
+    Users.byId(alanId).update(User(alanId, "alan@example.com", Name("Alan", "Turing"), 42))
     Users.delete { User::age lt 18 }
 }
 
 db.read {
-    val ada: User? = Users.id(adaId).get<User>()
-    val raw: JsonObject? = Users.id(adaId).get<JsonObject>()
+    val ada: User? = Users.byId(adaId).get<User>()
+    val raw: JsonObject? = Users.byId(adaId).get<JsonObject>()
     val lovelaces: List<User> = Users.byName("Lovelace", "Ada").list<User>()
     val adults: List<User> = Users.list<User> {
-        where { (User::age gte 18) and (User::tags contains "kotlin") }
-        orderBy {
-            User::age.desc
-            (User::name / Name::last).asc
-        }
+        where { (Users.byAge gte 18) and (User::tags contains "kotlin") }
+        orderBy { Users.byAge.desc }
         limit(20)
     }
     val count: Long = Users.count { User::age gte 18 }
@@ -96,7 +93,7 @@ db.read {
 
 with(db) {
     Users.observe<User> { where { User::age gte 18 } }.collect { adults -> render(adults) }
-    Users.id(adaId).observe<User>().collect { ada -> render(ada) }
+    Users.byId(adaId).observe<User>().collect { ada -> render(ada) }
 }
 ```
 
@@ -135,13 +132,28 @@ Fewer values throw. It finds any number: `list<T> { }`,
 `count { condition }`, `update(value)` and `delete()` return the documents or how many there were, and
 `forEach<T> { action }` streams them, as on a collection.
 
+An index also filters and sorts in a query, and SQLite reads it for both:
+
+```kotlin
+Users.list<User> {
+    where { (Users.byAge gte 18) and Users.byName.gt("Lovelace", "Ada") }
+    orderBy { Users.byName.asc }
+}
+```
+
+In `where`, calling an index, `Users.byAge(36)`, matches as its lookup does. A one-field index takes `eq`, `gt`,
+`gte`, `lt` and `lte`. A multi-field index takes `gt`, `gte`, `lt` and `lte` with one value per field, compared as a
+whole, so `Users.byName.gt("Lovelace", "Ada")` matches Lovelace Byron and Turing Alan: the next page after a
+document. A partial index's own condition holds too. In `orderBy`, `Users.byName.asc` sorts by every field of the
+index, then the id. `Users.byId` is the collection's own key: `Users.byId.desc` sorts by id alone, newest first.
+
 ### Ids
 
 Every document needs an `id`: a `kotlin.uuid.Uuid` string, stored as `Uuid.toString()`. A `Uuid` property serializes
 to that string. SQLite checks it on every write. Create ids with `Uuid.generateV7()`: v7 ids start with their
 creation time, so id order is creation order, oldest first (see Reads and queries). Any UUID works, but
 `Uuid.random()` (v4) ids sort in no meaningful order. `generateV7()` needs
-`@OptIn(ExperimentalUuidApi::class)`. `id(value)` takes that `Uuid` and addresses the one document:
+`@OptIn(ExperimentalUuidApi::class)`. `Users.byId(value)` takes that `Uuid` and addresses the one document:
 `get<T>()` returns it or `null`, and
 `update(value)` and `delete()` report whether there was one. `observe` on it emits that document, or `null` while
 there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
@@ -161,7 +173,7 @@ Inside `db.write { }`:
 - `upsert(value)` inserts the document, or updates the one with its id as `update` does, `merge = false` included.
 
 To change a few fields without the whole class, pass a `JsonObject` as the patch:
-`Users.id(adaId).update(buildJsonObject { put("age", 37) })`.
+`Users.byId(adaId).update(buildJsonObject { put("age", 37) })`.
 
 `insert` and `upsert` return nothing. The others return how many documents they touched, and the by-id forms of
 `update` and `delete` return whether there was one. A write commits when its block returns and rolls back when it
@@ -193,8 +205,8 @@ it doesn't know yet:
 
 ```kotlin
 db.write { Users.insert(downloaded) } // a JsonObject with a "plan" field User doesn't have
-db.write { Users.id(ada.id).update(ada.copy(age = 37)) } // "plan" is still there
-val upload: JsonObject? = db.read { Users.id(ada.id).get<JsonObject>() }
+db.write { Users.byId(ada.id).update(ada.copy(age = 37)) } // "plan" is still there
+val upload: JsonObject? = db.read { Users.byId(ada.id).get<JsonObject>() }
 ```
 
 A merge patch replaces lists and merges maps like any object, so it never removes a field the value leaves out.
@@ -209,10 +221,7 @@ one snapshot. The query builder sets each part at most once:
 ```kotlin
 Users.list<User> {
     where { ("age" gte 18) and not("name.last" eq "Smith") }
-    orderBy {
-        "age".desc
-        "name.last".asc
-    }
+    orderBy { Users.byAge.desc }
     limit(20)
     offset(40)
 }
@@ -228,11 +237,16 @@ so an enum as its serial name (`"role" eq "member"`). A `Double` that is `NaN` o
 condition is built.
 
 A collection's table is keyed by the id, so documents are stored in id order, and SQLite ends every index entry with
-the id. Nothing is added to a query's `ORDER BY`, so this costs nothing: a query without `orderBy` reads documents in
-id order, oldest first with v7 ids, and an index lookup returns its matches in id order. A range condition on an
-indexed field, such as `User::age gt 18`, returns them by that field, then id. Ties of `orderBy` keys come in id order
-when an index covers those keys. SQL itself promises no order without `ORDER BY`; sort by `id` (`orderBy {
-User::id.desc }`, newest first) where the order must be guaranteed, which the key makes cheap.
+the id. A query without `orderBy` reads documents in id order, oldest first with v7 ids, at no cost, and an index
+lookup returns its matches in id order. A range condition on an indexed field, such as `Users.byAge gt 18`, returns
+them by that field, then id. SQL itself promises no order without `ORDER BY`; use `orderBy { Users.byId.asc }` where
+the order must be guaranteed, which the key makes free.
+
+`orderBy` takes an index, `Users.byAge.desc`, or fields, `"age".desc` or `User::age.desc`. The id is always the last
+sort key, in the direction of the key before it, so documents with equal keys come in a fixed order. Prefer an index:
+SQLite reads it in order, so the sort costs nothing. A field sort reads an index only when one has exactly those
+fields; otherwise SQLite sorts in memory, and sorting by only the first field of a longer index, `"name.last".asc`
+with `byName`, stops it from reading that index.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
 run other queries in that same transaction, one at a time.

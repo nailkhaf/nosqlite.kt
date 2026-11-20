@@ -4,10 +4,14 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.jvm.JvmName
+import kotlin.uuid.Uuid
 
 /** A filter on documents, built in [WhereScope]. */
 public sealed class Where {
     internal class Compare(val path: Path, val comparison: Comparison, val value: SqlValue) : Where()
+
+    /** The fields taken together, compared in order as SQLite compares row values: `(last, first) > (?, ?)`. */
+    internal class CompareRow(val paths: List<Path>, val comparison: Comparison, val values: List<SqlValue>) : Where()
     internal class In(val path: Path, val values: List<SqlValue>) : Where()
     internal class IsNull(val path: Path) : Where()
     internal class IsNotNull(val path: Path) : Where()
@@ -159,6 +163,54 @@ public class WhereScope internal constructor() {
     /** [condition] does not hold. */
     public fun not(condition: Where): Where = Where.Not(condition)
 
+    /** Every field of the index equals its value, as the lookup `Users.byName("Lovelace", "Ada")` finds. */
+    public operator fun FieldIndex.invoke(vararg values: Any?): Where = equal(sqlValues(values))
+
+    /** The document with id [value], as the lookup `Users.byId(id)` finds. */
+    public operator fun IdIndex.invoke(value: Uuid): Where = idCondition(value)
+
+    /** The one field of the index equals [value], `null` matching a null or missing field. */
+    public infix fun FieldIndex.eq(value: Any?): Where = equal(sqlValues(arrayOf(value)))
+
+    /** The one field of the index is greater than [value]. */
+    public infix fun FieldIndex.gt(value: Any): Where = compare(Comparison.Gt, arrayOf(value))
+
+    /** The one field of the index is at least [value]. */
+    public infix fun FieldIndex.gte(value: Any): Where = compare(Comparison.Gte, arrayOf(value))
+
+    /** The one field of the index is less than [value]. */
+    public infix fun FieldIndex.lt(value: Any): Where = compare(Comparison.Lt, arrayOf(value))
+
+    /** The one field of the index is at most [value]. */
+    public infix fun FieldIndex.lte(value: Any): Where = compare(Comparison.Lte, arrayOf(value))
+
+    /**
+     * The index's fields, taken together in order, come after [values], one per field: `Users.byName.gt("Lovelace",
+     * "Ada")` matches Lovelace Byron and Turing Alan. SQLite reads the index for it, so it finds the next page after a
+     * document quickly.
+     */
+    public fun FieldIndex.gt(vararg values: Any): Where = compare(Comparison.Gt, values)
+
+    /** As [gt], also matching [values] themselves. */
+    public fun FieldIndex.gte(vararg values: Any): Where = compare(Comparison.Gte, values)
+
+    /** The index's fields, taken together in order, come before [values], one per field. */
+    public fun FieldIndex.lt(vararg values: Any): Where = compare(Comparison.Lt, values)
+
+    /** As [lt], also matching [values] themselves. */
+    public fun FieldIndex.lte(vararg values: Any): Where = compare(Comparison.Lte, values)
+
+    // A partial index's own condition holds too, as it does for its lookups.
+    private fun FieldIndex.compare(comparison: Comparison, values: Array<out Any>): Where {
+        val row = sqlValues(values)
+        val compared = if (paths.size == 1) {
+            Where.Compare(paths.single(), comparison, row.single())
+        } else {
+            Where.CompareRow(paths, comparison, row)
+        }
+        return where?.let { Where.And(compared, it) } ?: compared
+    }
+
     private fun compare(field: String, comparison: Comparison, value: SqlValue): Where =
         Where.Compare(Path(field), comparison, value)
 }
@@ -202,6 +254,10 @@ internal fun Where.render(inline: Boolean = false): Fragment {
             Fragment("($ID_KEY = ${idBytes("?")} AND ${path.sql} = ?)", listOf(value, value))
 
         is Where.Compare -> Fragment("${path.sql} ${comparison.sql} ") + value(value)
+
+        is Where.CompareRow ->
+            Fragment(paths.joinToString(", ", prefix = "(", postfix = ") ${comparison.sql} ") { it.sql }) +
+                values.map(::value).joinToFragment(", ", prefix = "(", postfix = ")")
 
         is Where.In ->
             when {

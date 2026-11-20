@@ -55,8 +55,8 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(ada, Users.id(ada.id).get<User>())
-            assertNull(Users.id(uuid("nobody")).get<User>())
+            assertEquals(ada, Users.byId(ada.id).get<User>())
+            assertNull(Users.byId(uuid("nobody")).get<User>())
         }
     }
 
@@ -75,12 +75,12 @@ internal class LookupTest {
         val db = database()
 
         db.write {
-            assertTrue(Users.id(ada.id).update(ada.copy(age = 37)))
-            assertFalse(Users.id(uuid("nobody")).update(ada))
-            assertTrue(Users.id(alan.id).update(alan.copy(age = 42), merge = false))
-            assertFalse(Users.id(uuid("nobody")).update(ada, merge = false))
-            assertTrue(Users.id(grace.id).delete())
-            assertFalse(Users.id(grace.id).delete())
+            assertTrue(Users.byId(ada.id).update(ada.copy(age = 37)))
+            assertFalse(Users.byId(uuid("nobody")).update(ada))
+            assertTrue(Users.byId(alan.id).update(alan.copy(age = 42), merge = false))
+            assertFalse(Users.byId(uuid("nobody")).update(ada, merge = false))
+            assertTrue(Users.byId(grace.id).delete())
+            assertFalse(Users.byId(grace.id).delete())
         }
 
         assertEquals(listOf(ada.copy(age = 37), alan.copy(age = 42), byron), db.read { Users.list<User>() })
@@ -210,6 +210,105 @@ internal class LookupTest {
     }
 
     @Test
+    fun `calling an index in where finds what its lookup finds`() = runTest {
+        val db = database()
+
+        db.read {
+            assertEquals(Users.byAge(36).list<User>(), Users.list<User> { where { Users.byAge(36) } })
+            assertEquals(listOf(ada), Users.list<User> { where { Users.byName("Lovelace", "Ada") } })
+            assertEquals(listOf(ada), Users.list<User> { where { Users.byNickname("countess") } })
+            assertEquals(emptyList(), Users.list<User> { where { Users.byNickname("amazing") } })
+            assertEquals(listOf(grace), Users.list<User> { where { Users.byId(grace.id) } })
+            assertEquals(listOf(alan, byron), Users.list<User> { where { Users.byNick eq null } })
+            assertEquals(
+                listOf(byron),
+                Users.list<User> { where { Users.byAge(36) and Users.byName("Lovelace", "Byron") } },
+            )
+        }
+    }
+
+    @Test
+    fun `a one-field index compares its field and walks it in order`() = runTest {
+        val db = database()
+
+        db.read {
+            assertEquals(listOf(alan), Users.list<User> { where { Users.byAge gt 36 } })
+            assertEquals(listOf(ada, byron, grace, alan), Users.list<User> { where { Users.byAge gte 36 } })
+            assertEquals(emptyList(), Users.list<User> { where { Users.byAge lt 36 } })
+            assertEquals(listOf(ada, byron, grace), Users.list<User> { where { Users.byAge lte 36 } })
+            assertEquals(listOf(ada, byron, grace), Users.list<User> { where { Users.byAge eq 36 } })
+        }
+    }
+
+    @Test
+    fun `a partial index compares only the documents it indexes`() = runTest {
+        val db = database()
+
+        db.read {
+            assertEquals(listOf(ada), Users.list<User> { where { Users.byNickname gte "a" } })
+        }
+    }
+
+    @Test
+    fun `a multi-field index compares its fields together`() = runTest {
+        val db = database()
+
+        db.read {
+            assertEquals(
+                listOf(byron, alan),
+                Users.list<User> { where { Users.byName.gt("Lovelace", "Ada") }; orderBy { Users.byName.asc } },
+            )
+            assertEquals(
+                listOf(ada, byron, alan),
+                Users.list<User> { where { Users.byName.gte("Lovelace", "Ada") }; orderBy { Users.byName.asc } },
+            )
+            assertEquals(
+                listOf(grace),
+                Users.list<User> { where { Users.byName.lt("Lovelace", "Ada") }; orderBy { Users.byName.asc } },
+            )
+            assertEquals(
+                listOf(grace, ada),
+                Users.list<User> { where { Users.byName.lte("Lovelace", "Ada") }; orderBy { Users.byName.asc } },
+            )
+        }
+    }
+
+    @Test
+    fun `comparing a multi-field index reads the index`() = runTest {
+        val db = database()
+        val select = Queries.selectSql(
+            Users.name,
+            query { where { Users.byName.gt("Lovelace", "Ada") }; orderBy { Users.byName.asc }; limit(2) },
+        )
+        val params = select.params.iterator()
+        val sql = Regex("\\?").replace(select.sql) { params.next().literal }
+
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql").joinToString { it.last()!! }
+
+        assertTrue(Users.byName.name in plan, plan)
+        assertFalse("TEMP B-TREE" in plan, plan)
+    }
+
+    @Test
+    fun `an index in where takes one value per field`() {
+        val fewer = assertFailsWith<IllegalArgumentException> { where { Users.byName.gt("Lovelace") } }
+        val many = assertFailsWith<IllegalArgumentException> { where { Users.byAge.gt(1, 2) } }
+        val call = assertFailsWith<IllegalArgumentException> { where { Users.byName("Lovelace") } }
+
+        assertEquals("index users(name.last, name.first) takes 2 values, not 1", fewer.message)
+        assertEquals("index users(age) takes 1 values, not 2", many.message)
+        assertEquals("index users(name.last, name.first) takes 2 values, not 1", call.message)
+    }
+
+    @Test
+    fun `a multi-field comparison reads as its fields taken together`() {
+        assertEquals(
+            "(data ->> '$.name.last', data ->> '$.name.first') > ('Lovelace', 'Ada')",
+            where { Users.byName.gt("Lovelace", "Ada") }.toString(),
+        )
+    }
+
+    @Test
     fun `a lookup takes one value per field and plain values only`() {
         val none = assertFailsWith<IllegalArgumentException> { Users.byName() }
         val fewer = assertFailsWith<IllegalArgumentException> { Users.byName("Lovelace") }
@@ -236,6 +335,6 @@ internal class LookupTest {
             "index users(name.last, name.first) = ['Lovelace', NULL]",
             Users.byName("Lovelace", null).toString(),
         )
-        assertEquals("users id ${ada.id}", Users.id(ada.id).toString())
+        assertEquals("users id ${ada.id}", Users.byId(ada.id).toString())
     }
 }

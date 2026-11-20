@@ -1,7 +1,7 @@
 package io.github.nailkhaf.nosqlite
 
-/** A sort key: a field and its direction. */
-internal class Order(val path: Path, val descending: Boolean) {
+/** A sort key: a field and its direction, and the collection whose index it came from, if any. */
+internal class Order(val path: Path, val descending: Boolean, val collection: Collection? = null) {
     override fun toString(): String = "$path ${if (descending) "desc" else "asc"}"
 }
 
@@ -14,17 +14,14 @@ internal data class Query(val condition: Where?, val orderBy: List<Order>, val l
  * Builds a query: which documents, in what order, and which page. Each part is set at most once:
  * ```
  * Users.list<User> {
- *     where { "age" gte 18 }
- *     orderBy {
- *         "age".desc
- *         "name.last".asc
- *     }
+ *     where { Users.byAge gte 18 }
+ *     orderBy { Users.byAge.desc }
  *     limit(20)
  *     offset(40)
  * }
  * ```
- * Documents with equal sort keys come in id order when an index covers the keys, since every index entry ends with
- * the id; sort by `id` last to guarantee it.
+ * Without `orderBy`, documents come in id order. With it, the id is always the last sort key, in the direction of
+ * the key before it, so the order is fixed.
  */
 @QueryDsl
 public class QueryScope internal constructor() {
@@ -39,7 +36,10 @@ public class QueryScope internal constructor() {
         this.condition = WhereScope().condition()
     }
 
-    /** Sort keys in order, each a field followed by `.asc` or `.desc`. */
+    /**
+     * Sort keys in order: an index or a field, followed by `.asc` or `.desc`. Prefer an index: SQLite reads it in
+     * order, so the sort costs nothing.
+     */
     public fun orderBy(keys: OrderScope.() -> Unit) {
         check(orderBy == null) { "orderBy is already set" }
         orderBy = OrderScope().apply(keys).keys.toList()
@@ -62,11 +62,21 @@ public class QueryScope internal constructor() {
     internal fun build(): Query = Query(condition, orderBy.orEmpty(), limit ?: Int.MAX_VALUE, offset ?: 0)
 }
 
-/** Collects sort keys: `"age".desc` sorts by age, largest first. */
+/**
+ * Collects sort keys: `Users.byAge.desc` sorts by the index's fields, largest first. A field such as `"score".desc`
+ * sorts too, but SQLite has to sort in memory unless an index has exactly the keys given, and sorting by only the
+ * first fields of a longer index stops it from reading that index.
+ */
 @QueryDsl
 public class OrderScope internal constructor() {
     internal val keys: List<Order>
         field = mutableListOf()
+
+    /** By every field of the index, then its id, smallest first; null and missing values come first. */
+    public val Index.asc: Unit get() = add(this, descending = false)
+
+    /** By every field of the index, then its id, largest first; null and missing values come last. */
+    public val Index.desc: Unit get() = add(this, descending = true)
 
     /** Smallest first; null and missing values come first. */
     public val String.asc: Unit get() = add(Order(Path(this), descending = false))
@@ -76,6 +86,10 @@ public class OrderScope internal constructor() {
 
     internal fun add(order: Order) {
         keys += order
+    }
+
+    private fun add(index: Index, descending: Boolean) {
+        for (path in index.sortPaths + Path(ID)) add(Order(path, descending, index.collection))
     }
 }
 
