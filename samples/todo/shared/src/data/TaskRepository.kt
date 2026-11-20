@@ -2,9 +2,7 @@ package io.github.nailkhaf.todo.data
 
 import io.github.nailkhaf.nosqlite.NoSqlite
 import io.github.nailkhaf.nosqlite.Location
-import io.github.nailkhaf.nosqlite.asc
 import io.github.nailkhaf.nosqlite.delete
-import io.github.nailkhaf.nosqlite.id
 import io.github.nailkhaf.nosqlite.insert
 import io.github.nailkhaf.nosqlite.invoke
 import io.github.nailkhaf.nosqlite.observe
@@ -18,8 +16,8 @@ import kotlin.uuid.Uuid
 class TaskRepository(location: Location) {
     private val db = NoSqlite(location) { +Tasks }
 
-    /** Open tasks first. Tasks with the same done value have an unspecified order. */
-    val tasks: Flow<List<Task>> = with(db) { Tasks.observe<Task> { orderBy { Task::done.asc } } }
+    /** Open tasks first, each group oldest first. */
+    val tasks: Flow<List<Task>> = with(db) { Tasks.observe<Task> { orderBy { Tasks.byDone.asc } } }
 
     // Uuid.generateV7() is still experimental.
     @OptIn(ExperimentalUuidApi::class)
@@ -28,11 +26,11 @@ class TaskRepository(location: Location) {
     }
 
     suspend fun toggle(task: Task) {
-        db.write { Tasks.id(task.id).update(task.copy(done = !task.done)) }
+        db.write { Tasks.byId(task.id).update(task.copy(done = !task.done)) }
     }
 
     suspend fun delete(task: Task) {
-        db.write { Tasks.id(task.id).delete() }
+        db.write { Tasks.byId(task.id).delete() }
     }
 
     suspend fun clearDone() {

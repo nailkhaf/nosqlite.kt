@@ -68,7 +68,7 @@ internal object Queries {
         },
     )
 
-    fun createIndex(index: Index): Command<Unit> = command(
+    fun createIndex(index: FieldIndex): Command<Unit> = command(
         "CREATE INDEX ${identifier(index.name)} ON ${table(index.collection.name)} ${index.definition};",
     )
 
@@ -78,8 +78,7 @@ internal object Queries {
         selectSql(collection, query).statement(rows { decode(collection, serializer, this) })
 
     fun selectSql(collection: String, query: Query): Fragment {
-        // No ORDER BY of its own: the table and its indexes already end in id order.
-        val order = query.orderBy
+        val order = sortKeys(collection, query.orderBy)
             .takeIf { it.isNotEmpty() }
             ?.joinToString(", ", prefix = " ORDER BY ") {
                 "${it.path.orderSql} ${if (it.descending) "DESC" else "ASC"}"
@@ -243,6 +242,26 @@ internal object Queries {
 private fun insertSql(collection: String): String =
     "INSERT INTO ${table(collection)} ($ID_KEY, data) " +
         "SELECT ${idBytes("j ->> '$.$ID'")}, j FROM (SELECT jsonb(?1) AS j)"
+
+/**
+ * The keys [orderBy] sorts by, ending with the id in the direction of the key before it, so equal keys come in a
+ * fixed order; keys after the id are dropped, since ids are unique. Without keys, none: the table and its indexes
+ * already end in id order. The id costs nothing when an index has the keys, since SQLite ends every index entry with
+ * it, nor when SQLite sorts in memory anyway.
+ */
+private fun sortKeys(collection: String, orderBy: List<Order>): List<Order> {
+    for (order in orderBy) {
+        val other = order.collection ?: continue
+        require(other.name == collection) { "Collection '$collection' can't sort by an index of '${other.name}'" }
+    }
+    if (orderBy.isEmpty()) return orderBy
+    val untilId = orderBy.indexOfFirst { it.path.field == ID }
+    return if (untilId >= 0) {
+        orderBy.subList(0, untilId + 1)
+    } else {
+        orderBy + Order(Path(ID), orderBy.last().descending)
+    }
+}
 
 /** The SQL a sort key orders by: the primary key for `id`, which sorts like the canonical id text. */
 private val Path.orderSql: String

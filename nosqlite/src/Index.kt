@@ -1,18 +1,31 @@
 package io.github.nailkhaf.nosqlite
 
 /**
+ * A way to find and sort the documents of a [Collection]: a [FieldIndex] declared with `index(...)`, or the
+ * collection's own [IdIndex], [Collection.byId]. Sort by one in `orderBy { Users.byName.asc }`, and filter by one in
+ * `where { Users.byAge gte 18 }`.
+ */
+public sealed class Index(internal val collection: Collection) {
+    /** The fields it sorts by before the id; none for the id itself. */
+    internal abstract val sortPaths: List<Path>
+}
+
+/**
  * An SQLite index over document fields, declared in a [Collection]. Indexes are synced when the database opens.
  * Each one's name is `nsq_idx_<collection>_<hash>`, and the hash is of its definition, so a changed index is dropped
- * and created again and a removed one dropped.
+ * and created again and a removed one dropped. SQLite ends every entry with the id, so it walks equal values in id
+ * order.
  */
-public open class Index internal constructor(
-    internal val collection: Collection,
+public class FieldIndex internal constructor(
+    collection: Collection,
     internal val paths: List<Path>,
     internal val where: Where?,
-) {
+) : Index(collection) {
     init {
         require(paths.isNotEmpty()) { "Index without fields" }
     }
+
+    override val sortPaths: List<Path> get() = paths
 
     /** What the index is made of, as SQL: the part of `CREATE INDEX` after its table. */
     internal val definition: String =
@@ -23,6 +36,13 @@ public open class Index internal constructor(
 
     override fun toString(): String =
         "index ${collection.name}(${paths.joinToString(", ")})" + (where?.let { " where $it" } ?: "")
+}
+
+/** The table's own key, [Collection.byId]: finds one document by its id, and sorts by id alone. */
+public class IdIndex internal constructor(collection: Collection) : Index(collection) {
+    override val sortPaths: List<Path> get() = emptyList()
+
+    override fun toString(): String = "index ${collection.name}($ID)"
 }
 
 /** Prefix of every SQLite object nosqlite creates. */

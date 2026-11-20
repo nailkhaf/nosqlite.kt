@@ -163,7 +163,7 @@ internal class IndexTest {
         val db = NoSqlite { +Users }
         val sql = Queries.selectSql(
             Users.name,
-            Query(Users.id(ada.id).condition, emptyList(), limit = 1, offset = 0),
+            Query(Users.byId(ada.id).condition, emptyList(), limit = 1, offset = 0),
         ).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "'${ada.id}'")).joinToString { it.last()!! }

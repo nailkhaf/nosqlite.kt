@@ -31,22 +31,25 @@ public abstract class Collection(public val name: String, public val tracked: Bo
         requireCollectionName(name)
     }
 
-    internal val indexes: List<Index>
+    internal val indexes: List<FieldIndex>
         field = mutableListOf()
 
+    /** The collection's id, its table's key: `Users.byId(ada.id)` finds a document, `Users.byId.desc` sorts by id. */
+    public val byId: IdIndex = IdIndex(this)
+
     /** An index on [fields], in order; with [where] only matching documents are indexed. */
-    protected fun index(vararg fields: String, where: Condition? = null): Index =
-        register(Index(this, fields.map(::Path), where?.let(::where)))
+    protected fun index(vararg fields: String, where: Condition? = null): FieldIndex =
+        register(FieldIndex(this, fields.map(::Path), where?.let(::where)))
 
     /** An index on property [fields], named by their property names. */
-    protected fun index(vararg fields: Field<*, *>, where: Condition? = null): Index =
+    protected fun index(vararg fields: Field<*, *>, where: Condition? = null): FieldIndex =
         index(*fields.map { it.path }.toTypedArray(), where = where)
 
     /** An index on [properties], named by their property names. */
-    protected fun index(vararg properties: KProperty1<*, *>, where: Condition? = null): Index =
+    protected fun index(vararg properties: KProperty1<*, *>, where: Condition? = null): FieldIndex =
         index(*properties.map { it.field }.toTypedArray(), where = where)
 
-    private fun <I : Index> register(index: I): I {
+    private fun register(index: FieldIndex): FieldIndex {
         require(indexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
         indexes += index
         return index
