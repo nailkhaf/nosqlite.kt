@@ -180,7 +180,7 @@ internal class QueryTest {
         }
         assertEquals(
             " ORDER BY data ->> '$.age' DESC, id DESC LIMIT ? OFFSET ?;",
-            Queries.selectSql(Users.name, query { orderBy { "age".desc } }).sql.substringAfter("nsq_users"),
+            Queries.selectSql(Users.name, query { orderBy { "age".desc } }).sql.substringAfter("\"nsq_users\""),
         )
     }
 
@@ -188,7 +188,7 @@ internal class QueryTest {
     fun `a sort stops at the id`() {
         val sql = Queries.selectSql(Users.name, query { orderBy { "id".asc; "age".desc } }).sql
 
-        assertEquals(" ORDER BY id ASC LIMIT ? OFFSET ?;", sql.substringAfter("nsq_users"))
+        assertEquals(" ORDER BY id ASC LIMIT ? OFFSET ?;", sql.substringAfter("\"nsq_users\""))
     }
 
     @Test
