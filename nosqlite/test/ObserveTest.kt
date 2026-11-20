@@ -91,7 +91,7 @@ internal class ObserveTest {
         db.write { Users.insert(User(uuid("bob"), 7)) }
         runCurrent()
 
-        assertEquals(listOf(emptyList(), listOf(ada, alan, User(uuid("bob"), 7))), users)
+        assertEquals(listOf(emptyList(), listOf(User(uuid("bob"), 7), alan, ada)), users)
     }
 
     @Test

@@ -80,7 +80,7 @@ internal class StreamingTest {
             }
         }
 
-        assertEquals(users.sortedBy { it.id.toString() }.map { it.id to users.size * 2 }, pairs)
+        assertEquals(users.sortedByDescending { it.id.toString() }.map { it.id to users.size * 2 }, pairs)
     }
 
     @Test
@@ -89,7 +89,10 @@ internal class StreamingTest {
 
         db.write { Users.forEach<User> { if (it.age == 20) Log.insert(it) } }
 
-        assertEquals(users.filter { it.age == 20 }, db.read { Log.list<User>() })
+        assertEquals(
+            users.filter { it.age == 20 }.sortedByDescending { it.id.toString() },
+            db.read { Log.list<User>() },
+        )
     }
 
     @Test
@@ -107,7 +110,7 @@ internal class StreamingTest {
         }
 
         assertEquals(3, visited)
-        assertEquals(users.sortedBy { it.id.toString() }, db.read { Users.list<User>() })
+        assertEquals(users.sortedByDescending { it.id.toString() }, db.read { Users.list<User>() })
     }
 
     @Test

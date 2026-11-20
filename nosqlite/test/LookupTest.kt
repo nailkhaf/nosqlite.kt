@@ -83,7 +83,7 @@ internal class LookupTest {
             assertFalse(Users.id(grace.id).delete())
         }
 
-        assertEquals(listOf(ada.copy(age = 37), alan.copy(age = 42), byron), db.read { Users.list<User>() })
+        assertEquals(listOf(byron, alan.copy(age = 42), ada.copy(age = 37)), db.read { Users.list<User>() })
     }
 
     @Test
@@ -91,7 +91,7 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(ada, byron, grace), Users.byAge(36).list<User>())
+            assertEquals(listOf(grace, byron, ada), Users.byAge(36).list<User>())
             assertEquals(3, Users.byAge(36).count())
             assertEquals(listOf(grace), Users.byActive(false).list<User>())
             assertEquals(emptyList(), Users.byAge(99).list<User>())
@@ -141,7 +141,7 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(ada, byron), Users.byName("Lovelace").list<User>())
+            assertEquals(listOf(byron, ada), Users.byName("Lovelace").list<User>())
             assertEquals(listOf(ada), Users.byName("Lovelace", "Ada").list<User>())
         }
     }
@@ -151,7 +151,7 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(alan, byron), Users.byNick(null).list<User>())
+            assertEquals(listOf(byron, alan), Users.byNick(null).list<User>())
             assertEquals(2, Users.byNick(null).count())
         }
     }
@@ -167,7 +167,7 @@ internal class LookupTest {
             assertEquals(1, Users.byAge(41).delete())
         }
 
-        assertEquals(listOf(ada, byron, grace.copy(age = 51)), db.read { Users.list<User>() })
+        assertEquals(listOf(grace.copy(age = 51), byron, ada), db.read { Users.list<User>() })
     }
 
     @Test
@@ -191,7 +191,7 @@ internal class LookupTest {
             Users.upsert(ada.copy(age = 37))
         }
 
-        assertEquals(listOf(ada.copy(age = 37), alan, byron, grace, carol), db.read { Users.list<User>() })
+        assertEquals(listOf(carol, grace, byron, alan, ada.copy(age = 37)), db.read { Users.list<User>() })
         assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM nsq_users WHERE data ->> '$.id' = '${ada.id}'"))
     }
 

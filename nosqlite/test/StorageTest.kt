@@ -591,14 +591,15 @@ internal class StorageTest {
         val db = NoSqlite { +People }
         db.write { People.insert(User(uuid("ada"), "ada", 36)) }
         db.pool().writeSql {
-            execute("""INSERT INTO nsq_people (data) VALUES (jsonb('{"id":"${uuid("x")}","name":1}'))""")
+            // Its id sorts between ada and alan, so forEach, newest id first, reaches it second.
+            execute("""INSERT INTO nsq_people (data) VALUES (jsonb('{"id":"${uuid("ada2")}","name":1}'))""")
         }
         db.write { People.insert(User(uuid("alan"), "alan", 41)) }
         val seen = mutableListOf<String>()
 
         assertFailsWith<NoSqliteException.DecodingFailed> { db.read { People.forEach<User> { seen += it.name } } }
 
-        assertEquals(listOf("ada"), seen)
+        assertEquals(listOf("alan"), seen)
     }
 
     @Test
