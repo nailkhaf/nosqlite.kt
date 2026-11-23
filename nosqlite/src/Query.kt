@@ -20,8 +20,8 @@ internal data class Query(val condition: Where?, val orderBy: List<Order>, val l
  *     offset(40)
  * }
  * ```
- * Without `orderBy`, documents come in id order. With it, the id is always the last sort key, in the direction of
- * the key before it, so the order is fixed.
+ * Without `orderBy`, documents come in id order. With it, nothing is added to the sort: documents with equal keys come
+ * in the order SQLite reads them, id order, or newest first when it reads an index backwards for `desc`.
  */
 @QueryDsl
 public class QueryScope internal constructor() {
@@ -64,18 +64,17 @@ public class QueryScope internal constructor() {
 
 /**
  * Collects sort keys: `Users.byAge.desc` sorts by the index's fields, largest first. A field such as `"score".desc`
- * sorts too, but SQLite has to sort in memory unless an index has exactly the keys given, and sorting by only the
- * first fields of a longer index stops it from reading that index.
+ * sorts too, but SQLite has to sort in memory unless an index starts with the keys given.
  */
 @QueryDsl
 public class OrderScope internal constructor() {
     internal val keys: List<Order>
         field = mutableListOf()
 
-    /** By every field of the index, then its id, smallest first; null and missing values come first. */
+    /** By every field of the index, smallest first; null and missing values come first. */
     public val Index.asc: Unit get() = add(this, descending = false)
 
-    /** By every field of the index, then its id, largest first; null and missing values come last. */
+    /** By every field of the index, largest first; null and missing values come last. */
     public val Index.desc: Unit get() = add(this, descending = true)
 
     /** Smallest first; null and missing values come first. */
@@ -89,7 +88,7 @@ public class OrderScope internal constructor() {
     }
 
     private fun add(index: Index, descending: Boolean) {
-        for (path in index.sortPaths + Path(ID)) add(Order(path, descending, index.collection))
+        for (path in index.sortPaths) add(Order(path, descending, index.collection))
     }
 }
 

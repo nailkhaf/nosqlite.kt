@@ -150,7 +150,7 @@ internal class QueryTest {
     }
 
     @Test
-    fun `an index sorts by its fields then by id`() = runTest {
+    fun `an index sorts by its fields`() = runTest {
         val db = database()
 
         db.read {
@@ -171,28 +171,19 @@ internal class QueryTest {
     }
 
     @Test
-    fun `a field sort ends with the id in the direction of its last key`() = runTest {
-        val db = database()
+    fun `nothing is added to a sort`() {
+        fun orderOf(block: QueryBlock) = Queries.selectSql(Users.name, query(block)).sql.substringAfter("\"nsq_users\"")
 
-        db.read {
-            assertEquals(listOf(alan, grace, ada, linus), Users.list<User> { orderBy { "age".desc } })
-            assertEquals(listOf(linus, ada, grace, alan), Users.list<User> { orderBy { "age".asc } })
-        }
+        assertEquals(" ORDER BY data ->> '$.age' DESC LIMIT ? OFFSET ?;", orderOf { orderBy { "age".desc } })
         assertEquals(
-            " ORDER BY data ->> '$.age' DESC, id DESC LIMIT ? OFFSET ?;",
-            Queries.selectSql(Users.name, query { orderBy { "age".desc } }).sql.substringAfter("\"nsq_users\""),
+            " ORDER BY data ->> '$.name.last' ASC, data ->> '$.name.first' ASC LIMIT ? OFFSET ?;",
+            orderOf { orderBy { Users.byName.asc } },
         )
+        assertEquals(" ORDER BY id DESC LIMIT ? OFFSET ?;", orderOf { orderBy { Users.byId.desc } })
     }
 
     @Test
-    fun `a sort stops at the id`() {
-        val sql = Queries.selectSql(Users.name, query { orderBy { "id".asc; "age".desc } }).sql
-
-        assertEquals(" ORDER BY id ASC LIMIT ? OFFSET ?;", sql.substringAfter("\"nsq_users\""))
-    }
-
-    @Test
-    fun `sorting by an index and its id reads the index without sorting`() = runTest {
+    fun `sorting by an index reads the index without sorting`() = runTest {
         val db = database()
 
         for ((index, order) in listOf<Pair<FieldIndex, QueryBlock>>(
@@ -232,7 +223,7 @@ internal class QueryTest {
 
         assertEquals("[name.last asc, age desc]", query.orderBy.toString())
         assertEquals(
-            "[name.last desc, name.first desc, id desc]",
+            "[name.last desc, name.first desc]",
             query { orderBy { Users.byName.desc } }.orderBy.toString(),
         )
     }

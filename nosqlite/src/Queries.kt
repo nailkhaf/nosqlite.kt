@@ -244,23 +244,15 @@ private fun insertSql(collection: String): String =
         "SELECT ${idBytes("j ->> '$.$ID'")}, j FROM (SELECT jsonb(?1) AS j)"
 
 /**
- * The keys [orderBy] sorts by, ending with the id in the direction of the key before it, so equal keys come in a
- * fixed order; keys after the id are dropped, since ids are unique. Without keys, none: the table and its indexes
- * already end in id order. The id costs nothing when an index has the keys, since SQLite ends every index entry with
- * it, nor when SQLite sorts in memory anyway.
+ * The keys [orderBy] sorts by, as given: nothing is added, since the table and its indexes already end in id order,
+ * and SQLite keeps rows in the order it reads them when it sorts in memory.
  */
 private fun sortKeys(collection: String, orderBy: List<Order>): List<Order> {
     for (order in orderBy) {
         val other = order.collection ?: continue
         require(other.name == collection) { "Collection '$collection' can't sort by an index of '${other.name}'" }
     }
-    if (orderBy.isEmpty()) return orderBy
-    val untilId = orderBy.indexOfFirst { it.path.field == ID }
-    return if (untilId >= 0) {
-        orderBy.subList(0, untilId + 1)
-    } else {
-        orderBy + Order(Path(ID), orderBy.last().descending)
-    }
+    return orderBy
 }
 
 /** The SQL a sort key orders by: the primary key for `id`, which sorts like the canonical id text. */

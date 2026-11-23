@@ -145,7 +145,7 @@ In `where`, calling an index, `Users.byAge(36)`, matches as its lookup does. A o
 `gte`, `lt` and `lte`. A multi-field index takes `gt`, `gte`, `lt` and `lte` with one value per field, compared as a
 whole, so `Users.byName.gt("Lovelace", "Ada")` matches Lovelace Byron and Turing Alan: the next page after a
 document. A partial index's own condition holds too. In `orderBy`, `Users.byName.asc` sorts by every field of the
-index, then the id. `Users.byId` is the collection's own key: `Users.byId.desc` sorts by id alone, newest first.
+index. `Users.byId` is the collection's own key: `Users.byId.desc` sorts by id alone, newest first.
 
 ### Ids
 
@@ -242,11 +242,10 @@ lookup returns its matches in id order. A range condition on an indexed field, s
 them by that field, then id. SQL itself promises no order without `ORDER BY`; use `orderBy { Users.byId.asc }` where
 the order must be guaranteed, which the key makes free.
 
-`orderBy` takes an index, `Users.byAge.desc`, or fields, `"age".desc` or `User::age.desc`. The id is always the last
-sort key, in the direction of the key before it, so documents with equal keys come in a fixed order. Prefer an index:
-SQLite reads it in order, so the sort costs nothing. A field sort reads an index only when one has exactly those
-fields; otherwise SQLite sorts in memory, and sorting by only the first field of a longer index, `"name.last".asc`
-with `byName`, stops it from reading that index.
+`orderBy` takes an index, `Users.byAge.desc`, or fields, `"age".desc` or `User::age.desc`. Nothing is added to the
+sort. Prefer an index: SQLite reads it in order, so the sort costs nothing, and documents with equal keys come in id
+order, newest first when it reads the index backwards for `desc`. A field sort reads an index only when one starts
+with those fields; otherwise SQLite sorts in memory and keeps equal keys in the order it read them, id order.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
 run other queries in that same transaction, one at a time.

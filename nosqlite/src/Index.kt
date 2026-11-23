@@ -6,7 +6,7 @@ package io.github.nailkhaf.nosqlite
  * `where { Users.byAge gte 18 }`.
  */
 public sealed class Index(internal val collection: Collection) {
-    /** The fields it sorts by before the id; none for the id itself. */
+    /** The fields it sorts by. */
     internal abstract val sortPaths: List<Path>
 }
 
@@ -40,7 +40,7 @@ public class FieldIndex internal constructor(
 
 /** The table's own key, [Collection.byId]: finds one document by its id, and sorts by id alone. */
 public class IdIndex internal constructor(collection: Collection) : Index(collection) {
-    override val sortPaths: List<Path> get() = emptyList()
+    override val sortPaths: List<Path> get() = listOf(Path(ID))
 
     override fun toString(): String = "index ${collection.name}($ID)"
 }
