@@ -81,7 +81,7 @@ db.write {
 db.read {
     val ada: User? = Users.byId(adaId).get<User>()
     val raw: JsonObject? = Users.byId(adaId).get<JsonObject>()
-    val lovelaces: List<User> = Users.byName("Lovelace", "Ada").list<User>()
+    val adas: List<User> = Users.byName("Lovelace", "Ada").list<User>()
     val adults: List<User> = Users.list<User> {
         where { (Users.byAge gte 18) and (User::tags contains "kotlin") }
         orderBy { Users.byAge.desc }
@@ -128,7 +128,7 @@ renamed with `@SerialName`. Keys are identifiers.
 definition, so a changed index is dropped and created again when the database opens, and a removed one dropped.
 
 Calling an index looks documents up by its values: one per field, in order, `null` matching a null or missing field.
-Fewer values throw. It finds any number: `list<T> { }`,
+Fewer or more values throw. It finds any number: `list<T> { }`,
 `count { condition }`, `update(value)` and `delete()` return the documents or how many there were, and
 `forEach<T> { action }` streams them, as on a collection.
 
@@ -239,9 +239,10 @@ condition is built.
 
 A collection's table is keyed by the id, so documents are stored in id order, and SQLite ends every index entry with
 the id. A query without `orderBy` reads documents in id order, oldest first with v7 ids, at no cost, and an index
-lookup returns its matches in id order. A range condition on an indexed field, such as `Users.byAge gt 18`, returns
-them by that field, then id. SQL itself promises no order without `ORDER BY`; use `orderBy { Users.byId.asc }` where
-the order must be guaranteed, which the key makes free.
+lookup with every field returns its matches in id order. A condition SQLite answers from an index by range or by
+several values, such as `Users.byAge gt 18` or `User::age isIn listOf(36, 41)`, can return them by that field, then
+id. SQL itself promises no order without `ORDER BY`; use `orderBy { Users.byId.asc }` where the order must be
+guaranteed, which the key makes free.
 
 `orderBy` takes an index, `Users.byAge.desc`, or fields, `"age".desc` or `User::age.desc`. Nothing is added to the
 sort. Prefer an index: SQLite reads it in order, so the sort costs nothing, and documents with equal keys come in id

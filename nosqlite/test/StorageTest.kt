@@ -489,6 +489,24 @@ internal class StorageTest {
     }
 
     @Test
+    fun `a failed id trigger is created when the untracked write tries again`() = runTest {
+        val driver = FailingDriver(Queries.createTable("notes").last().sql, times = 1)
+        val db = NoSqlite(driver = driver) { }
+        val note = buildJsonObject { put("id", uuid("note").toString()); put("text", "hi") }
+
+        db.write(untracked = true) {
+            assertFails { upsert("notes", note) }
+            upsert("notes", note)
+        }
+
+        assertEquals(1L, db.read { Notes.count() })
+        assertEquals(
+            listOf(listOf("nsq_notes_id_immutable")),
+            db.querySql("SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'nsq_notes'"),
+        )
+    }
+
+    @Test
     fun `collection declared twice is rejected`() {
         val error = assertFailsWith<IllegalArgumentException> {
             NoSqlite {

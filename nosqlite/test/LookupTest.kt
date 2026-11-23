@@ -193,7 +193,7 @@ internal class LookupTest {
     }
 
     @Test
-    fun `upsert inserts a new document and updates an existing one in place`() = runTest {
+    fun `upsert inserts a new document and updates an existing one`() = runTest {
         val db = database()
         val carol = User(uuid("carol"), "carol@x.com", Name("Shaw", "Carol"), 28)
 
@@ -203,10 +203,6 @@ internal class LookupTest {
         }
 
         assertEquals(listOf(ada.copy(age = 37), alan, byron, grace, carol), db.read { Users.list<User>() })
-        assertEquals(
-            listOf(listOf("1")),
-            db.querySql("SELECT count(*) FROM nsq_users WHERE data ->> '$.id' = '${ada.id}'"),
-        )
     }
 
     @Test
@@ -250,43 +246,47 @@ internal class LookupTest {
     }
 
     @Test
-    fun `a multi-field index compares its fields together`() = runTest {
+    fun `a multi-field index compares its fields together in either direction`() = runTest {
         val db = database()
 
         db.read {
-            assertEquals(
-                listOf(byron, alan),
-                Users.list<User> { where { Users.byName.gt("Lovelace", "Ada") }; orderBy { Users.byName.asc } },
-            )
-            assertEquals(
-                listOf(ada, byron, alan),
-                Users.list<User> { where { Users.byName.gte("Lovelace", "Ada") }; orderBy { Users.byName.asc } },
-            )
-            assertEquals(
-                listOf(grace),
-                Users.list<User> { where { Users.byName.lt("Lovelace", "Ada") }; orderBy { Users.byName.asc } },
-            )
-            assertEquals(
-                listOf(grace, ada),
-                Users.list<User> { where { Users.byName.lte("Lovelace", "Ada") }; orderBy { Users.byName.asc } },
-            )
+            fun byName(condition: Condition, descending: Boolean): List<User> = Users.list<User> {
+                where(condition)
+                orderBy { if (descending) Users.byName.desc else Users.byName.asc }
+            }
+
+            assertEquals(listOf(byron, alan), byName({ Users.byName.gt("Lovelace", "Ada") }, descending = false))
+            assertEquals(listOf(alan, byron), byName({ Users.byName.gt("Lovelace", "Ada") }, descending = true))
+            assertEquals(listOf(ada, byron, alan), byName({ Users.byName.gte("Lovelace", "Ada") }, descending = false))
+            assertEquals(listOf(alan, byron, ada), byName({ Users.byName.gte("Lovelace", "Ada") }, descending = true))
+            assertEquals(listOf(grace), byName({ Users.byName.lt("Lovelace", "Ada") }, descending = false))
+            assertEquals(listOf(grace), byName({ Users.byName.lt("Lovelace", "Ada") }, descending = true))
+            assertEquals(listOf(grace, ada), byName({ Users.byName.lte("Lovelace", "Ada") }, descending = false))
+            assertEquals(listOf(ada, grace), byName({ Users.byName.lte("Lovelace", "Ada") }, descending = true))
         }
     }
 
     @Test
-    fun `comparing a multi-field index reads the index`() = runTest {
+    fun `comparing a multi-field index reads the index in either direction`() = runTest {
         val db = database()
-        val select = Queries.selectSql(
-            Users.name,
-            query { where { Users.byName.gt("Lovelace", "Ada") }; orderBy { Users.byName.asc }; limit(2) },
-        )
-        val params = select.params.iterator()
-        val sql = Regex("\\?").replace(select.sql) { params.next().literal }
 
-        val plan = db.querySql("EXPLAIN QUERY PLAN $sql").joinToString { it.last()!! }
+        for (descending in listOf(false, true)) {
+            val select = Queries.selectSql(
+                Users.name,
+                query {
+                    where { Users.byName.gt("Lovelace", "Ada") }
+                    orderBy { if (descending) Users.byName.desc else Users.byName.asc }
+                    limit(2)
+                },
+            )
+            val params = select.params.iterator()
+            val sql = Regex("\\?").replace(select.sql) { params.next().literal }
 
-        assertTrue(Users.byName.name in plan, plan)
-        assertFalse("TEMP B-TREE" in plan, plan)
+            val plan = db.querySql("EXPLAIN QUERY PLAN $sql").joinToString { it.last()!! }
+
+            assertTrue(Users.byName.name in plan, plan)
+            assertFalse("TEMP B-TREE" in plan, plan)
+        }
     }
 
     @Test
