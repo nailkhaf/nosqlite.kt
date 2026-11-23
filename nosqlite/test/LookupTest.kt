@@ -250,7 +250,7 @@ internal class LookupTest {
         val db = database()
 
         db.read {
-            fun byName(condition: Condition, descending: Boolean): List<User> = Users.list<User> {
+            suspend fun byName(condition: Condition, descending: Boolean): List<User> = Users.list<User> {
                 where(condition)
                 orderBy { if (descending) Users.byName.desc else Users.byName.asc }
             }
