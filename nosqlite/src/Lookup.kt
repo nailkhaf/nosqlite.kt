@@ -7,7 +7,7 @@ import kotlin.uuid.Uuid
 /**
  * Documents addressed in one collection: by an index's values, [Many], or by id, [Id].
  * ```
- * Users.id(ada).get<User>()
+ * Users.byId(ada).get<User>()
  * Users.byAge(36).list<User> { orderBy { "name.last".asc } }
  * Users.byName("Lovelace").count()
  * ```
@@ -23,10 +23,7 @@ public sealed class Lookup(internal val collection: Collection) {
         internal val index: Index,
         internal val values: List<SqlValue>,
     ) : Lookup(index.collection) {
-        // A partial index's own condition is part of every lookup, so only the documents it indexes match.
-        override val condition: Where = index.paths.zip(values) { path, value ->
-            if (value == SqlValue.Null) Where.IsNull(path) else Where.Compare(path, Comparison.Eq, value)
-        }.plus(listOfNotNull(index.where)).reduce { left, right -> Where.And(left, right) }
+        override val condition: Where = index.lookupCondition(values)
 
         override fun toString(): String = "$index = ${values.map { it.literal }}"
     }
@@ -43,14 +40,12 @@ public sealed class Lookup(internal val collection: Collection) {
  * Looks up [values] of this index's fields, in order; leading fields alone match their prefix. A `null` value matches
  * a null or missing field.
  */
-public operator fun Index.invoke(vararg values: Any?): Lookup.Many {
-    require(values.size in 1..paths.size) { "$this takes 1 to ${paths.size} values, not ${values.size}" }
-    return Lookup.Many(this, values.map(::sqlValue))
-}
+public operator fun Index.invoke(vararg values: Any?): Lookup.Many = Lookup.Many(this, lookupValues(values))
 
 internal fun sqlValue(value: Any?): SqlValue = when (value) {
     null -> SqlValue.Null
     is String -> SqlValue.Text(value)
+    is Uuid -> SqlValue.Text(value.toString())
     is Number -> value.sqlValue
     is Boolean -> SqlValue.Integer(if (value) 1 else 0)
     else -> throw IllegalArgumentException("Unsupported value: ${value::class.simpleName}")
@@ -94,6 +89,14 @@ public suspend fun Lookup.Many.count(condition: Condition? = null): Long {
     return collection.count { Where.And(found, extra) }
 }
 
+/** Whether any document is found; with [condition], whether any of them matches it as well. */
+context(_: ReadScope)
+public suspend fun Lookup.Many.exists(condition: Condition? = null): Boolean {
+    val found = this.condition
+    val extra = condition?.let(::where) ?: return collection.exists { found }
+    return collection.exists { Where.And(found, extra) }
+}
+
 /**
  * Runs [action] on every document found that [query] selects, as [Collection.forEach] does: one row at a time from
  * an open cursor, in the current transaction.
@@ -130,7 +133,7 @@ internal fun idCondition(value: Uuid): Where =
     Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
 
 /** The document of this collection with [value] as its id. */
-public fun Collection.id(value: Uuid): Lookup.Id = Lookup.Id(this, value)
+public operator fun IdIndex.invoke(value: Uuid): Lookup.Id = Lookup.Id(collection, value)
 
 /** The document as [T], `null` when there is none. */
 context(_: ReadScope)
@@ -140,6 +143,10 @@ public suspend inline fun <reified T> Lookup.Id.get(): T? = get(serializer<T>())
 context(_: ReadScope)
 public suspend fun <T> Lookup.Id.get(serializer: KSerializer<T>): T? =
     collection.list(serializer, Query(condition, emptyList(), limit = 1, offset = 0)).firstOrNull()
+
+/** Whether a document with this id exists. */
+context(_: ReadScope)
+public suspend fun Lookup.Id.exists(): Boolean = collection.exists { condition }
 
 /**
  * Updates the document with [value], as `update` does: a merge patch with [merge], the whole document without it, and

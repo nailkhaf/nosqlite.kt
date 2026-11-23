@@ -31,12 +31,15 @@ public abstract class Collection(public val name: String, public val tracked: Bo
         requireCollectionName(name)
     }
 
+    /** The built-in unique index on every document's `id`. */
+    public val byId: IdIndex = IdIndex(this)
+
     internal val indexes: List<Index>
         field = mutableListOf()
 
     /** An index on [fields], in order; with [where] only matching documents are indexed. */
     protected fun index(vararg fields: String, where: Condition? = null): Index =
-        register(Index(this, fields.map(::Path), where?.let(::where)))
+        register(Index(this, fields.map { Order(Path(it), descending = false) }, where?.let(::where)))
 
     /** An index on property [fields], named by their property names. */
     protected fun index(vararg fields: Field<*, *>, where: Condition? = null): Index =
@@ -45,6 +48,13 @@ public abstract class Collection(public val name: String, public val tracked: Bo
     /** An index on [properties], named by their property names. */
     protected fun index(vararg properties: KProperty1<*, *>, where: Condition? = null): Index =
         index(*properties.map { it.field }.toTypedArray(), where = where)
+
+    /**
+     * An index on the sort [keys] built in [OrderScope], each with its direction (`Task::done.asc`, `Task::id.desc`);
+     * with [where] only matching documents are indexed.
+     */
+    protected fun index(where: Condition? = null, keys: OrderScope.() -> Unit): Index =
+        register(Index(this, OrderScope().apply(keys).keys.toList(), where?.let(::where)))
 
     private fun <I : Index> register(index: I): I {
         require(indexes.none { it.name == index.name }) { "Collection '$name' declares $index more than once" }
@@ -95,6 +105,11 @@ internal suspend fun <T> Collection.list(serializer: KSerializer<T>, query: Quer
 context(_: ReadScope)
 public suspend fun Collection.count(condition: Condition? = null): Long =
     withConnection { Queries.count(name, condition?.let(::where)).execute() }
+
+/** Whether any document matches [condition], or whether the collection has any without one. */
+context(_: ReadScope)
+public suspend fun Collection.exists(condition: Condition? = null): Boolean =
+    withConnection { Queries.exists(name, condition?.let(::where)).execute() }
 
 /**
  * Updates every document matching [condition] with [value]. With [merge], [value] is a JSON merge patch: its fields

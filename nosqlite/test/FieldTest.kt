@@ -30,11 +30,24 @@ internal class FieldTest {
         assertEquals(sql { "score" gt 0.1 }, sql { User::score gt 0.1 })
         assertEquals(sql { "active".isTrue() }, sql { User::active eq true })
         assertEquals(sql { "active".isFalse() }, sql { User::active eq false })
+        assertEquals(sql { "active".isTrue() }, sql { User::active.isTrue() })
+        assertEquals(sql { "active".isFalse() }, sql { User::active.isFalse() })
         assertEquals(sql { "active" neq 0 }, sql { User::active neq false })
         assertEquals(sql { "active" gt 0 }, sql { User::active gt false })
         assertEquals(sql { "age" isIn listOf(30, 40) }, sql { User::age isIn listOf(30, 40) })
         assertEquals(sql { "age" isIn emptyList<Long>() }, sql { User::age isIn emptyList() })
         assertEquals(sql { "id" isIn emptyList<String>() }, sql { StringId::id isIn emptyList() })
+        assertEquals(sql { "id" eq uuid("ada") }, sql { User::id eq uuid("ada") })
+        assertEquals(sql { "id" neq uuid("ada") }, sql { User::id neq uuid("ada") })
+        assertEquals(sql { "id" gt uuid("ada") }, sql { User::id gt uuid("ada") })
+        assertEquals(sql { "id" gte uuid("ada") }, sql { User::id gte uuid("ada") })
+        assertEquals(sql { "id" lt uuid("ada") }, sql { User::id lt uuid("ada") })
+        assertEquals(sql { "id" lte uuid("ada") }, sql { User::id lte uuid("ada") })
+        assertEquals(
+            sql { "id" isIn listOf(uuid("ada"), uuid("alan")) },
+            sql { User::id isIn listOf(uuid("ada"), uuid("alan")) },
+        )
+        assertEquals(sql { "id" isIn emptyList<Uuid>() }, sql { User::id isIn emptyList() })
         assertEquals(sql { "tags" contains "kotlin" }, sql { User::tags contains "kotlin" })
         assertEquals(sql { "nickname" eq "bobby" }, sql { User::nickname eq "bobby" })
         assertEquals(sql { "nickname" like "bo%" }, sql { User::nickname like "bo%" })
@@ -61,6 +74,7 @@ internal class FieldTest {
         assertEquals(sql { "scores" contains 0.1 }, sql { Measure::scores contains 0.1 })
         assertEquals(sql { "flags" contains 1 }, sql { Measure::flags contains true })
         assertEquals(sql { "flags" contains 0 }, sql { Measure::flags contains false })
+        assertEquals(sql { "refs" contains uuid("ada") }, sql { Measure::refs contains uuid("ada") })
     }
 
     @Test
@@ -68,6 +82,9 @@ internal class FieldTest {
         assertEquals("name.last", (User::name / Name::last).toString())
         assertEquals(sql { "name.last" eq "Smith" }, sql { (User::name / Name::last) eq "Smith" })
         assertEquals(sql { "name.last".isNull() }, sql { (User::name / Name::last).isNull() })
+        assertEquals(sql { "lead.id" eq uuid("ada") }, sql { (LeadBox::lead / User::id) eq uuid("ada") })
+        assertEquals(sql { "lead.active".isTrue() }, sql { (LeadBox::lead / User::active).isTrue() })
+        assertEquals(sql { "lead.active".isFalse() }, sql { (LeadBox::lead / User::active).isFalse() })
     }
 
     @Test
@@ -125,7 +142,12 @@ internal class FieldTest {
         val found = db.read {
             Measures.list<Measure> {
                 where {
-                    (Measure::label eq "a") and
+                    (Measure::id eq tenth.id) and
+                        (Measure::id neq other.id) and
+                        (Measure::id lt other.id) and
+                        (Measure::id isIn listOf(tenth.id, other.id)) and
+                        (Measure::refs contains tenth.id) and
+                        (Measure::label eq "a") and
                         (Measure::label neq "b") and
                         (Measure::count gte 2) and
                         (Measure::count gt 1) and
@@ -135,6 +157,7 @@ internal class FieldTest {
                         (Measure::score eq 0.1) and
                         (Measure::score gt 0.0) and
                         (Measure::on eq true) and
+                        Measure::on.isTrue() and
                         (Measure::on gt false) and
                         (Measure::note eq "kept") and
                         (Measure::counts contains 2) and
@@ -151,7 +174,7 @@ internal class FieldTest {
                 }
             }
         }
-        val missing = db.read { Measures.list<Measure> { where { Measure::note.isNull() } } }
+        val missing = db.read { Measures.list<Measure> { where { Measure::note.isNull() and Measure::on.isFalse() } } }
         val nan = assertFailsWith<IllegalArgumentException> { where { Measure::score eq Double.NaN } }
 
         assertEquals(listOf(tenth), found)
@@ -160,8 +183,10 @@ internal class FieldTest {
     }
 }
 
-/** A string `id`, so the property conditions can be checked without a [Uuid] overload. */
+/** A string `id`, so the property conditions can be checked alongside the [Uuid] overloads. */
 private class StringId(val id: String)
+
+private class LeadBox(val lead: User)
 
 @Serializable
 internal data class Measure(
@@ -177,6 +202,7 @@ internal data class Measure(
     val scores: List<Double> = emptyList(),
     val flags: List<Boolean> = emptyList(),
     val labels: List<String> = emptyList(),
+    val refs: List<Uuid> = emptyList(),
 )
 
 internal object Measures : Collection("measures")
@@ -193,4 +219,5 @@ private fun measure(
     scores: List<Double> = listOf(score),
     flags: List<Boolean> = listOf(on),
     labels: List<String> = listOf(label),
-): Measure = Measure(uuid(label), label, count, serial, score, on, note, counts, serials, scores, flags, labels)
+    refs: List<Uuid> = listOf(uuid(label)),
+): Measure = Measure(uuid(label), label, count, serial, score, on, note, counts, serials, scores, flags, labels, refs)

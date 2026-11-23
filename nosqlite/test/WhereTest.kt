@@ -4,11 +4,20 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.uuid.Uuid
 
 /** Covers conditions: the SQL they render, how values are encoded, and what they match in stored documents. */
 internal class WhereTest {
 
-    object Users : Collection("users")
+    object Users : Collection("users") {
+        val byAge = index("age")
+        val byName = index("name.last", "name.first")
+        val byNickname = index("nickname", where = { "active".isTrue() })
+        val byAgeNewest = index {
+            "age".asc
+            "id".desc
+        }
+    }
 
     @Test
     fun `comparisons render with bound values`() {
@@ -30,12 +39,17 @@ internal class WhereTest {
         assertEquals(SqlValue.Real(1.5), param { "score" eq 1.5 })
         assertEquals(SqlValue.Integer(1), param { "active".isTrue() }) // ->> gives booleans back as 1 and 0
         assertEquals(SqlValue.Integer(0), param { "active".isFalse() })
+        assertEquals(SqlValue.Integer(1), param { "active" eq true })
+        assertEquals(SqlValue.Integer(0), param { "active" neq false })
+        assertEquals(SqlValue.Integer(1), param { "flags" contains true })
+        assertEquals(SqlValue.Text(uuid("ada").toString()), param { "id" eq uuid("ada") })
     }
 
     @Test
     fun `integer literals and Int values bind as integers`() {
         fun bound(block: WhereScope.() -> Where): SqlValue = where(block).render().params.single()
         val age = 18
+        val ages: List<Int> = listOf(1, 2)
 
         assertEquals(SqlValue.Integer(18), bound { "age" eq 18 })
         assertEquals(SqlValue.Integer(-2), bound { "age" neq -2 })
@@ -53,13 +67,19 @@ internal class WhereTest {
         )
         assertEquals(
             listOf(SqlValue.Text("[1,2]")),
+            where { "age" isIn ages }.render().params,
+        )
+        assertEquals(
+            listOf(SqlValue.Text("[1,2]")),
             where { "age" isIn listOf(1L, 2L) }.render().params,
         )
     }
 
     @Test
-    fun `long and double overloads bind as integers and reals`() {
+    fun `long double boolean and uuid overloads bind as SQL scalars`() {
         fun bound(block: WhereScope.() -> Where): SqlValue = where(block).render().params.single()
+        val ada = uuid("ada")
+        val alan = uuid("alan")
 
         assertEquals(SqlValue.Integer(Int.MIN_VALUE.toLong()), bound { "age" gt Int.MIN_VALUE.toLong() })
         assertEquals(SqlValue.Integer(Int.MAX_VALUE.toLong()), bound { "age" gte Int.MAX_VALUE.toLong() })
@@ -78,6 +98,24 @@ internal class WhereTest {
         assertEquals(SqlValue.Real(-1.0), bound { "score" lt -1.0 })
         assertEquals(SqlValue.Real(2.5), bound { "score" lte 2.5 })
         assertEquals(SqlValue.Real(0.1), bound { "scores" contains 0.1 })
+
+        assertEquals(SqlValue.Integer(1), bound { "active" eq true })
+        assertEquals(SqlValue.Integer(0), bound { "active" eq false })
+        assertEquals(SqlValue.Integer(1), bound { "active" neq true })
+        assertEquals(SqlValue.Text("[1,0]"), bound { "active" isIn listOf(true, false) })
+        assertEquals(SqlValue.Integer(0), bound { "flags" contains false })
+
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" eq ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" neq ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" gt ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" gte ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" lt ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" lte ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "refs" contains ada })
+        assertEquals(
+            SqlValue.Text("""["$ada","$alan"]"""),
+            bound { "id" isIn listOf(ada, alan) },
+        )
     }
 
     @Test
@@ -129,8 +167,11 @@ internal class WhereTest {
     @Test
     fun `isIn of nothing matches nothing`() {
         assertEquals("0 = 1", where { "age" isIn emptyList<String>() }.render().sql)
+        assertEquals("0 = 1", where { "age" isIn emptyList<Int>() }.render().sql)
         assertEquals("0 = 1", where { "id" isIn emptyList<Long>() }.render().sql)
         assertEquals("0 = 1", where { "score" isIn emptyList<Double>() }.render().sql)
+        assertEquals("0 = 1", where { "active" isIn emptyList<Boolean>() }.render().sql)
+        assertEquals("0 = 1", where { "id" isIn emptyList<Uuid>() }.render().sql)
     }
 
     @Test
@@ -153,6 +194,61 @@ internal class WhereTest {
     }
 
     @Test
+    fun `indexes build lookup and range conditions in where`() {
+        val ada = uuid("ada")
+        val alan = uuid("alan")
+
+        assertEquals(where { "age" eq 36 }.render(), where { Users.byAge(36) }.render())
+        assertEquals(where { "age" gte 18 }.render(), where { Users.byAge gte 18 }.render())
+        assertEquals(where { "age" gt 18 }.render(), where { Users.byAge gt 18 }.render())
+        assertEquals(where { "age" lt 65 }.render(), where { Users.byAge lt 65 }.render())
+        assertEquals(where { "age" lte 65 }.render(), where { Users.byAge lte 65 }.render())
+        assertEquals(
+            where { ("nickname" eq "countess") and "active".isTrue() }.render(),
+            where { Users.byNickname("countess") }.render(),
+        )
+        assertEquals(
+            where { ("nickname" gt "a") and "active".isTrue() }.render(),
+            where { Users.byNickname gt "a" }.render(),
+        )
+        assertEquals(
+            where {
+                ("name.last" gte "Lovelace") and (("name.last" gt "Lovelace") or ("name.first" gt "Ada"))
+            }.render(),
+            where { Users.byName.gt("Lovelace", "Ada") }.render(),
+        )
+        assertEquals(
+            where {
+                ("name.last" lte "Lovelace") and (("name.last" lt "Lovelace") or ("name.first" lte "Ada"))
+            }.render(),
+            where { Users.byName.lte("Lovelace", "Ada") }.render(),
+        )
+        assertEquals(
+            where { ("age" gte 36) and (("age" gt 36) or ("id" lt ada)) }.render(),
+            where { Users.byAgeNewest.gt(36, ada) }.render(),
+        )
+        assertEquals(
+            where { ("age" lte 36) and (("age" lt 36) or ("id" gt ada)) }.render(),
+            where { Users.byAgeNewest.lt(36, ada) }.render(),
+        )
+        assertEquals(where { "id" eq ada }.render(), where { Users.byId(ada) }.render())
+        assertEquals(where { "id" eq ada }.render(), where { Users.byId eq ada }.render())
+        assertEquals(where { "id" neq ada }.render(), where { Users.byId neq ada }.render())
+        assertEquals(where { "id" gt ada }.render(), where { Users.byId gt ada }.render())
+        assertEquals(where { "id" gte ada }.render(), where { Users.byId gte ada }.render())
+        assertEquals(where { "id" lt ada }.render(), where { Users.byId lt ada }.render())
+        assertEquals(where { "id" lte ada }.render(), where { Users.byId lte ada }.render())
+        assertEquals(
+            where { "id" isIn listOf(ada, alan) }.render(),
+            where { Users.byId isIn listOf(ada, alan) }.render(),
+        )
+
+        val tooMany = assertFailsWith<IllegalArgumentException> { where { Users.byAge.gt(1, 2) } }
+        assertEquals("index users(age) takes 1 to 1 values, not 2", tooMany.message)
+        assertFailsWith<IllegalArgumentException> { where { Users.byAge gt 0.1f } }
+    }
+
+    @Test
     fun `conditions match stored documents`() = runTest {
         val db = NoSqlite { +Users }
         db.write {
@@ -166,6 +262,9 @@ internal class WhereTest {
             matching("bob", "cid") { "role" eq "member" },
             matching("bob") { "active".isFalse() },
             matching("ann", "cid") { "active".isTrue() },
+            matching("bob") { "active" eq false },
+            matching("ann", "cid") { "active" eq true },
+            matching("bob") { "active" neq true },
             matching { "missing".isFalse() },
             matching("bob") { "score" gt 1.0 },
             matching("ann", "cid") { "nickname".isNull() },
@@ -183,6 +282,18 @@ internal class WhereTest {
             matching { "age" isIn emptyList<String>() },
             matching("ann", "cid") { "age" isIn listOf(17, 45) },
             matching("bob") { "score" isIn listOf(2.5, 3.0) },
+            matching("ann") { "id" eq uuid("ann") },
+            matching("ann", "bob") { "id" lt uuid("cid") },
+            matching("bob", "cid") { "id" isIn listOf(uuid("bob"), uuid("cid")) },
+            matching("bob") { Users.byAge(30) },
+            matching("bob", "cid") { Users.byAge gte 18 },
+            matching("ann", "bob") { Users.byName.gt("Jones", "Cid") },
+            matching("bob") { Users.byName.gt("Smith", "Ann") },
+            matching("ann", "cid") { Users.byName.lte("Smith", "Ann") },
+            matching { Users.byNickname("bobby") },
+            matching("cid") { Users.byId(uuid("cid")) },
+            matching("ann", "bob") { Users.byId lt uuid("cid") },
+            matching("ann", "cid") { Users.byId isIn listOf(uuid("ann"), uuid("cid")) },
         )
 
         for ((condition, ids) in expected) {

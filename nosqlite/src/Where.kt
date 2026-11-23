@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.jvm.JvmName
+import kotlin.uuid.Uuid
 
 /** A filter on documents, built in [WhereScope]. */
 public sealed class Where {
@@ -27,8 +28,8 @@ public typealias Condition = WhereScope.() -> Where
 public annotation class QueryDsl
 
 /**
- * Builds a [Where] on fields named by their JSON keys, compared with [String], [Int], [Long] or finite [Double]
- * values, and [isTrue] or [isFalse] for booleans. [Float] has no overload, since `toDouble()` isn't exact. Other
+ * Builds a [Where] on fields named by their JSON keys, compared with [String], [Int], [Long], finite [Double],
+ * [Boolean] (or [isTrue]/[isFalse]) and [Uuid] values. [Float] has no overload, since `toDouble()` isn't exact. Other
  * types are compared as they are stored, so an enum as its serial name:
  * ```
  * ("age" gte 18) and ("name.last" eq "Lovelace") and ("role" eq "member") and ("tags" contains "kotlin")
@@ -48,6 +49,12 @@ public class WhereScope internal constructor() {
     /** The field equals [value]. */
     public infix fun String.eq(value: Double): Where = compare(this, Comparison.Eq, value.sqlReal)
 
+    /** The field equals [value], comparing booleans as 1 and 0. */
+    public infix fun String.eq(value: Boolean): Where = compare(this, Comparison.Eq, value.sqlInteger)
+
+    /** The field equals [value], compared as [Uuid.toString]. */
+    public infix fun String.eq(value: Uuid): Where = compare(this, Comparison.Eq, value.sqlText)
+
     /** The field is present and not [value]. */
     public infix fun String.neq(value: String): Where = compare(this, Comparison.Neq, SqlValue.Text(value))
 
@@ -59,6 +66,12 @@ public class WhereScope internal constructor() {
 
     /** The field is present and not [value]. */
     public infix fun String.neq(value: Double): Where = compare(this, Comparison.Neq, value.sqlReal)
+
+    /** The field is present and not [value], comparing booleans as 1 and 0. */
+    public infix fun String.neq(value: Boolean): Where = compare(this, Comparison.Neq, value.sqlInteger)
+
+    /** The field is present and not [value], compared as [Uuid.toString]. */
+    public infix fun String.neq(value: Uuid): Where = compare(this, Comparison.Neq, value.sqlText)
 
     /** The field is greater than [value]. */
     public infix fun String.gt(value: String): Where = compare(this, Comparison.Gt, SqlValue.Text(value))
@@ -72,6 +85,9 @@ public class WhereScope internal constructor() {
     /** The field is greater than [value]. */
     public infix fun String.gt(value: Double): Where = compare(this, Comparison.Gt, value.sqlReal)
 
+    /** The field is greater than [value], compared as [Uuid.toString]. */
+    public infix fun String.gt(value: Uuid): Where = compare(this, Comparison.Gt, value.sqlText)
+
     /** The field is at least [value]. */
     public infix fun String.gte(value: String): Where = compare(this, Comparison.Gte, SqlValue.Text(value))
 
@@ -83,6 +99,9 @@ public class WhereScope internal constructor() {
 
     /** The field is at least [value]. */
     public infix fun String.gte(value: Double): Where = compare(this, Comparison.Gte, value.sqlReal)
+
+    /** The field is at least [value], compared as [Uuid.toString]. */
+    public infix fun String.gte(value: Uuid): Where = compare(this, Comparison.Gte, value.sqlText)
 
     /** The field is less than [value]. */
     public infix fun String.lt(value: String): Where = compare(this, Comparison.Lt, SqlValue.Text(value))
@@ -96,6 +115,9 @@ public class WhereScope internal constructor() {
     /** The field is less than [value]. */
     public infix fun String.lt(value: Double): Where = compare(this, Comparison.Lt, value.sqlReal)
 
+    /** The field is less than [value], compared as [Uuid.toString]. */
+    public infix fun String.lt(value: Uuid): Where = compare(this, Comparison.Lt, value.sqlText)
+
     /** The field is at most [value]. */
     public infix fun String.lte(value: String): Where = compare(this, Comparison.Lte, SqlValue.Text(value))
 
@@ -108,12 +130,20 @@ public class WhereScope internal constructor() {
     /** The field is at most [value]. */
     public infix fun String.lte(value: Double): Where = compare(this, Comparison.Lte, value.sqlReal)
 
+    /** The field is at most [value], compared as [Uuid.toString]. */
+    public infix fun String.lte(value: Uuid): Where = compare(this, Comparison.Lte, value.sqlText)
+
     /** The field equals one of [values]; none matches nothing. */
     @JvmName("isInText")
     public infix fun String.isIn(values: Iterable<String>): Where =
         Where.In(Path(this), values.map(SqlValue::Text))
 
-    /** The field equals one of [values]; none matches nothing. A `List<Int>` needs `map(Int::toLong)`. */
+    /** The field equals one of [values]; none matches nothing. */
+    @JvmName("isInInt")
+    public infix fun String.isIn(values: Iterable<Int>): Where =
+        Where.In(Path(this), values.map { it.toLong().sqlInteger })
+
+    /** The field equals one of [values]; none matches nothing. */
     @JvmName("isInLong")
     public infix fun String.isIn(values: Iterable<Long>): Where =
         Where.In(Path(this), values.map { it.sqlInteger })
@@ -122,6 +152,16 @@ public class WhereScope internal constructor() {
     @JvmName("isInDouble")
     public infix fun String.isIn(values: Iterable<Double>): Where =
         Where.In(Path(this), values.map { it.sqlReal })
+
+    /** The field equals one of [values], comparing booleans as 1 and 0; none matches nothing. */
+    @JvmName("isInBoolean")
+    public infix fun String.isIn(values: Iterable<Boolean>): Where =
+        Where.In(Path(this), values.map { it.sqlInteger })
+
+    /** The field equals one of [values], compared as [Uuid.toString]; none matches nothing. */
+    @JvmName("isInUuid")
+    public infix fun String.isIn(values: Iterable<Uuid>): Where =
+        Where.In(Path(this), values.map { it.sqlText })
 
     /** The array field has an element equal to [value]. */
     public infix fun String.contains(value: String): Where = Where.Contains(Path(this), SqlValue.Text(value))
@@ -134,6 +174,12 @@ public class WhereScope internal constructor() {
 
     /** The array field has an element equal to [value]. */
     public infix fun String.contains(value: Double): Where = Where.Contains(Path(this), value.sqlReal)
+
+    /** The array field has an element equal to [value], comparing booleans as 1 and 0. */
+    public infix fun String.contains(value: Boolean): Where = Where.Contains(Path(this), value.sqlInteger)
+
+    /** The array field has an element equal to [value], compared as [Uuid.toString]. */
+    public infix fun String.contains(value: Uuid): Where = Where.Contains(Path(this), value.sqlText)
 
     /** The text field matches [pattern]: `%` is any run of characters, `_` any one; ASCII letters ignore case. */
     public infix fun String.like(pattern: String): Where = compare(this, Comparison.Like, SqlValue.Text(pattern))
@@ -149,6 +195,61 @@ public class WhereScope internal constructor() {
 
     /** The field is present and not null. */
     public fun String.isNotNull(): Where = Where.IsNotNull(Path(this))
+
+    /** Matches documents with [values] for this index's leading fields (and its `where`, if partial). */
+    public operator fun Index.invoke(vararg values: Any?): Where = lookupCondition(lookupValues(values))
+
+    /** Matches documents after [value] in this index's order, comparing its first field. */
+    public infix fun Index.gt(value: Any): Where = rangeCondition(listOf(value), after = true, inclusive = false)
+
+    /** Matches documents after `([first], [second], ...)` in this index's order. */
+    public fun Index.gt(first: Any, second: Any, vararg rest: Any): Where =
+        rangeCondition(listOf(first, second, *rest), after = true, inclusive = false)
+
+    /** Matches documents at or after [value] in this index's order, comparing its first field. */
+    public infix fun Index.gte(value: Any): Where = rangeCondition(listOf(value), after = true, inclusive = true)
+
+    /** Matches documents at or after `([first], [second], ...)` in this index's order. */
+    public fun Index.gte(first: Any, second: Any, vararg rest: Any): Where =
+        rangeCondition(listOf(first, second, *rest), after = true, inclusive = true)
+
+    /** Matches documents before [value] in this index's order, comparing its first field. */
+    public infix fun Index.lt(value: Any): Where = rangeCondition(listOf(value), after = false, inclusive = false)
+
+    /** Matches documents before `([first], [second], ...)` in this index's order. */
+    public fun Index.lt(first: Any, second: Any, vararg rest: Any): Where =
+        rangeCondition(listOf(first, second, *rest), after = false, inclusive = false)
+
+    /** Matches documents at or before [value] in this index's order, comparing its first field. */
+    public infix fun Index.lte(value: Any): Where = rangeCondition(listOf(value), after = false, inclusive = true)
+
+    /** Matches documents at or before `([first], [second], ...)` in this index's order. */
+    public fun Index.lte(first: Any, second: Any, vararg rest: Any): Where =
+        rangeCondition(listOf(first, second, *rest), after = false, inclusive = true)
+
+    /** Matches the document with id [value]. */
+    public operator fun IdIndex.invoke(value: Uuid): Where = idCondition(value)
+
+    /** Matches the document with id [value]. */
+    public infix fun IdIndex.eq(value: Uuid): Where = idCondition(value)
+
+    /** Matches documents whose id is not [value]. */
+    public infix fun IdIndex.neq(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Neq, value.sqlText)
+
+    /** Matches documents with id greater than [value]. */
+    public infix fun IdIndex.gt(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Gt, value.sqlText)
+
+    /** Matches documents with id at least [value]. */
+    public infix fun IdIndex.gte(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Gte, value.sqlText)
+
+    /** Matches documents with id less than [value]. */
+    public infix fun IdIndex.lt(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Lt, value.sqlText)
+
+    /** Matches documents with id at most [value]. */
+    public infix fun IdIndex.lte(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Lte, value.sqlText)
+
+    /** Matches documents whose id is one of [values]; none matches nothing. */
+    public infix fun IdIndex.isIn(values: Iterable<Uuid>): Where = Where.In(Path(ID), values.map { it.sqlText })
 
     /** Both conditions hold. */
     public infix fun Where.and(other: Where): Where = Where.And(this, other)
@@ -177,6 +278,10 @@ internal val Double.sqlReal: SqlValue
     }
 
 private val Long.sqlInteger: SqlValue get() = SqlValue.Integer(this)
+
+private val Boolean.sqlInteger: SqlValue get() = SqlValue.Integer(if (this) 1 else 0)
+
+private val Uuid.sqlText: SqlValue get() = SqlValue.Text(toString())
 
 private val List<SqlValue>.jsonArray: SqlValue
     get() = SqlValue.Text(

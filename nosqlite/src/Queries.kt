@@ -87,6 +87,12 @@ internal object Queries {
             getLong(0)
         }
 
+    fun exists(collection: String, condition: Where?): Statement<Unit, Boolean> =
+        (Fragment("SELECT EXISTS(SELECT 1 FROM ${table(collection)}") + where(condition) + ");").statement {
+            check(step()) { "EXISTS returned no row" }
+            getLong(0) != 0L
+        }
+
     /** Applies the JSON as a merge patch to every match when [merge], or stores it as each whole document. */
     fun update(collection: String, json: String, merge: Boolean, condition: Where): Statement<Unit, Int> {
         val value = if (merge) "jsonb_patch(data, ?)" else "jsonb(?)"
@@ -104,7 +110,8 @@ internal object Queries {
      */
     fun upsert(collection: String, merge: Boolean): Statement<String, Unit> = Statement(
         sql = "INSERT INTO ${table(collection)} (data) VALUES (jsonb(?1)) " +
-            "ON CONFLICT ($ID_VALUE) DO UPDATE SET data = ${if (merge) "jsonb_patch(data, ?1)" else "excluded.data"};",
+            "ON CONFLICT ($ID_VALUE) DO UPDATE SET data = " +
+            "${if (merge) "jsonb_patch(data, excluded.data)" else "excluded.data"};",
         encode = { json -> bindText(1, json) },
         decode = { step() },
     )

@@ -32,6 +32,17 @@ internal class LookupTest {
         val byActive = index("active")
         val byName = index("name.last", "name.first")
         val byNick = index("nickname")
+        val byAgeNewest = index {
+            "age".asc
+            "id".desc
+        }
+    }
+
+    @Serializable
+    data class Note(val id: Uuid, val ownerId: Uuid, val text: String)
+
+    object Notes : Collection("notes") {
+        val byOwner = index(Note::ownerId)
     }
 
     private val ada = User(uuid("ada"), "ada@x.com", Name("Lovelace", "Ada"), 36, nickname = "countess")
@@ -51,13 +62,19 @@ internal class LookupTest {
     }
 
     @Test
-    fun `get finds the document with an id`() = runTest {
+    fun `get and exists find the document with an id`() = runTest {
         val db = database()
 
         db.read {
-            assertEquals(ada, Users.id(ada.id).get<User>())
-            assertNull(Users.id(uuid("nobody")).get<User>())
+            assertEquals(ada, Users.byId(ada.id).get<User>())
+            assertNull(Users.byId(uuid("nobody")).get<User>())
+            assertTrue(Users.byId(ada.id).exists())
+            assertFalse(Users.byId(uuid("nobody")).exists())
         }
+
+        val sql = Queries.exists(Users.name, Users.byId(ada.id).condition).sql
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "'${ada.id}'")).joinToString { it.last()!! }
+        assertTrue(Queries.idIndexName(Users.name) in plan, plan)
     }
 
     @Test
@@ -67,6 +84,8 @@ internal class LookupTest {
         db.read {
             assertEquals(listOf(ada), Users.byNickname("countess").list<User>())
             assertEquals(emptyList(), Users.byNickname("amazing").list<User>())
+            assertTrue(Users.byNickname("countess").exists())
+            assertFalse(Users.byNickname("amazing").exists())
         }
     }
 
@@ -75,38 +94,43 @@ internal class LookupTest {
         val db = database()
 
         db.write {
-            assertTrue(Users.id(ada.id).update(ada.copy(age = 37)))
-            assertFalse(Users.id(uuid("nobody")).update(ada))
-            assertTrue(Users.id(alan.id).update(alan.copy(age = 42), merge = false))
-            assertFalse(Users.id(uuid("nobody")).update(ada, merge = false))
-            assertTrue(Users.id(grace.id).delete())
-            assertFalse(Users.id(grace.id).delete())
+            assertTrue(Users.byId(ada.id).update(ada.copy(age = 37)))
+            assertFalse(Users.byId(uuid("nobody")).update(ada))
+            assertTrue(Users.byId(alan.id).update(alan.copy(age = 42), merge = false))
+            assertFalse(Users.byId(uuid("nobody")).update(ada, merge = false))
+            assertTrue(Users.byId(grace.id).delete())
+            assertFalse(Users.byId(grace.id).delete())
         }
 
         assertEquals(listOf(ada.copy(age = 37), alan.copy(age = 42), byron), db.read { Users.list<User>() })
     }
 
     @Test
-    fun `list and count read every document found`() = runTest {
+    fun `list count and exists read every document found`() = runTest {
         val db = database()
 
         db.read {
             assertEquals(listOf(ada, grace, byron), Users.byAge(36).list<User>())
             assertEquals(3, Users.byAge(36).count())
+            assertTrue(Users.byAge(36).exists())
             assertEquals(listOf(grace), Users.byActive(false).list<User>())
             assertEquals(emptyList(), Users.byAge(99).list<User>())
             assertEquals(0, Users.byAge(99).count())
+            assertFalse(Users.byAge(99).exists())
         }
     }
 
     @Test
-    fun `count of a lookup takes a condition`() = runTest {
+    fun `count and exists of a lookup take a condition`() = runTest {
         val db = database()
 
         db.read {
             assertEquals(2, Users.byAge(36).count { "active".isTrue() })
             assertEquals(1, Users.byAge(36).count { "name.last" eq "Hopper" })
             assertEquals(0, Users.byNickname("amazing").count { "age" eq 36 })
+            assertTrue(Users.byAge(36).exists { "active".isTrue() })
+            assertFalse(Users.byAge(36).exists { "name.last" eq "Turing" })
+            assertFalse(Users.byNickname("amazing").exists { "age" eq 36 })
         }
     }
 
@@ -143,6 +167,24 @@ internal class LookupTest {
         db.read {
             assertEquals(listOf(ada, byron), Users.byName("Lovelace").list<User>())
             assertEquals(listOf(ada), Users.byName("Lovelace", "Ada").list<User>())
+            assertEquals(listOf(ada, grace, byron), Users.byAgeNewest(36).list<User>())
+        }
+    }
+
+    @Test
+    fun `an index lookup accepts Uuid values`() = runTest {
+        val db = NoSqlite { +Notes }
+        val first = Note(uuid("note"), ada.id, "hi")
+        val second = Note(uuid("note-2"), alan.id, "bye")
+        db.write {
+            Notes.insert(first)
+            Notes.insert(second)
+        }
+
+        db.read {
+            assertEquals(listOf(first), Notes.byOwner(ada.id).list<Note>())
+            assertTrue(Notes.byOwner(ada.id).exists())
+            assertFalse(Notes.byOwner(uuid("nobody")).exists())
         }
     }
 
@@ -220,6 +262,6 @@ internal class LookupTest {
             "index users(name.last, name.first) = ['Lovelace', NULL]",
             Users.byName("Lovelace", null).toString(),
         )
-        assertEquals("users id ${ada.id}", Users.id(ada.id).toString())
+        assertEquals("users id ${ada.id}", Users.byId(ada.id).toString())
     }
 }

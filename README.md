@@ -68,35 +68,36 @@ object Users : Collection("users") {
 
 val db = NoSqlite("app.db") { +Users }
 
-val adaId = Uuid.random()
-val alanId = Uuid.random()
+val adaId = Uuid.generateV7()
+val alanId = Uuid.generateV7()
 
 db.write {
     Users.insert(User(adaId, "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
     Users.upsert(User(alanId, "alan@example.com", Name("Alan", "Turing"), 41))
-    Users.id(alanId).update(User(alanId, "alan@example.com", Name("Alan", "Turing"), 42))
-    Users.delete { User::age lt 18 }
+    Users.byId(alanId).update(User(alanId, "alan@example.com", Name("Alan", "Turing"), 42))
+    Users.delete { Users.byAge lt 18 }
 }
 
 db.read {
-    val ada: User? = Users.id(adaId).get<User>()
-    val raw: JsonObject? = Users.id(adaId).get<JsonObject>()
+    val ada: User? = Users.byId(adaId).get<User>()
+    val raw: JsonObject? = Users.byId(adaId).get<JsonObject>()
     val lovelaces: List<User> = Users.byName("Lovelace").list<User>()
     val adults: List<User> = Users.list<User> {
-        where { (User::age gte 18) and (User::tags contains "kotlin") }
+        where { (Users.byAge gte 18) and (User::tags contains "kotlin") }
         orderBy {
-            User::age.desc
+            Users.byAge.desc
             (User::name / Name::last).asc
         }
         limit(20)
     }
-    val count: Long = Users.count { User::age gte 18 }
+    val count: Long = Users.count { Users.byAge gte 18 }
+    val hasAdults: Boolean = Users.exists { Users.byAge gte 18 }
     Users.forEach<User> { user -> println(user) }
 }
 
 with(db) {
-    Users.observe<User> { where { User::age gte 18 } }.collect { adults -> render(adults) }
-    Users.id(adaId).observe<User>().collect { ada -> render(ada) }
+    Users.observe<User> { where { Users.byAge gte 18 } }.collect { adults -> render(adults) }
+    Users.byId(adaId).observe<User>().collect { ada -> render(ada) }
 }
 ```
 
@@ -127,20 +128,34 @@ renamed with `@SerialName`. Keys are identifiers.
 ### Indexes
 
 `index("age")` takes one field or several, in order, and an optional `where` that makes the index partial:
-`index("nickname", where = { "active".isTrue() })`. Each index is named `nsq_idx_<collection>_` plus a hash of its
-definition, so a changed index is dropped and created again when the database opens, and a removed one dropped.
+`index("nickname", where = { "active".isTrue() })`. For mixed sort directions, pass a key block:
+`index { Task::done.asc; Task::id.desc }` (also with an optional `where`). Each index is named
+`nsq_idx_<collection>_` plus a hash of its definition, so a changed index is dropped and created again when the
+database opens, and a removed one dropped.
 
-Every collection also has an index on `id`, named `nsq_idx_<collection>_id`, which is not declared.
-Calling an index looks documents up by its values.
-It takes its leading fields, `null` matching a null or missing field, and finds any number: `list<T> { }`,
-`count { condition }`, `update(value)` and `delete()` return the documents or how many there were, and
-`forEach<T> { action }` streams them, as on a collection.
+Every collection also has a built-in index on `id`, exposed as `byId` (named `nsq_idx_<collection>_id`), which is not
+declared. Calling an index looks documents up by its values.
+It takes its leading fields (`Uuid` values included, `null` matching a null or missing field), and finds any number:
+`list<T> { }`, `count { condition }`, `exists { condition }`, `update(value)` and `delete()` return the documents,
+how many there were, or whether any matched, and `forEach<T> { action }` streams them, as on a collection.
+
+Indexes also work directly in `where` and `orderBy`:
+- Equality/prefix: `where { Users.byAge(36) }` or `where { Users.byName("Lovelace") }` (including a partial index's own
+  `where`).
+- Range and cursor seeking in the index's order: `where { Users.byAge gte 18 }`,
+  `where { Users.byName.gt("Lovelace", "Ada") }`, `where { Users.byId gt lastId }`.
+- Ordering: `orderBy { Users.byName.asc }` walks the index forward (each key in its declared direction), and
+  `orderBy { Users.byName.desc }` walks it backward (every key reversed). Field sorts (`"age".desc`, `User::age.asc`)
+  can still be used on their own or mixed in.
 
 ### Ids
 
 Every document needs an `id`: a `kotlin.uuid.Uuid` string, stored as `Uuid.toString()`. A `Uuid` property serializes
-to that string. SQLite checks it on every write. `id(value)` takes that `Uuid` and addresses the one document:
-`get<T>()` returns it or `null`, and
+to that string. SQLite checks it on every write. Prefer `Uuid.generateV7()`: v7 ids start with their creation time,
+so sorting or paginating by `id` orders documents by creation time (oldest first with `asc`, newest first with `desc`).
+Any UUID works, but `Uuid.random()` (v4) ids sort in no meaningful order. `generateV7()` currently needs
+`@OptIn(ExperimentalUuidApi::class)`. `byId(value)` takes that `Uuid` and addresses the one document:
+`get<T>()` returns it or `null`, `exists()` checks whether it is there without decoding the document, and
 `update(value)` and `delete()` report whether there was one. `observe` on it emits that document, or `null` while
 there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
 `update` and `upsert` take `merge = false` to store the value as the whole document instead of merging it.
@@ -159,7 +174,7 @@ Inside `db.write { }`:
 - `upsert(value)` inserts the document, or updates the one with its id as `update` does, `merge = false` included.
 
 To change a few fields without the whole class, pass a `JsonObject` as the patch:
-`Users.id(adaId).update(buildJsonObject { put("age", 37) })`.
+`Users.byId(adaId).update(buildJsonObject { put("age", 37) })`.
 
 `insert` and `upsert` return nothing. The others return how many documents they touched, and the by-id forms of
 `update` and `delete` return whether there was one. A write commits when its block returns and rolls back when it
@@ -191,8 +206,8 @@ it doesn't know yet:
 
 ```kotlin
 db.write { Users.insert(downloaded) } // a JsonObject with a "plan" field User doesn't have
-db.write { Users.id(ada.id).update(ada.copy(age = 37)) } // "plan" is still there
-val upload: JsonObject? = db.read { Users.id(ada.id).get<JsonObject>() }
+db.write { Users.byId(ada.id).update(ada.copy(age = 37)) } // "plan" is still there
+val upload: JsonObject? = db.read { Users.byId(ada.id).get<JsonObject>() }
 ```
 
 A merge patch replaces lists and merges maps like any object, so it never removes a field the value leaves out.
@@ -201,8 +216,8 @@ To drop a field removed from the class, a map key or a sealed subtype's old fiel
 
 ### Reads and queries
 
-Inside `db.read { }` or a write: `list<T> { }`, `count { condition }` and `forEach<T>(query) { action }`. A read sees
-one snapshot. The query builder sets each part at most once:
+Inside `db.read { }` or a write: `list<T> { }`, `count { condition }`, `exists { condition }` and
+`forEach<T>(query) { action }`. A read sees one snapshot. The query builder sets each part at most once:
 
 ```kotlin
 Users.list<User> {
@@ -216,15 +231,21 @@ Users.list<User> {
 }
 ```
 
-Conditions compare text, `Int`, `Long` and `Double`: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `isIn`, `contains` for an array
-element, `like` for a pattern (`"title" like "%milk%"`, case-insensitive for ASCII), `isTrue()`, `isFalse()`,
-`isNull()`, `isNotNull()`, combined with `and`, `or` and `not`. `isIn` takes `Long` values, so `"age" isIn listOf(1, 2)` compiles and a
-`List<Int>` needs `map(Int::toLong)`. `Float` has no overload,
+Conditions compare text, `Int`, `Long`, `Double`, `Boolean` and `Uuid`: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `isIn`,
+`contains` for an array element, `like` for a pattern (`"title" like "%milk%"`, case-insensitive for ASCII),
+`isTrue()`, `isFalse()`, `isNull()`, `isNotNull()`, combined with `and`, `or` and `not`. `Float` has no overload,
 because `toDouble()` is not exact and `0.1f` would not match the stored real `0.1`; write a fraction as a `Double`
 (`"ratio" eq 0.1`). `Short`, `Byte` and other number types are the same. Other values compare as they are stored,
 so an enum as its serial name (`"role" eq "member"`). A `Double` that is `NaN` or infinite is rejected when the
-condition is built. The order of documents with equal sort keys is unspecified, so add `id` as the last
-sort key when a stable order or offset pagination matters.
+condition is built.
+
+Without `orderBy`, the order of documents is unspecified; the order of documents with equal sort keys is also
+unspecified. Add `id` as the last sort key when a stable order matters. With `Uuid.generateV7()`, sorting by `byId`
+orders by creation time using the built-in `id` index without a temp B-tree, and a composite index ending in `id`
+(such as `index { Task::done.asc; Task::id.desc }`) makes `orderBy { Tasks.byDone.asc }` zero-sort while still serving
+prefix lookups like `Tasks.byDone(true)`. For large lists, prefer keyset pagination over `offset`:
+`where { Users.byId gt lastId }; orderBy { Users.byId.asc }; limit(20)` (or
+`where { Tasks.byDone.gt(last.done, last.id) }; orderBy { Tasks.byDone.asc }; limit(20)`) seeks directly into the index.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
 run other queries in that same transaction, one at a time.
@@ -236,8 +257,9 @@ Fields can also be named by property references, which the compiler checks: `Use
 collection. A property reference names the field by its property name, so a
 property renamed with `@SerialName` is named by its string instead. The document id is the JSON key `id`, so a property
 that serializes under another name is not the id.
-A comparison accepts a value of the property's type when that type is an SQL scalar: `String`, `Int`, `Long`,
-`Double` or `Boolean` (a boolean compares as 1 and 0). `User::age gte 18` compiles. `User::age gte "18"` does not.
+A comparison accepts a value of the property's type when that type is an SQL scalar or `Uuid`: `String`, `Int`, `Long`,
+`Double`, `Boolean` (compared as 1 and 0, with `isTrue()`/`isFalse()`) or `Uuid` (compared as `Uuid.toString()`).
+`User::age gte 18` compiles. `User::age gte "18"` does not.
 Null is `isNull()` or `isNotNull()`, including on a nullable property; the other operators take a non-null value.
 An enum, `Float`, `Char`, unsigned type, value class or other type has no overload, so name that field by its
 string key. Sorting and declaring an index take any property. Each typed call builds the same condition, sort key

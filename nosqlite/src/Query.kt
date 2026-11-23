@@ -61,7 +61,7 @@ public class QueryScope internal constructor() {
     internal fun build(): Query = Query(condition, orderBy.orEmpty(), limit ?: Int.MAX_VALUE, offset ?: 0)
 }
 
-/** Collects sort keys: `"age".desc` sorts by age, largest first. */
+/** Collects sort keys: `"age".desc`, `User::age.desc`, or an index (`Users.byName.asc`). */
 @QueryDsl
 public class OrderScope internal constructor() {
     internal val keys: List<Order>
@@ -72,6 +72,24 @@ public class OrderScope internal constructor() {
 
     /** Largest first; null and missing values come last. */
     public val String.desc: Unit get() = add(Order(Path(this), descending = true))
+
+    /** Walks this index forward: each of its keys in its declared direction. */
+    public val Index.asc: Unit
+        get() {
+            for (key in this.keys) add(key)
+        }
+
+    /** Walks this index backward: each of its keys in the reverse of its declared direction. */
+    public val Index.desc: Unit
+        get() {
+            for (key in this.keys) add(Order(key.path, descending = !key.descending))
+        }
+
+    /** Smallest id first (oldest first with UUID v7). */
+    public val IdIndex.asc: Unit get() = add(Order(Path(ID), descending = false))
+
+    /** Largest id first (newest first with UUID v7). */
+    public val IdIndex.desc: Unit get() = add(Order(Path(ID), descending = true))
 
     internal fun add(order: Order) {
         keys += order
