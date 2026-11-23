@@ -53,7 +53,7 @@ internal fun FieldIndex.sqlValues(values: Array<out Any?>): List<SqlValue> {
  * condition, so only the documents it indexes match.
  */
 internal fun FieldIndex.equal(values: List<SqlValue>): Where = paths.zip(values) { path, value ->
-    if (value == SqlValue.Null) Where.IsNull(path) else Where.Compare(path, Comparison.Eq, value)
+    if (value == SqlValue.Null) Where.IsNull(path) else compare(path, Comparison.Eq, value)
 }.plus(listOfNotNull(where)).reduce { left, right -> Where.And(left, right) }
 
 internal fun sqlValue(value: Any?): SqlValue = when (value) {
@@ -135,7 +135,7 @@ context(_: WriteScope)
 public suspend fun Lookup.Many.delete(): Int = collection.delete { condition }
 
 internal fun idCondition(value: Uuid): Where =
-    Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
+    Where.Key(Comparison.Eq, value)
 
 /** The document of this collection with [value] as its id: `Users.byId(ada.id)`. */
 public operator fun IdIndex.invoke(value: Uuid): Lookup.Id = Lookup.Id(collection, value)

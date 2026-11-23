@@ -380,8 +380,8 @@ context(_: OrderScope)
 public val KProperty1<*, *>.desc: Unit get() = field.desc
 
 private fun Field<*, *>.compare(comparison: Comparison, value: Any): Where =
-    Where.Compare(Path(path), comparison, sqlValue(value))
+    compare(Path(path), comparison, sqlValue(value))
 
-private fun Field<*, *>.oneOf(values: Iterable<*>): Where = Where.In(Path(path), values.map(::sqlValue))
+private fun Field<*, *>.oneOf(values: Iterable<*>): Where = isIn(Path(path), values.map(::sqlValue))
 
 private fun Field<*, *>.element(value: Any): Where = Where.Contains(Path(path), sqlValue(value))

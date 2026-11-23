@@ -40,9 +40,9 @@ public class FieldIndex internal constructor(
 
 /** The table's own key, [Collection.byId]: finds one document by its id, and sorts by id alone. */
 public class IdIndex internal constructor(collection: Collection) : Index(collection) {
-    override val sortPaths: List<Path> get() = listOf(Path(ID))
+    override val sortPaths: List<Path> get() = listOf(Path(ID_FIELD))
 
-    override fun toString(): String = "index ${collection.name}($ID)"
+    override fun toString(): String = "index ${collection.name}($ID_FIELD)"
 }
 
 /** Prefix of every SQLite object nosqlite creates. */
