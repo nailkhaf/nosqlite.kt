@@ -72,8 +72,8 @@ public suspend inline fun <reified T> Collection.insert(value: T): Unit = insert
 /** As the reified overload, with an explicit [serializer]. */
 context(_: WriteScope)
 public suspend fun <T> Collection.insert(serializer: KSerializer<T>, value: T) {
-    val json = encode(serializer, value)
-    withWriteConnection { Queries.insert(name).execute(json) }
+    val document = document(serializer, value)
+    withWriteConnection { Queries.insert(name).execute(document) }
     changed()
 }
 
@@ -133,8 +133,8 @@ public suspend inline fun <reified T> Collection.upsert(value: T, merge: Boolean
 /** As the reified overload, with an explicit [serializer]. */
 context(_: WriteScope)
 public suspend fun <T> Collection.upsert(serializer: KSerializer<T>, value: T, merge: Boolean = true) {
-    val json = encode(serializer, value)
-    withWriteConnection { Queries.upsert(name, merge).execute(json) }
+    val document = document(serializer, value)
+    withWriteConnection { Queries.upsert(name, merge).execute(document) }
     changed()
 }
 
@@ -147,8 +147,8 @@ context(_: WriteScope)
 public suspend fun upsert(collection: String, document: JsonObject, merge: Boolean = true) {
     requireCollectionName(collection)
     ensureTable(collection)
-    val json = NoSqlite.Json.encodeToString(serializer<JsonObject>(), document)
-    withWriteConnection(collection) { Queries.upsert(collection, merge).execute(json) }
+    val stored = document(collection, document)
+    withWriteConnection(collection) { Queries.upsert(collection, merge).execute(stored) }
     changed(collection)
 }
 
@@ -185,6 +185,19 @@ internal fun <T> Collection.encode(serializer: KSerializer<T>, value: T): String
     require(json.startsWith('{')) { "A document of '$name' must be a JSON object, not $json" }
     return json
 }
+
+/** A document to insert: its JSON and the id read from it, which becomes the table's key. */
+internal class Document(val id: Uuid, val json: String)
+
+internal fun <T> Collection.document(serializer: KSerializer<T>, value: T): Document {
+    val json = NoSqlite.Json.encodeToJsonElement(serializer, value)
+    require(json is JsonObject) { "A document of '$name' must be a JSON object, not $json" }
+    return document(name, json)
+}
+
+/** [json] with its id, which must be a canonical UUID string, or [NoSqliteException.InvalidId] is thrown. */
+internal fun document(collection: String, json: JsonObject): Document =
+    Document(documentId(collection, json), NoSqlite.Json.encodeToString(JsonObject.serializer(), json))
 
 /**
  * The document in the current row of a [Queries.selectSql] statement, as [serializer] reads it.
@@ -249,9 +262,7 @@ internal inline fun <R> mapErrors(collection: String? = null, block: () -> R): R
         "no such table: ${tableName(collection)}" in message ->
             throw NoSqliteException.CollectionNotDeclared(collection, e)
 
-        // A missing or non-hex id leaves the key NULL before the check runs.
-        "CHECK constraint failed: document_id" in message ||
-            "NOT NULL constraint failed: ${tableName(collection)}.$ID_KEY" in message ->
+        "CHECK constraint failed: document_id" in message ->
             throw NoSqliteException.InvalidId(collection, e)
 
         "UNIQUE constraint failed" in message -> throw NoSqliteException.DuplicateId(collection, e)

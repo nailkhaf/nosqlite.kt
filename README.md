@@ -146,6 +146,7 @@ creation time, so id order is creation order, oldest first (see Reads and querie
 `update(value)` and `delete()` report whether there was one. `observe` on it emits that document, or `null` while
 there is none. `upsert(value)` inserts the document, or updates the one with its id as `update` does.
 `update` and `upsert` take `merge = false` to store the value as the whole document instead of merging it.
+A condition on `id` with a UUID string, such as `"id" gt lastId.toString()`, searches the table's key.
 An id never changes: a write that would change it throws `NoSqliteException.ImmutableId`. A missing or non-UUID id
 throws `NoSqliteException.InvalidId`. A second document with the same id throws `NoSqliteException.DuplicateId`.
 

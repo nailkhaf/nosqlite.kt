@@ -8,6 +8,9 @@ internal sealed interface SqlValue {
     data class Integer(val value: Long) : SqlValue
     data class Real(val value: Double) : SqlValue
     data object Null : SqlValue
+
+    /** Bytes, such as an id's 16 for the table's key. */
+    class Blob(val value: ByteArray) : SqlValue
 }
 
 /** The value as an SQL literal, for partial index conditions which can't have parameters. */
@@ -17,6 +20,7 @@ internal val SqlValue.literal: String
         is SqlValue.Integer -> value.toString()
         is SqlValue.Real -> value.toString()
         SqlValue.Null -> "NULL"
+        is SqlValue.Blob -> value.joinToString("", "x'", "'") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
     }
 
 // SQL and its bound parameters travel together, so they can't drift apart.
@@ -44,6 +48,7 @@ internal fun SQLiteStatement.bind(params: List<SqlValue>, startIndex: Int = 1) {
             is SqlValue.Integer -> bindLong(index, param.value)
             is SqlValue.Real -> bindDouble(index, param.value)
             SqlValue.Null -> bindNull(index)
+            is SqlValue.Blob -> bindBlob(index, param.value)
         }
     }
 }

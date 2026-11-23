@@ -4,11 +4,18 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.jvm.JvmName
+import kotlin.uuid.Uuid
 
 /** A filter on documents, built in [WhereScope]. */
 public sealed class Where {
     internal class Compare(val path: Path, val comparison: Comparison, val value: SqlValue) : Where()
     internal class In(val path: Path, val values: List<SqlValue>) : Where()
+
+    /** The table's key compared with [value]: an id condition, which SQLite searches the key for. */
+    internal class Key(val comparison: Comparison, val value: Uuid) : Where()
+
+    /** The table's key is one of [values], which are never empty. */
+    internal class KeyIn(val values: List<Uuid>) : Where()
     internal class IsNull(val path: Path) : Where()
     internal class IsNotNull(val path: Path) : Where()
     internal class Contains(val path: Path, val value: SqlValue) : Where()
@@ -111,17 +118,17 @@ public class WhereScope internal constructor() {
     /** The field equals one of [values]; none matches nothing. */
     @JvmName("isInText")
     public infix fun String.isIn(values: Iterable<String>): Where =
-        Where.In(Path(this), values.map(SqlValue::Text))
+        isIn(Path(this), values.map(SqlValue::Text))
 
     /** The field equals one of [values]; none matches nothing. A `List<Int>` needs `map(Int::toLong)`. */
     @JvmName("isInLong")
     public infix fun String.isIn(values: Iterable<Long>): Where =
-        Where.In(Path(this), values.map { it.sqlInteger })
+        isIn(Path(this), values.map { it.sqlInteger })
 
     /** The field equals one of [values]; none matches nothing. */
     @JvmName("isInDouble")
     public infix fun String.isIn(values: Iterable<Double>): Where =
-        Where.In(Path(this), values.map { it.sqlReal })
+        isIn(Path(this), values.map { it.sqlReal })
 
     /** The array field has an element equal to [value]. */
     public infix fun String.contains(value: String): Where = Where.Contains(Path(this), SqlValue.Text(value))
@@ -160,7 +167,7 @@ public class WhereScope internal constructor() {
     public fun not(condition: Where): Where = Where.Not(condition)
 
     private fun compare(field: String, comparison: Comparison, value: SqlValue): Where =
-        Where.Compare(Path(field), comparison, value)
+        compare(Path(field), comparison, value)
 }
 
 internal enum class Comparison(val sql: String) {
@@ -168,6 +175,30 @@ internal enum class Comparison(val sql: String) {
 }
 
 internal fun where(block: Condition): Where = WhereScope().block()
+
+/**
+ * [path] compared with [value]. Every condition is built here or in [isIn], so an id compared with a UUID becomes a
+ * condition on the table's key, [Where.Key]; any other id value, such as text that is no UUID, stays a field
+ * condition and matches as it always would.
+ */
+internal fun compare(path: Path, comparison: Comparison, value: SqlValue): Where {
+    val id = path.idValue(value)
+    return if (id != null && comparison != Comparison.Like) {
+        Where.Key(comparison, id)
+    } else {
+        Where.Compare(path, comparison, value)
+    }
+}
+
+/** [path] equals one of [values]; ids that are all UUIDs become [Where.KeyIn], as [compare] does. */
+internal fun isIn(path: Path, values: List<SqlValue>): Where {
+    if (values.isEmpty()) return Where.In(path, values)
+    val ids = values.map { path.idValue(it) ?: return Where.In(path, values) }
+    return Where.KeyIn(ids)
+}
+
+private fun Path.idValue(value: SqlValue): Uuid? =
+    if (field == ID_FIELD && value is SqlValue.Text) value.value.canonicalUuidOrNull() else null
 
 /** A finite [Double] as a SQL real; `NaN` and infinities are rejected. */
 internal val Double.sqlReal: SqlValue
@@ -187,6 +218,7 @@ private val List<SqlValue>.jsonArray: SqlValue
                     is SqlValue.Integer -> JsonPrimitive(it.value)
                     is SqlValue.Real -> JsonPrimitive(it.value)
                     SqlValue.Null -> JsonNull
+                    is SqlValue.Blob -> error("Where.In takes no blobs")
                 }
             },
         ).toString(),
@@ -197,20 +229,23 @@ internal fun Where.render(inline: Boolean = false): Fragment {
     fun value(value: SqlValue): Fragment = if (inline) Fragment(value.literal) else Fragment("?", listOf(value))
 
     return when (this) {
-        // An id equal to a text finds its row by the key; the id text is compared too, so the match stays exact.
-        is Where.Compare if !inline && path.field == ID && comparison == Comparison.Eq && value is SqlValue.Text ->
-            Fragment("($ID_KEY = ${idBytes("?")} AND ${path.sql} = ?)", listOf(value, value))
-
         is Where.Compare -> Fragment("${path.sql} ${comparison.sql} ") + value(value)
+
+        is Where.Key -> Fragment("$ID_COLUMN ${comparison.sql} ") + value(SqlValue.Blob(value.toByteArray()))
+
+        is Where.KeyIn ->
+            if (inline) {
+                values.map { value(SqlValue.Blob(it.toByteArray())) }
+                    .joinToFragment(", ", prefix = "$ID_COLUMN IN (", postfix = ")")
+            } else {
+                // One parameter however many ids, as for [Where.In].
+                val hex = values.joinToString(",", "[", "]") { "\"${it.toHexString()}\"" }
+                Fragment("$ID_COLUMN IN (SELECT unhex(value) FROM json_each(?))", listOf(SqlValue.Text(hex)))
+            }
 
         is Where.In ->
             when {
                 values.isEmpty() -> Fragment("0 = 1")
-                !inline && path.field == ID && values.all { it is SqlValue.Text } -> Fragment(
-                    "($ID_KEY IN (SELECT ${idBytes("value")} FROM json_each(?)) AND " +
-                        "${path.sql} IN (SELECT value FROM json_each(?)))",
-                    listOf(values.jsonArray, values.jsonArray),
-                )
                 inline -> values.map(::value).joinToFragment(", ", prefix = "${path.sql} IN (", postfix = ")")
                 // One parameter however many values, so SQLite's limit on parameters never applies.
                 else -> Fragment("${path.sql} IN (SELECT value FROM json_each(?))", listOf(values.jsonArray))
@@ -221,7 +256,7 @@ internal fun Where.render(inline: Boolean = false): Fragment {
         is Where.IsNotNull -> Fragment("${path.sql} IS NOT NULL")
 
         is Where.Contains ->
-            Fragment("EXISTS (SELECT 1 FROM json_each(data, '${path.jsonPath}') WHERE value = ") +
+            Fragment("EXISTS (SELECT 1 FROM json_each($DATA_COLUMN, '${path.jsonPath}') WHERE value = ") +
                 value(value) + ")"
 
         is Where.And -> Fragment("(") + left.render(inline) + " AND " + right.render(inline) + ")"

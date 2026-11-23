@@ -21,6 +21,6 @@ internal val Path.jsonPath: String
 
 /** The SQL value at this path, `->>` so it compares, orders and indexes as an SQL value. */
 internal val Path.sql: String
-    get() = "data ->> '$jsonPath'"
+    get() = "$DATA_COLUMN ->> '$jsonPath'"
 
 private val Identifier = Regex("[A-Za-z_][A-Za-z0-9_]*")

@@ -590,10 +590,7 @@ private fun tableSql(table: String): String = """
     CREATE TABLE "$table" (
         id BLOB NOT NULL PRIMARY KEY,
         data BLOB NOT NULL,
-        CONSTRAINT document_id CHECK (
-            json_type(data, '$.id') IS 'text' AND ($ID_VALUE) GLOB '$CANONICAL_UUID_GLOB'
-            AND id = unhex(replace($ID_VALUE, '-', ''))
-        )
+        CONSTRAINT document_id CHECK (id = unhex(replace(data ->> '$.id', '-', '')))
     ) STRICT, WITHOUT ROWID
 """.trimIndent()
 

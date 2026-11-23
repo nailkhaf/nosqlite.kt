@@ -25,7 +25,7 @@ public sealed class Lookup(internal val collection: Collection) {
     ) : Lookup(index.collection) {
         // A partial index's own condition is part of every lookup, so only the documents it indexes match.
         override val condition: Where = index.paths.zip(values) { path, value ->
-            if (value == SqlValue.Null) Where.IsNull(path) else Where.Compare(path, Comparison.Eq, value)
+            if (value == SqlValue.Null) Where.IsNull(path) else compare(path, Comparison.Eq, value)
         }.plus(listOfNotNull(index.where)).reduce { left, right -> Where.And(left, right) }
 
         override fun toString(): String = "$index = ${values.map { it.literal }}"
@@ -127,7 +127,7 @@ context(_: WriteScope)
 public suspend fun Lookup.Many.delete(): Int = collection.delete { condition }
 
 internal fun idCondition(value: Uuid): Where =
-    Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
+    Where.Key(Comparison.Eq, value)
 
 /** The document of this collection with [value] as its id. */
 public fun Collection.id(value: Uuid): Lookup.Id = Lookup.Id(this, value)

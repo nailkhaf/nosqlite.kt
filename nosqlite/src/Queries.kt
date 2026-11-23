@@ -6,20 +6,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-/** The JSON key of the id every document carries. */
-internal const val ID: String = "id"
+/** A collection table's key: the document's id as its 16 bytes, so rows and every index entry end with it. */
+internal const val ID_COLUMN: String = "id"
 
-/** The SQL expression of [ID] in the document. */
-internal val ID_VALUE: String = Path(ID).sql
-
-/** The primary key column: the document's id as its 16 bytes, so rows and every index entry end with it. */
-internal const val ID_KEY: String = "id"
-
-/** The 16 bytes of the canonical UUID text [text], an SQL expression; `NULL` when it isn't hex. */
-internal fun idBytes(text: String): String = "unhex(replace($text, '-', ''))"
-
-/** Lowercase canonical UUID text, the form [kotlin.uuid.Uuid.toString] returns, as a SQLite `GLOB`. */
-internal val CANONICAL_UUID_GLOB: String = listOf(8, 4, 4, 4, 12).joinToString("-") { "[0-9a-f]".repeat(it) }
+/** A collection table's document, as JSONB. */
+internal const val DATA_COLUMN: String = "data"
 
 internal const val PENDING_CHANGES: String = "${PREFIX}_pending_changes"
 
@@ -36,19 +27,15 @@ internal object Queries {
 
     /**
      * A `WITHOUT ROWID` table keyed by the id's 16 bytes: rows are stored in id order and SQLite ends every index
-     * entry with the key, so a query without `orderBy`, and ties within an index, come in id order. The key is a
-     * plain column, since SQLite rejects a generated one as a primary key; the check keeps it equal to the id in the
-     * document.
+     * entry with the key, so a query without `orderBy`, and ties within an index, come in id order. Writes bind the
+     * key from the id they read from the document; the check keeps the two equal, so the document's id is the key.
      */
     private fun createTableCommand(collection: String): Command<Unit> = command(
         """
         CREATE TABLE IF NOT EXISTS ${table(collection)} (
-            $ID_KEY BLOB NOT NULL PRIMARY KEY,
-            data BLOB NOT NULL,
-            CONSTRAINT document_id CHECK (
-                json_type(data, '$.$ID') IS 'text' AND ($ID_VALUE) GLOB '$CANONICAL_UUID_GLOB'
-                AND $ID_KEY = ${idBytes(ID_VALUE)}
-            )
+            $ID_COLUMN BLOB NOT NULL PRIMARY KEY,
+            $DATA_COLUMN BLOB NOT NULL,
+            CONSTRAINT document_id CHECK ($ID_COLUMN = unhex(replace(${Path(ID_FIELD).sql}, '-', '')))
         ) STRICT, WITHOUT ROWID;
         """.trimIndent(),
     )
@@ -89,7 +76,7 @@ internal object Queries {
             "$order LIMIT ? OFFSET ?;",
             listOf(SqlValue.Integer(query.limit.toLong()), SqlValue.Integer(query.offset.toLong())),
         )
-        return Fragment("SELECT json(data) FROM ${table(collection)}") + where(query.condition) + page
+        return Fragment("SELECT json($DATA_COLUMN) FROM ${table(collection)}") + where(query.condition) + page
     }
 
     fun count(collection: String, condition: Where?): Statement<Unit, Long> =
@@ -100,8 +87,9 @@ internal object Queries {
 
     /** Applies the JSON as a merge patch to every match when [merge], or stores it as each whole document. */
     fun update(collection: String, json: String, merge: Boolean, condition: Where): Statement<Unit, Int> {
-        val value = if (merge) "jsonb_patch(data, ?)" else "jsonb(?)"
-        return (Fragment("UPDATE ${table(collection)} SET data = $value WHERE ", listOf(SqlValue.Text(json))) +
+        val value = if (merge) "jsonb_patch($DATA_COLUMN, ?)" else "jsonb(?)"
+        val set = "UPDATE ${table(collection)} SET $DATA_COLUMN = $value WHERE "
+        return (Fragment(set, listOf(SqlValue.Text(json))) +
             condition.render() + RETURNING).statement(countRows)
     }
 
@@ -113,13 +101,14 @@ internal object Queries {
      * stores it as the whole document otherwise. An update rather than `REPLACE`, which would delete the row and fire
      * the delete trigger.
      */
-    fun upsert(collection: String, merge: Boolean): Statement<String, Unit> = Statement(
-        // `WHERE true` tells SQLite the ON CONFLICT belongs to the INSERT, not to a join in the SELECT.
-        sql = "${insertSql(collection)} WHERE true " +
-            "ON CONFLICT ($ID_KEY) DO UPDATE SET data = ${if (merge) "jsonb_patch(data, ?1)" else "excluded.data"};",
-        encode = { json -> bindText(1, json) },
-        decode = { step() },
-    )
+    fun upsert(collection: String, merge: Boolean): Statement<Document, Unit> {
+        val data = if (merge) "jsonb_patch($DATA_COLUMN, excluded.$DATA_COLUMN)" else "excluded.$DATA_COLUMN"
+        return Statement(
+            sql = "${insertSql(collection)} ON CONFLICT ($ID_COLUMN) DO UPDATE SET $DATA_COLUMN = $data;",
+            encode = { bind(it) },
+            decode = { step() },
+        )
+    }
 
     /**
      * Rejects an update that changes `id`. Named `nsq_<collection>_id_immutable` and stored in `main` with the table:
@@ -130,15 +119,15 @@ internal object Queries {
     private fun idTrigger(collection: String): Command<Unit> = command("""
         CREATE TRIGGER IF NOT EXISTS main.${identifier(triggerName(collection, "id_immutable"))}
         BEFORE UPDATE ON ${table(collection)}
-        WHEN OLD.data ->> '$.$ID' IS NOT NEW.data ->> '$.$ID'
+        WHEN OLD.$DATA_COLUMN ->> '$.$ID_FIELD' IS NOT NEW.$DATA_COLUMN ->> '$.$ID_FIELD'
         BEGIN
             SELECT RAISE(ABORT, 'id is immutable');
         END;
     """.trimIndent())
 
-    fun insert(collection: String): Statement<String, Unit> = Statement(
+    fun insert(collection: String): Statement<Document, Unit> = Statement(
         sql = "${insertSql(collection)};",
-        encode = { json -> bindText(1, json) },
+        encode = { bind(it) },
         decode = { step() },
     )
 
@@ -216,15 +205,15 @@ internal object Queries {
             AFTER INSERT ON $table
             $guard
             BEGIN
-                $record ($name, NULL, NEW.data, $now);
+                $record ($name, NULL, NEW.$DATA_COLUMN, $now);
             END;
             """.trimIndent()),
             command("""
             CREATE TEMP TRIGGER IF NOT EXISTS ${identifier(triggerName(collection, "update"))}
             AFTER UPDATE ON $table
-            $guard AND OLD.data IS NOT NEW.data
+            $guard AND OLD.$DATA_COLUMN IS NOT NEW.$DATA_COLUMN
             BEGIN
-                $record ($name, OLD.data, NEW.data, $now);
+                $record ($name, OLD.$DATA_COLUMN, NEW.$DATA_COLUMN, $now);
             END;
             """.trimIndent()),
             command("""
@@ -232,21 +221,25 @@ internal object Queries {
             AFTER DELETE ON $table
             $guard
             BEGIN
-                $record ($name, OLD.data, NULL, $now);
+                $record ($name, OLD.$DATA_COLUMN, NULL, $now);
             END;
             """.trimIndent()),
         )
     }
 }
 
-/** Inserts the JSON bound as `?1`, with the key taken from its id so the JSON is bound once. */
+/** Inserts a [Document]: its id's bytes as `?1` and its JSON as `?2`, as [bind] binds them. */
 private fun insertSql(collection: String): String =
-    "INSERT INTO ${table(collection)} ($ID_KEY, data) " +
-        "SELECT ${idBytes("j ->> '$.$ID'")}, j FROM (SELECT jsonb(?1) AS j)"
+    "INSERT INTO ${table(collection)} ($ID_COLUMN, $DATA_COLUMN) VALUES (?1, jsonb(?2))"
 
-/** The SQL a sort key orders by: the primary key for `id`, which sorts like the canonical id text. */
+private fun SQLiteStatement.bind(document: Document) {
+    bindBlob(1, document.id.toByteArray())
+    bindText(2, document.json)
+}
+
+/** The SQL a sort key orders by: the key for the id, whose bytes sort like the canonical id text. */
 private val Path.orderSql: String
-    get() = if (field == ID) ID_KEY else sql
+    get() = if (field == ID_FIELD) ID_COLUMN else sql
 
 // Identifiers can't be bound, so they are quoted into the SQL text with their own quotes doubled.
 internal fun identifier(name: String): String = "\"${name.replace("\"", "\"\"")}\""

@@ -190,6 +190,30 @@ internal class IndexTest {
     }
 
     @Test
+    fun `an id range searches the primary key`() = runTest {
+        val db = NoSqlite { +Users }
+        db.insert(ada)
+        db.insert(alan)
+        val select = Queries.selectSql(Users.name, Query(where { "id" gt ada.id.toString() }, emptyList(), 1, 0))
+        val params = select.params.iterator()
+        val sql = Regex("\\?").replace(select.sql) { params.next().literal }
+
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql").joinToString { it.last()!! }
+
+        assertTrue("USING PRIMARY KEY" in plan, plan)
+        assertEquals(listOf(alan), db.read { Users.list<User> { where { "id" gt ada.id.toString() } } })
+        assertEquals(listOf(ada), db.read { Users.list<User> { where { "id" lte ada.id.toString() } } })
+    }
+
+    @Test
+    fun `an id condition on a uuid compares the key and on other text the field`() {
+        assertEquals("id = x'${ada.id.toHexString()}'", where { "id" eq ada.id.toString() }.toString())
+        assertEquals("id IN (x'${ada.id.toHexString()}')", where { "id" isIn listOf(ada.id.toString()) }.toString())
+        assertEquals("data ->> '$.id' = 'ada'", where { "id" eq "ada" }.toString())
+        assertEquals("data ->> '$.id' LIKE '%a%'", where { "id" like "%a%" }.toString())
+    }
+
+    @Test
     fun `a condition implying a partial index's own uses it`() = runTest {
         val db = NoSqlite { +Users }
         val condition = where { ("nickname" eq "twin") and "active".isTrue() }.render(inline = true).sql
