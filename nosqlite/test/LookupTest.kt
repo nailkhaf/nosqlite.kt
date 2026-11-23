@@ -193,7 +193,7 @@ internal class LookupTest {
     }
 
     @Test
-    fun `upsert inserts a new document and updates an existing one in place`() = runTest {
+    fun `upsert inserts a new document and updates an existing one`() = runTest {
         val db = database()
         val carol = User(uuid("carol"), "carol@x.com", Name("Shaw", "Carol"), 28)
 
@@ -203,10 +203,6 @@ internal class LookupTest {
         }
 
         assertEquals(listOf(ada.copy(age = 37), alan, byron, grace, carol), db.read { Users.list<User>() })
-        assertEquals(
-            listOf(listOf("1")),
-            db.querySql("SELECT count(*) FROM nsq_users WHERE data ->> '$.id' = '${ada.id}'"),
-        )
     }
 
     @Test

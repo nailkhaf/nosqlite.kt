@@ -75,9 +75,10 @@ internal class QueryTest {
     fun `nested fields sort`() = runTest {
         val db = database()
 
-        val users = db.read { Users.list<User> { orderBy { "name.last".asc } } }
-
-        assertEquals(listOf(grace, ada, linus, alan), users)
+        db.read {
+            assertEquals(listOf(grace, ada, linus, alan), Users.list<User> { orderBy { "name.last".asc } })
+            assertEquals(listOf(alan, linus, ada, grace), Users.list<User> { orderBy { "name.last".desc } })
+        }
     }
 
     @Test
@@ -135,13 +136,33 @@ internal class QueryTest {
     }
 
     @Test
-    fun `equal keys of an indexed sort come in id order`() = runTest {
+    fun `equal keys of an indexed sort come in id order ascending and newest first descending`() = runTest {
         val db = NoSqlite { +Users }
         db.write { for (user in listOf(linus, grace, alan, ada)) Users.insert(user) }
 
-        val users = db.read { Users.list<User> { orderBy { "age".asc } } }
+        db.read {
+            assertEquals(listOf(linus, ada, grace, alan), Users.list<User> { orderBy { "age".asc } })
+            assertEquals(listOf(alan, grace, ada, linus), Users.list<User> { orderBy { "age".desc } })
+        }
+    }
 
-        assertEquals(listOf(linus, ada, grace, alan), users)
+    @Test
+    fun `sorting by id reads the key in either direction`() = runTest {
+        val db = NoSqlite { +Users }
+        db.write { for (user in listOf(linus, grace, alan, ada)) Users.insert(user) }
+
+        for (descending in listOf(false, true)) {
+            val query = query { orderBy { if (descending) "id".desc else "id".asc } }
+            val sql = Queries.selectSql(Users.name, query).sql
+
+            val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
+
+            assertFalse("TEMP B-TREE" in plan, plan)
+        }
+        db.read {
+            assertEquals(listOf(ada, alan, grace, linus), Users.list<User> { orderBy { "id".asc } })
+            assertEquals(listOf(linus, grace, alan, ada), Users.list<User> { orderBy { "id".desc } })
+        }
     }
 
     @Test

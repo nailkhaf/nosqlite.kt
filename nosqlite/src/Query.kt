@@ -23,8 +23,9 @@ internal data class Query(val condition: Where?, val orderBy: List<Order>, val l
  *     offset(40)
  * }
  * ```
- * Documents with equal sort keys come in id order when an index covers the keys, since every index entry ends with
- * the id; sort by `id` last to guarantee it.
+ * When an index covers the sort keys, documents with equal keys come in id order for `asc` and newest first for
+ * `desc`, since every index entry ends with the id and a descending sort reads the index backwards; sort by `id` last
+ * to guarantee an order.
  */
 @QueryDsl
 public class QueryScope internal constructor() {

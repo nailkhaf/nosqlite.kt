@@ -81,7 +81,7 @@ db.write {
 db.read {
     val ada: User? = Users.id(adaId).get<User>()
     val raw: JsonObject? = Users.id(adaId).get<JsonObject>()
-    val lovelaces: List<User> = Users.byName("Lovelace", "Ada").list<User>()
+    val adas: List<User> = Users.byName("Lovelace", "Ada").list<User>()
     val adults: List<User> = Users.list<User> {
         where { (User::age gte 18) and (User::tags contains "kotlin") }
         orderBy {
@@ -131,7 +131,7 @@ renamed with `@SerialName`. Keys are identifiers.
 definition, so a changed index is dropped and created again when the database opens, and a removed one dropped.
 
 Calling an index looks documents up by its values: one per field, in order, `null` matching a null or missing field.
-Fewer values throw. It finds any number: `list<T> { }`,
+Fewer or more values throw. It finds any number: `list<T> { }`,
 `count { condition }`, `update(value)` and `delete()` return the documents or how many there were, and
 `forEach<T> { action }` streams them, as on a collection.
 
@@ -230,10 +230,12 @@ condition is built.
 
 A collection's table is keyed by the id, so documents are stored in id order, and SQLite ends every index entry with
 the id. Nothing is added to a query's `ORDER BY`, so this costs nothing: a query without `orderBy` reads documents in
-id order, oldest first with v7 ids, and an index lookup returns its matches in id order. A range condition on an
-indexed field, such as `User::age gt 18`, returns them by that field, then id. Ties of `orderBy` keys come in id order
-when an index covers those keys. SQL itself promises no order without `ORDER BY`; sort by `id` (`orderBy {
-User::id.desc }`, newest first) where the order must be guaranteed, which the key makes cheap.
+id order, oldest first with v7 ids, and an index lookup with every field returns its matches in id order. A condition
+SQLite answers from an index by range or by several values, such as `User::age gt 18` or `User::age isIn
+listOf(36, 41)`, can return them by that field, then id. When an index covers the `orderBy` keys, equal keys come in id
+order for `asc` and newest first for `desc`, since a descending sort reads the index backwards. SQL itself promises
+no order without `ORDER BY`; sort by `id` (`orderBy { User::id.desc }`, newest first) where the order must be
+guaranteed, which the key makes cheap.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
 run other queries in that same transaction, one at a time.
