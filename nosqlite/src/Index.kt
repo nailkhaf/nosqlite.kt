@@ -61,8 +61,11 @@ public sealed class Index(
         /** The document of this collection with [value] as its id. */
         public operator fun invoke(value: Uuid): Lookup.Id = Lookup.Id(collection, value)
 
-        /** Every document of this collection, ordered by `id` when no `orderBy` is set. */
-        public operator fun invoke(): Lookup.Many = Lookup.Many(this, emptyList())
+        /**
+         * Every document of this collection, ordered by `id` (or `id` descending when [reversed]) when no `orderBy` is
+         * set.
+         */
+        public operator fun invoke(reversed: Boolean = false): Lookup.Many = Lookup.Many(this, emptyList(), reversed)
     }
 }
 
