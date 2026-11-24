@@ -8,7 +8,8 @@ user guide, CONTRIBUTING.md covers build, CI and releasing.
 ## Mental model
 
 - One STRICT table per collection; documents are JSONB blobs addressed by `id`.
-- Updates are JSON merge patches: unknown fields survive an update that doesn't touch them.
+- Updates default to JSON merge patches for forward compatibility (unknown fields survive); `merge = false`
+  stores the value as the whole document.
 - Fields are named by property references (`User::age`, `User::name / Name::last`) or JSON keys (`"age"`, `"name.last"`).
 - WAL: one writer and several `query_only` readers; nested savepoints for transactions.
 - Indexes (composite, partial, and every `id`) sync when the database opens. Optional change tracking appends to a queue.
