@@ -161,18 +161,78 @@ internal class LookupTest {
     }
 
     @Test
-    fun `leading values of a composite index find its prefix`() = runTest {
+    fun `leading values of a composite index find its prefix in index order`() = runTest {
         val db = database()
 
         db.read {
             assertEquals(listOf(ada, byron), Users.byName("Lovelace").list<User>())
+            assertEquals(listOf(byron, ada), Users.byName("Lovelace", reversed = true).list<User>())
             assertEquals(listOf(ada), Users.byName("Lovelace", "Ada").list<User>())
-            assertEquals(setOf(ada, grace, byron), Users.byAgeNewest(36).list<User>().toSet())
+            assertEquals(listOf(grace, byron, ada), Users.byAgeNewest(36).list<User>())
+            assertEquals(listOf(ada, byron, grace), Users.byAgeNewest(36, reversed = true).list<User>())
+        }
+
+        for (lookup in listOf(
+            Users.byName("Lovelace"),
+            Users.byName("Lovelace", reversed = true),
+            Users.byAgeNewest(36),
+            Users.byAgeNewest(36, reversed = true),
+        )) {
+            val select = Queries.selectSql(Users.name, lookup.withCondition(query { }))
+            val params = select.params.iterator()
+            val sql = Regex("\\?").replace(select.sql) { params.next().literal }
+            val plan = db.querySql("EXPLAIN QUERY PLAN $sql").joinToString { it.last()!! }
+            assertTrue("USING INDEX" in plan, plan)
+            assertFalse("TEMP B-TREE" in plan, plan)
+        }
+    }
+
+    @Test
+    fun `calling an index with no values reads every indexed document in index order`() = runTest {
+        val db = database()
+
+        db.read {
+            assertEquals(listOf(grace, ada, byron, alan), Users.byName().list<User>())
+            assertEquals(listOf(alan, byron, ada, grace), Users.byName(reversed = true).list<User>())
+            assertEquals(listOf(grace, byron, ada, alan), Users.byAgeNewest().list<User>())
+            assertEquals(listOf(alan, ada, byron, grace), Users.byAgeNewest(reversed = true).list<User>())
+            assertEquals(listOf(ada, alan, byron, grace), Users.byId().list<User>())
+            assertEquals(listOf(grace, byron, alan, ada), Users.byId(reversed = true).list<User>())
+            val activeByNickname = Users.byNickname().list<User>()
+            assertEquals(setOf(ada, alan, byron), activeByNickname.toSet())
+            assertEquals(ada, activeByNickname.last())
+            assertEquals(ada, Users.byNickname(reversed = true).list<User>().first())
+            assertEquals(3, Users.byNickname().count())
+            assertTrue(Users.byNickname().exists())
+            assertEquals(4, Users.byId().count())
+            assertTrue(Users.byId().exists())
             assertEquals(
-                listOf(grace, byron, ada),
-                Users.byAgeNewest(36).list<User> { orderBy { "age".asc; "id".desc } },
+                listOf(byron, grace),
+                Users.byId().list<User> { where { User::id gt alan.id } },
             )
         }
+
+        for (lookup in listOf(
+            Users.byName(),
+            Users.byName(reversed = true),
+            Users.byAgeNewest(),
+            Users.byAgeNewest(reversed = true),
+            Users.byId(),
+            Users.byId(reversed = true),
+        )) {
+            val select = Queries.selectSql(Users.name, lookup.withCondition(query { }))
+            val params = select.params.iterator()
+            val sql = Regex("\\?").replace(select.sql) { params.next().literal }
+            val plan = db.querySql("EXPLAIN QUERY PLAN $sql").joinToString { it.last()!! }
+            assertTrue("USING INDEX" in plan, plan)
+            assertFalse("TEMP B-TREE" in plan, plan)
+        }
+
+        db.write {
+            assertEquals(3, Users.byNickname().delete())
+            assertEquals(1, Users.byId().delete())
+        }
+        assertEquals(0, db.read { Users.count() })
     }
 
     @Test
@@ -242,14 +302,12 @@ internal class LookupTest {
     }
 
     @Test
-    fun `a lookup takes one value per field at most and plain values only`() {
-        val none = assertFailsWith<IllegalArgumentException> { Users.byName() }
+    fun `a lookup takes at most one value per field and plain values only`() {
         val many = assertFailsWith<IllegalArgumentException> { Users.byName("Lovelace", "Ada", "King") }
         val type = assertFailsWith<IllegalArgumentException> { Users.byAge('a') }
         val float = assertFailsWith<IllegalArgumentException> { Users.byAge(0.1f) }
 
-        assertEquals("index users(name.last, name.first) takes 1 to 2 values, not 0", none.message)
-        assertEquals("index users(name.last, name.first) takes 1 to 2 values, not 3", many.message)
+        assertEquals("index users(name.last, name.first) takes at most 2 values, not 3", many.message)
         assertEquals("Unsupported value: Char", type.message)
         assertEquals(FLOAT_IS_NOT_AN_SQL_REAL, float.message)
     }
@@ -266,6 +324,8 @@ internal class LookupTest {
             "index users(name.last, name.first) = ['Lovelace', NULL]",
             Users.byName("Lovelace", null).toString(),
         )
+        assertEquals("index users(name.last, name.first)", Users.byName().toString())
+        assertEquals("index users(name.last, name.first) reversed", Users.byName(reversed = true).toString())
         assertEquals("users id ${ada.id}", Users.byId(ada.id).toString())
     }
 }

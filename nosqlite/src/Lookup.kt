@@ -10,25 +10,31 @@ import kotlin.uuid.Uuid
  * Users.byId(ada).get<User>()
  * Users.byAge(36).list<User> { orderBy { "name.last".asc } }
  * Users.byName("Lovelace").count()
+ * Users.byName().list<User>()
  * ```
  */
 public sealed class Lookup(internal val collection: Collection) {
-    internal abstract val condition: Where
+    internal abstract val condition: Where?
 
     /**
-     * Documents of an index with the given values for its fields, made by calling the index: any number of
-     * documents, with values for leading fields alone matching their prefix.
+     * Documents of an index with the given values for its leading fields, made by calling the index: any number of
+     * documents, with no values matching every indexed document. Reads without `orderBy` follow the index's remaining
+     * keys.
      */
     public class Many internal constructor(
-        internal val index: Index.Many,
+        internal val index: Index,
         internal val values: List<SqlValue>,
+        internal val reversed: Boolean = false,
     ) : Lookup(index.collection) {
         // A partial index's own condition is part of every lookup, so only the documents it indexes match.
-        override val condition: Where = index.paths.zip(values) { path, value ->
+        override val condition: Where? = index.paths.zip(values) { path, value ->
             if (value == SqlValue.Null) Where.IsNull(path) else Where.Compare(path, Comparison.Eq, value)
-        }.plus(listOfNotNull(index.where)).reduce { left, right -> Where.And(left, right) }
+        }.plus(listOfNotNull(index.where)).reduceOrNull { left, right -> Where.And(left, right) }
 
-        override fun toString(): String = "$index = ${values.map { it.literal }}"
+        override fun toString(): String {
+            val base = if (values.isEmpty()) "$index" else "$index = ${values.map { it.literal }}"
+            return if (reversed) "$base reversed" else base
+        }
     }
 
     /** The document whose id is [value]; there is at most one. Its `id` field stores [Uuid.toString]. */
@@ -37,15 +43,6 @@ public sealed class Lookup(internal val collection: Collection) {
 
         override fun toString(): String = "${collection.name} id $value"
     }
-}
-
-/**
- * Looks up [values] of this index's fields, in order; leading fields alone match their prefix. A `null` value matches
- * a null or missing field.
- */
-public operator fun Index.Many.invoke(vararg values: Any?): Lookup.Many {
-    require(values.size in 1..paths.size) { "$this takes 1 to ${paths.size} values, not ${values.size}" }
-    return Lookup.Many(this, values.map(::sqlValue))
 }
 
 internal fun sqlValue(value: Any?): SqlValue = when (value) {
@@ -83,25 +80,27 @@ context(_: ReadScope)
 public suspend fun <T> Lookup.Many.list(serializer: KSerializer<T>, query: QueryBlock = {}): List<T> =
     collection.list(serializer, withCondition(query(query)))
 
-/** [query] restricted to the documents found. */
-internal fun Lookup.Many.withCondition(query: Query): Query =
-    query.copy(condition = query.condition?.let { Where.And(condition, it) } ?: condition)
+/**
+ * [query] restricted to the documents found, defaulting `orderBy` to the index's remaining keys (or their reverse)
+ * when none is set. Dropping the matched prefix keys lets SQLite walk the expression index without a temp B-tree.
+ */
+internal fun Lookup.Many.withCondition(query: Query): Query = query.copy(
+    condition = combine(condition, query.condition),
+    orderBy = query.orderBy.ifEmpty {
+        val suffix = index.keys.drop(values.size)
+        if (reversed) suffix.map { Order(it.path, descending = !it.descending) } else suffix
+    },
+)
 
 /** How many documents are found; with [condition], how many of them match it as well. */
 context(_: ReadScope)
-public suspend fun Lookup.Many.count(condition: Condition? = null): Long {
-    val found = this.condition
-    val extra = condition?.let(::where) ?: return collection.count { found }
-    return collection.count { Where.And(found, extra) }
-}
+public suspend fun Lookup.Many.count(condition: Condition? = null): Long =
+    collection.count(combine(this.condition, condition?.let(::where)))
 
 /** Whether any document is found; with [condition], whether any of them matches it as well. */
 context(_: ReadScope)
-public suspend fun Lookup.Many.exists(condition: Condition? = null): Boolean {
-    val found = this.condition
-    val extra = condition?.let(::where) ?: return collection.exists { found }
-    return collection.exists { Where.And(found, extra) }
-}
+public suspend fun Lookup.Many.exists(condition: Condition? = null): Boolean =
+    collection.exists(combine(this.condition, condition?.let(::where)))
 
 /**
  * Runs [action] on every document found that [query] selects, as [Collection.forEach] does: one row at a time from
@@ -129,17 +128,14 @@ public suspend inline fun <reified T> Lookup.Many.update(value: T, merge: Boolea
 /** As the reified overload, with an explicit [serializer]. */
 context(_: WriteScope)
 public suspend fun <T> Lookup.Many.update(serializer: KSerializer<T>, value: T, merge: Boolean = true): Int =
-    collection.update(serializer, value, merge) { condition }
+    collection.update(serializer, value, merge, condition)
 
 /** Deletes the documents found; the result is how many were deleted. */
 context(_: WriteScope)
-public suspend fun Lookup.Many.delete(): Int = collection.delete { condition }
+public suspend fun Lookup.Many.delete(): Int = collection.delete(condition)
 
 internal fun idCondition(value: Uuid): Where =
     Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
-
-/** The document of this collection with [value] as its id. */
-public operator fun Index.Id.invoke(value: Uuid): Lookup.Id = Lookup.Id(collection, value)
 
 /** The document as [T], `null` when there is none. */
 context(_: ReadScope)
@@ -152,7 +148,7 @@ public suspend fun <T> Lookup.Id.get(serializer: KSerializer<T>): T? =
 
 /** Whether a document with this id exists. */
 context(_: ReadScope)
-public suspend fun Lookup.Id.exists(): Boolean = collection.exists { condition }
+public suspend fun Lookup.Id.exists(): Boolean = collection.exists(condition)
 
 /**
  * Updates the document with [value], as `update` does: a merge patch with [merge], the whole document without it, and
@@ -165,8 +161,14 @@ public suspend inline fun <reified T> Lookup.Id.update(value: T, merge: Boolean 
 /** As the reified overload, with an explicit [serializer]. */
 context(_: WriteScope)
 public suspend fun <T> Lookup.Id.update(serializer: KSerializer<T>, value: T, merge: Boolean = true): Boolean =
-    collection.update(serializer, value, merge) { condition } > 0
+    collection.update(serializer, value, merge, condition) > 0
 
 /** Deletes the document; the result is whether there was one. */
 context(_: WriteScope)
-public suspend fun Lookup.Id.delete(): Boolean = collection.delete { condition } > 0
+public suspend fun Lookup.Id.delete(): Boolean = collection.delete(condition) > 0
+
+private fun combine(first: Where?, second: Where?): Where? = when {
+    first == null -> second
+    second == null -> first
+    else -> Where.And(first, second)
+}

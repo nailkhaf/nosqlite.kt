@@ -104,13 +104,19 @@ internal suspend fun <T> Collection.list(serializer: KSerializer<T>, query: Quer
 
 /** How many documents match [condition], or all of them without one. */
 context(_: ReadScope)
-public suspend fun Collection.count(condition: Condition? = null): Long =
-    withConnection { Queries.count(name, condition?.let(::where)).execute() }
+public suspend fun Collection.count(condition: Condition? = null): Long = count(condition?.let(::where))
+
+context(_: ReadScope)
+internal suspend fun Collection.count(condition: Where?): Long =
+    withConnection { Queries.count(name, condition).execute() }
 
 /** Whether any document matches [condition], or whether the collection has any without one. */
 context(_: ReadScope)
-public suspend fun Collection.exists(condition: Condition? = null): Boolean =
-    withConnection { Queries.exists(name, condition?.let(::where)).execute() }
+public suspend fun Collection.exists(condition: Condition? = null): Boolean = exists(condition?.let(::where))
+
+context(_: ReadScope)
+internal suspend fun Collection.exists(condition: Where?): Boolean =
+    withConnection { Queries.exists(name, condition).execute() }
 
 /**
  * Updates every document matching [condition] with [value]. With [merge], [value] is a JSON merge patch: its fields
@@ -131,9 +137,17 @@ public suspend fun <T> Collection.update(
     value: T,
     merge: Boolean = true,
     condition: Condition,
+): Int = update(serializer, value, merge, where(condition))
+
+context(_: WriteScope)
+internal suspend fun <T> Collection.update(
+    serializer: KSerializer<T>,
+    value: T,
+    merge: Boolean,
+    condition: Where?,
 ): Int {
     val json = encode(serializer, value)
-    val updated = withWriteConnection { Queries.update(name, json, merge, where(condition)).execute() }
+    val updated = withWriteConnection { Queries.update(name, json, merge, condition).execute() }
     if (updated > 0) changed()
     return updated
 }
@@ -170,8 +184,11 @@ public suspend fun upsert(collection: String, document: JsonObject, merge: Boole
 
 /** Deletes every document matching [condition]; the result is how many were deleted. */
 context(_: WriteScope)
-public suspend fun Collection.delete(condition: Condition): Int {
-    val deleted = withWriteConnection { Queries.delete(name, where(condition)).execute() }
+public suspend fun Collection.delete(condition: Condition): Int = delete(where(condition))
+
+context(_: WriteScope)
+internal suspend fun Collection.delete(condition: Where?): Int {
+    val deleted = withWriteConnection { Queries.delete(name, condition).execute() }
     if (deleted > 0) changed()
     return deleted
 }
