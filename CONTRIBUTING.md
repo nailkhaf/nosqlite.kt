@@ -32,8 +32,8 @@ requests compile incrementally; only `main` saves it.
 ## Releasing
 
 Pushing a tag `v*` runs [`release.yml`](.github/workflows/release.yml). The tag must be `v` plus
-`settings.publishing.version` in [`publishing.module-template.yaml`](publishing.module-template.yaml), so this
-release is `v0.0.2`. The job tests the library on the JVM and the iOS simulator, then runs
+`settings.publishing.version` in [`publishing.module-template.yaml`](publishing.module-template.yaml), which is the
+only place the version is set. The job tests the library on the JVM and the iOS simulator, then runs
 `./kotlin publish -m nosqlite mavenCentral`. It runs in the `release` environment, whose secrets hold the Central
 Portal token and the signing key, and it uploads the signed bundle without releasing it: check it in the
 [Central Portal](https://central.sonatype.com/publishing/deployments), then publish it there.

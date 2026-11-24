@@ -1,9 +1,9 @@
-# Maven Central publication shared by the library modules, applied in their module.yaml. See Releasing in README.md.
+# Maven Central publication shared by the library modules, applied in their module.yaml. See Releasing in CONTRIBUTING.md.
 settings:
   publishing:
     enabled: true
     group: io.github.nailkhaf
-    version: 0.0.2
+    version: 0.0.3
     mavenCentral: enabled
     signArtifacts: true
     publishSources: true

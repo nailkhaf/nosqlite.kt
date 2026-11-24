@@ -16,7 +16,7 @@ concurrency:
 # check the deployment in the Central Portal, then publish it there (publishingMode is manual by default).
 # No caches are restored, so nothing a pull request run saved can reach the signing key or the published artifacts.
 # macOS builds every target: iOS klibs need a Mac.
-# The tag must be v plus settings.publishing.version (v0.0.2 for this release).
+# The tag must be v plus settings.publishing.version.
 # The tagged commit must be on main.
 jobs:
   publish:
