@@ -45,6 +45,11 @@ internal class LookupTest {
         val byOwner = index(Note::ownerId)
     }
 
+    /** Partial nickname index alone, so EXPLAIN is not pulled to a competing `active` index. */
+    object Nicknames : Collection("nicknames") {
+        val byNickname = index("nickname", where = { "active".isTrue() })
+    }
+
     private val ada = User(uuid("ada"), "ada@x.com", Name("Lovelace", "Ada"), 36, nickname = "countess")
     private val alan = User(uuid("alan"), "alan@x.com", Name("Turing", "Alan"), 41)
     private val grace = User(
@@ -198,10 +203,10 @@ internal class LookupTest {
             assertEquals(listOf(alan, ada, byron, grace), Users.byAgeNewest(reversed = true).list<User>())
             assertEquals(listOf(ada, alan, byron, grace), Users.byId().list<User>())
             assertEquals(listOf(grace, byron, alan, ada), Users.byId(reversed = true).list<User>())
-            val activeByNickname = Users.byNickname().list<User>()
-            assertEquals(setOf(ada, alan, byron), activeByNickname.toSet())
-            assertEquals(ada, activeByNickname.last())
-            assertEquals(ada, Users.byNickname(reversed = true).list<User>().first())
+            // Partial index: active only. Null nicknames sort before "countess". Equal nulls keep rowid order
+            // here because a competing byActive index forces a temp B-tree for ORDER BY (see Nicknames test).
+            assertEquals(listOf(alan, byron, ada), Users.byNickname().list<User>())
+            assertEquals(listOf(ada, alan, byron), Users.byNickname(reversed = true).list<User>())
             assertEquals(3, Users.byNickname().count())
             assertTrue(Users.byNickname().exists())
             assertEquals(4, Users.byId().count())
@@ -233,6 +238,30 @@ internal class LookupTest {
             assertEquals(1, Users.byId().delete())
         }
         assertEquals(0, db.read { Users.count() })
+    }
+
+    @Test
+    fun `an empty partial-index lookup uses the index without a temp b-tree`() = runTest {
+        val db = NoSqlite { +Nicknames }
+        db.write {
+            for (user in listOf(ada, alan, grace, byron)) Nicknames.insert(user)
+        }
+
+        db.read {
+            assertEquals(listOf(alan, byron, ada), Nicknames.byNickname().list<User>())
+            // Index-backed reverse walk flips equal-key (null nickname) ties; see Users.byNickname when a
+            // competing index forces a temp B-tree and keeps rowid order instead.
+            assertEquals(listOf(ada, byron, alan), Nicknames.byNickname(reversed = true).list<User>())
+        }
+
+        for (lookup in listOf(Nicknames.byNickname(), Nicknames.byNickname(reversed = true))) {
+            val select = Queries.selectSql(Nicknames.name, lookup.withCondition(query { }))
+            val params = select.params.iterator()
+            val sql = Regex("\\?").replace(select.sql) { params.next().literal }
+            val plan = db.querySql("EXPLAIN QUERY PLAN $sql").joinToString { it.last()!! }
+            assertTrue(Nicknames.byNickname.name in plan, plan)
+            assertFalse("TEMP B-TREE" in plan, plan)
+        }
     }
 
     @Test
@@ -299,6 +328,14 @@ internal class LookupTest {
 
         assertEquals(listOf(ada.copy(age = 37), alan, grace, byron, carol), db.read { Users.list<User>() })
         assertEquals(listOf(listOf("1")), db.querySql("SELECT rowid FROM nsq_users WHERE data ->> '$.id' = '${ada.id}'"))
+
+        // androidx.sqlite binds by ordinal; named ?1 would leave the jsonb(?) slot unbound.
+        val merge = Queries.upsert(Users.name, merge = true).sql
+        val replace = Queries.upsert(Users.name, merge = false).sql
+        assertTrue("jsonb(?)" in merge, merge)
+        assertTrue("jsonb(?)" in replace, replace)
+        assertFalse("?1" in merge, merge)
+        assertFalse("?1" in replace, replace)
     }
 
     @Test

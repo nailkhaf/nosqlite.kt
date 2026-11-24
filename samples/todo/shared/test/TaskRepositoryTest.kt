@@ -12,21 +12,27 @@ class TaskRepositoryTest {
     private suspend fun titles(): List<Pair<String, Boolean>> = repository.tasks.first().map { it.title to it.done }
 
     @Test
-    fun `added tasks are listed`() = runTest {
+    fun `added tasks are listed newest first`() = runTest {
         repository.add("milk")
         repository.add("bread")
 
-        assertEquals(setOf("milk" to false, "bread" to false), titles().toSet())
+        // byDone is (done ASC, id DESC); v7 ids rise with time, so bread is newer than milk.
+        assertEquals(listOf("bread" to false, "milk" to false), titles())
     }
 
     @Test
-    fun `done tasks move after open ones`() = runTest {
+    fun `done tasks move after open ones newest first within each group`() = runTest {
         repository.add("milk")
         repository.add("bread")
+        repository.add("eggs")
 
         repository.toggle(repository.tasks.first().single { it.title == "milk" })
+        repository.toggle(repository.tasks.first().single { it.title == "eggs" })
 
-        assertEquals(listOf("bread" to false, "milk" to true), titles())
+        assertEquals(
+            listOf("bread" to false, "eggs" to true, "milk" to true),
+            titles(),
+        )
     }
 
     @Test

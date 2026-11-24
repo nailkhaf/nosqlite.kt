@@ -133,6 +133,21 @@ internal class ObserveTest {
     }
 
     @Test
+    fun `observe an empty lookup emits documents in index order`() = runTest {
+        val db = database()
+        val found = collect(with(db) { Users.byAge().observe<User>() })
+
+        db.write {
+            Users.insert(alan)
+            Users.insert(ada)
+            Users.insert(cid)
+        }
+
+        // byAge is age ASC; same-age ties keep index (rowid) order: ada then cid.
+        assertEquals(listOf(emptyList(), listOf(ada, cid, alan)), found)
+    }
+
+    @Test
     fun `a committed write bumps each collection it changed once`() = runTest {
         val db = database()
 
