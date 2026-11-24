@@ -5,6 +5,14 @@ nosqlite is a Kotlin Multiplatform document store on SQLite JSONB with kotlinx.s
 object it creates is named with the prefix `nsq_`. This file is the entry point for coding agents. README.md is the
 user guide, CONTRIBUTING.md covers build, CI and releasing.
 
+## Mental model
+
+- One STRICT table per collection; documents are JSONB blobs addressed by `id`.
+- Updates are JSON merge patches: unknown fields survive an update that doesn't touch them.
+- Fields are named by property references (`User::age`, `User::name / Name::last`) or JSON keys (`"age"`, `"name.last"`).
+- WAL: one writer and several `query_only` readers; nested savepoints for transactions.
+- Indexes (composite, partial, and every `id`) sync when the database opens. Optional change tracking appends to a queue.
+
 ## Layout
 
 - `nosqlite/`: the library, the only published module. `src/` is common code (package `io.github.nailkhaf.nosqlite`),
@@ -31,8 +39,8 @@ use; there is no Gradle build file. Run from the repo root.
 | Only docs (`*.md`) | nothing | |
 
 `./kotlin test -p jvm` runs the library tests and the sample's `TaskRepositoryTest` (about 25 s once the toolchain is
-cached). `./kotlin build -p android` compiles main and test sources for Android; Android tests are not run anywhere,
-because the bundled SQLite native library can't load on the host JVM and the toolchain has no device runner yet.
+cached). `./kotlin build -p android` compiles main and test sources for Android; Android is build-only (no instrumented
+or host-JVM Android test run). Why is in CONTRIBUTING.md.
 
 There is no lint or formatter step. Style follows `.editorconfig` (4 spaces, 120 columns, trailing commas allowed), and
 explicit API mode makes the compiler reject public declarations without a visibility modifier.
@@ -40,18 +48,21 @@ explicit API mode makes the compiler reject public declarations without a visibi
 ## CI and protections
 
 - CI runs three jobs on every non-draft PR and on pushes to `main`: "JVM tests", "Android build", "iOS tests"
-  (macOS). Draft PRs skip every job; marking the PR ready for review runs them.
+  (macOS). Draft PRs skip every job; marking the PR ready for review runs them. Job details are in CONTRIBUTING.md.
 - `main` requires a pull request, all three checks green, and signed commits; force-push and deletion are blocked.
 - `v*` tags require the three checks and signed commits, and can't be moved or deleted.
 
 ## Working rules
 
 1. Before anything bigger than a small fix, post a short plan and wait for the maintainer's OK: files touched, approach, how
-   the work splits into PRs. Stay inside the approved plan; if it has to change, say so before going further.
+   the work splits into PRs. Stay inside the approved plan; if it has to change, say so before going further. If you
+   cannot wait mid-turn (cloud / async agents), post the plan and stop: do not start the work in the same turn.
 2. You may open PRs. Nothing merges without the maintainer's review. Never merge, approve or post reviews yourself.
 3. Keep PRs small. Update a branch from `main` only when GitHub reports a conflict or the PR is about to merge, and do
    it by merging `main` in, never by rebasing or force-pushing.
-4. Every commit is signed, merge commits included.
+4. Every commit is signed, merge commits included. Unsigned commits are rejected by branch protection. Prefer the
+   environment's configured signing (`commit.gpgsign` / SSH or GPG). If signing is unavailable or fails, stop and ask
+   the maintainer — do not push unsigned commits, and do not ask the maintainer to sign your commits for you.
 5. Every PR shows passing tests: the commands above that you ran and their result, and green CI on all three jobs.
 6. Every PR description ends with a self-review note: what changed against the approved plan, deviations,
    anything risky, and anything skipped or left for later.
