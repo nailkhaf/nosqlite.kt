@@ -23,7 +23,10 @@ public sealed class Lookup(internal val collection: Collection) {
         internal val index: Index.Many,
         internal val values: List<SqlValue>,
     ) : Lookup(index.collection) {
-        override val condition: Where = index.lookupCondition(values)
+        // A partial index's own condition is part of every lookup, so only the documents it indexes match.
+        override val condition: Where = index.paths.zip(values) { path, value ->
+            if (value == SqlValue.Null) Where.IsNull(path) else Where.Compare(path, Comparison.Eq, value)
+        }.plus(listOfNotNull(index.where)).reduce { left, right -> Where.And(left, right) }
 
         override fun toString(): String = "$index = ${values.map { it.literal }}"
     }
@@ -40,7 +43,10 @@ public sealed class Lookup(internal val collection: Collection) {
  * Looks up [values] of this index's fields, in order; leading fields alone match their prefix. A `null` value matches
  * a null or missing field.
  */
-public operator fun Index.Many.invoke(vararg values: Any?): Lookup.Many = Lookup.Many(this, lookupValues(values))
+public operator fun Index.Many.invoke(vararg values: Any?): Lookup.Many {
+    require(values.size in 1..paths.size) { "$this takes 1 to ${paths.size} values, not ${values.size}" }
+    return Lookup.Many(this, values.map(::sqlValue))
+}
 
 internal fun sqlValue(value: Any?): SqlValue = when (value) {
     null -> SqlValue.Null

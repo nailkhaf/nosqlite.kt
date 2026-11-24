@@ -170,7 +170,7 @@ internal class LookupTest {
             assertEquals(setOf(ada, grace, byron), Users.byAgeNewest(36).list<User>().toSet())
             assertEquals(
                 listOf(grace, byron, ada),
-                Users.byAgeNewest(36).list<User> { orderBy { Users.byAgeNewest.asc } },
+                Users.byAgeNewest(36).list<User> { orderBy { "age".asc; "id".desc } },
             )
         }
     }

@@ -20,7 +20,6 @@ internal class QueryTest {
 
     object Users : Collection("users") {
         val byAge = index("age")
-        val byName = index("name.last", "name.first")
         val byAgeNewest = index {
             "age".asc
             "id".desc
@@ -129,29 +128,21 @@ internal class QueryTest {
     }
 
     @Test
-    fun `sorting by an index walks it forward or backward without a temp b-tree`() = runTest {
+    fun `a mixed direction index serves forward and reverse sorts without a temp b-tree`() = runTest {
         val db = database()
 
         db.read {
-            assertEquals(listOf(grace, ada, linus, alan), Users.list<User> { orderBy { Users.byName.asc } })
-            assertEquals(listOf(alan, linus, ada, grace), Users.list<User> { orderBy { Users.byName.desc } })
-            assertEquals(listOf(linus, grace, ada, alan), Users.list<User> { orderBy { Users.byAgeNewest.asc } })
-            assertEquals(listOf(alan, ada, grace, linus), Users.list<User> { orderBy { Users.byAgeNewest.desc } })
-            assertEquals(listOf(ada, alan, grace, linus), Users.list<User> { orderBy { Users.byId.asc } })
-            assertEquals(listOf(linus, grace, alan, ada), Users.list<User> { orderBy { Users.byId.desc } })
-            assertEquals(
-                listOf(alan, grace, ada, linus),
-                Users.list<User> { orderBy { Users.byAge.desc; "name.last".asc } },
-            )
+            assertEquals(listOf(linus, grace, ada, alan), Users.list<User> { orderBy { User::age.asc; User::id.desc } })
+            assertEquals(listOf(alan, ada, grace, linus), Users.list<User> { orderBy { User::age.desc; User::id.asc } })
+            assertEquals(listOf(ada, alan, grace, linus), Users.list<User> { orderBy { User::id.asc } })
+            assertEquals(listOf(linus, grace, alan, ada), Users.list<User> { orderBy { User::id.desc } })
         }
 
         for (order in listOf<OrderScope.() -> Unit>(
-            { Users.byName.asc },
-            { Users.byName.desc },
-            { Users.byAgeNewest.asc },
-            { Users.byAgeNewest.desc },
-            { Users.byId.asc },
-            { Users.byId.desc },
+            { User::age.asc; User::id.desc },
+            { User::age.desc; User::id.asc },
+            { User::id.asc },
+            { User::id.desc },
         )) {
             val sql = Queries.selectSql(Users.name, query { orderBy(order) }).sql
             val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
@@ -161,41 +152,36 @@ internal class QueryTest {
     }
 
     @Test
-    fun `keyset pagination seeks the index without a temp b-tree`() = runTest {
+    fun `keyset pagination on id seeks the id index without a temp b-tree`() = runTest {
         val db = database()
 
         db.read {
             val firstPage = Users.list<User> {
-                orderBy { Users.byId.asc }
+                orderBy { User::id.asc }
                 limit(2)
             }
             val secondPage = Users.list<User> {
-                where { Users.byId gt firstPage.last().id }
-                orderBy { Users.byId.asc }
+                where { User::id gt firstPage.last().id }
+                orderBy { User::id.asc }
                 limit(2)
             }
             assertEquals(listOf(ada, alan), firstPage)
             assertEquals(listOf(grace, linus), secondPage)
-
-            val afterGrace = Users.list<User> {
-                where { Users.byAgeNewest.gt(36, grace.id) }
-                orderBy { Users.byAgeNewest.asc }
-            }
-            assertEquals(listOf(ada, alan), afterGrace)
         }
 
-        for (q in listOf(
-            query { where { Users.byId gt ada.id }; orderBy { Users.byId.asc }; limit(2) },
-            query { where { Users.byAgeNewest.gt(36, grace.id) }; orderBy { Users.byAgeNewest.asc }; limit(2) },
-            query { where { Users.byName.gt("Hopper", "Grace") }; orderBy { Users.byName.asc }; limit(2) },
-        )) {
-            val select = Queries.selectSql(Users.name, q)
-            val params = select.params.iterator()
-            val sql = Regex("\\?").replace(select.sql) { params.next().literal }
-            val plan = db.querySql("EXPLAIN QUERY PLAN $sql").joinToString { it.last()!! }
-            assertTrue("SEARCH nsq_users USING INDEX" in plan, plan)
-            assertFalse("TEMP B-TREE" in plan, plan)
-        }
+        val select = Queries.selectSql(
+            Users.name,
+            query {
+                where { User::id gt ada.id }
+                orderBy { User::id.asc }
+                limit(2)
+            },
+        )
+        val params = select.params.iterator()
+        val sql = Regex("\\?").replace(select.sql) { params.next().literal }
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql").joinToString { it.last()!! }
+        assertTrue("SEARCH nsq_users USING INDEX" in plan, plan)
+        assertFalse("TEMP B-TREE" in plan, plan)
     }
 
     @Test

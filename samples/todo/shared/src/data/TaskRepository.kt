@@ -2,7 +2,9 @@ package io.github.nailkhaf.todo.data
 
 import io.github.nailkhaf.nosqlite.NoSqlite
 import io.github.nailkhaf.nosqlite.Location
+import io.github.nailkhaf.nosqlite.asc
 import io.github.nailkhaf.nosqlite.delete
+import io.github.nailkhaf.nosqlite.desc
 import io.github.nailkhaf.nosqlite.insert
 import io.github.nailkhaf.nosqlite.invoke
 import io.github.nailkhaf.nosqlite.observe
@@ -17,7 +19,14 @@ class TaskRepository(location: Location) {
     private val db = NoSqlite(location) { +Tasks }
 
     /** Open tasks first, newest first within each group. */
-    val tasks: Flow<List<Task>> = with(db) { Tasks.observe<Task> { orderBy { Tasks.byDone.asc } } }
+    val tasks: Flow<List<Task>> = with(db) {
+        Tasks.observe<Task> {
+            orderBy {
+                Task::done.asc
+                Task::id.desc
+            }
+        }
+    }
 
     // Uuid.generateV7() is still experimental.
     @OptIn(ExperimentalUuidApi::class)

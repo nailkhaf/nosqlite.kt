@@ -75,7 +75,7 @@ db.write {
     Users.insert(User(adaId, "ada@example.com", Name("Ada", "Lovelace"), 36, listOf("kotlin")))
     Users.upsert(User(alanId, "alan@example.com", Name("Alan", "Turing"), 41))
     Users.byId(alanId).update(User(alanId, "alan@example.com", Name("Alan", "Turing"), 42))
-    Users.delete { Users.byAge lt 18 }
+    Users.delete { User::age lt 18 }
 }
 
 db.read {
@@ -83,20 +83,20 @@ db.read {
     val raw: JsonObject? = Users.byId(adaId).get<JsonObject>()
     val lovelaces: List<User> = Users.byName("Lovelace").list<User>()
     val adults: List<User> = Users.list<User> {
-        where { (Users.byAge gte 18) and (User::tags contains "kotlin") }
+        where { (User::age gte 18) and (User::tags contains "kotlin") }
         orderBy {
-            Users.byAge.desc
+            User::age.desc
             (User::name / Name::last).asc
         }
         limit(20)
     }
-    val count: Long = Users.count { Users.byAge gte 18 }
-    val hasAdults: Boolean = Users.exists { Users.byAge gte 18 }
+    val count: Long = Users.count { User::age gte 18 }
+    val hasAdults: Boolean = Users.exists { User::age gte 18 }
     Users.forEach<User> { user -> println(user) }
 }
 
 with(db) {
-    Users.observe<User> { where { Users.byAge gte 18 } }.collect { adults -> render(adults) }
+    Users.observe<User> { where { User::age gte 18 } }.collect { adults -> render(adults) }
     Users.byId(adaId).observe<User>().collect { ada -> render(ada) }
 }
 ```
@@ -138,15 +138,6 @@ declared. Calling an index looks documents up by its values.
 It takes its leading fields (`Uuid` values included, `null` matching a null or missing field), and finds any number:
 `list<T> { }`, `count { condition }`, `exists { condition }`, `update(value)` and `delete()` return the documents,
 how many there were, or whether any matched, and `forEach<T> { action }` streams them, as on a collection.
-
-Indexes also work directly in `where` and `orderBy`:
-- Equality/prefix: `where { Users.byAge(36) }` or `where { Users.byName("Lovelace") }` (including a partial index's own
-  `where`).
-- Range and cursor seeking in the index's order: `where { Users.byAge gte 18 }`,
-  `where { Users.byName.gt("Lovelace", "Ada") }`, `where { Users.byId gt lastId }`.
-- Ordering: `orderBy { Users.byName.asc }` walks the index forward (each key in its declared direction), and
-  `orderBy { Users.byName.desc }` walks it backward (every key reversed). Field sorts (`"age".desc`, `User::age.asc`)
-  can still be used on their own or mixed in.
 
 ### Ids
 
@@ -242,12 +233,13 @@ so an enum as its serial name (`"role" eq "member"`). A `Double` that is `NaN` o
 condition is built.
 
 Without `orderBy`, the order of documents is unspecified; the order of documents with equal sort keys is also
-unspecified. Add `id` as the last sort key when a stable order matters. With `Uuid.generateV7()`, sorting by `byId`
+unspecified. Add `id` as the last sort key when a stable order matters. With `Uuid.generateV7()`, sorting by `id`
 orders by creation time using the built-in `id` index without a temp B-tree, and a composite index ending in `id`
-(such as `index { Task::done.asc; Task::id.desc }`) makes `orderBy { Tasks.byDone.asc }` zero-sort while still serving
-prefix lookups like `Tasks.byDone(true)`. For large lists, prefer keyset pagination over `offset`:
-`where { Users.byId gt lastId }; orderBy { Users.byId.asc }; limit(20)` (or
-`where { Tasks.byDone.gt(last.done, last.id) }; orderBy { Tasks.byDone.asc }; limit(20)`) seeks directly into the index.
+(such as `index { Task::done.asc; Task::id.desc }`) makes `orderBy { Task::done.asc; Task::id.desc }` zero-sort while
+still serving prefix lookups like `Tasks.byDone(true)`. For large lists, prefer keyset pagination over `offset`:
+`where { User::id gt lastId }; orderBy { User::id.asc }; limit(20)` seeks directly into the `id` index, and
+`Users.byName("Lovelace").list<User> { where { (User::name / Name::first) gt "Ada" } }` seeks both columns of a
+composite index.
 
 `forEach` reads one row at a time from an open cursor, so a large result never sits in memory, and its action can
 run other queries in that same transaction, one at a time.

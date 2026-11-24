@@ -9,15 +9,7 @@ import kotlin.uuid.Uuid
 /** Covers conditions: the SQL they render, how values are encoded, and what they match in stored documents. */
 internal class WhereTest {
 
-    object Users : Collection("users") {
-        val byAge = index("age")
-        val byName = index("name.last", "name.first")
-        val byNickname = index("nickname", where = { "active".isTrue() })
-        val byAgeNewest = index {
-            "age".asc
-            "id".desc
-        }
-    }
+    object Users : Collection("users")
 
     @Test
     fun `comparisons render with bound values`() {
@@ -188,61 +180,6 @@ internal class WhereTest {
     }
 
     @Test
-    fun `indexes build lookup and range conditions in where`() {
-        val ada = uuid("ada")
-        val alan = uuid("alan")
-
-        assertEquals(where { "age" eq 36 }.render(), where { Users.byAge(36) }.render())
-        assertEquals(where { "age" gte 18 }.render(), where { Users.byAge gte 18 }.render())
-        assertEquals(where { "age" gt 18 }.render(), where { Users.byAge gt 18 }.render())
-        assertEquals(where { "age" lt 65 }.render(), where { Users.byAge lt 65 }.render())
-        assertEquals(where { "age" lte 65 }.render(), where { Users.byAge lte 65 }.render())
-        assertEquals(
-            where { ("nickname" eq "countess") and "active".isTrue() }.render(),
-            where { Users.byNickname("countess") }.render(),
-        )
-        assertEquals(
-            where { ("nickname" gt "a") and "active".isTrue() }.render(),
-            where { Users.byNickname gt "a" }.render(),
-        )
-        assertEquals(
-            where {
-                ("name.last" gte "Lovelace") and (("name.last" gt "Lovelace") or ("name.first" gt "Ada"))
-            }.render(),
-            where { Users.byName.gt("Lovelace", "Ada") }.render(),
-        )
-        assertEquals(
-            where {
-                ("name.last" lte "Lovelace") and (("name.last" lt "Lovelace") or ("name.first" lte "Ada"))
-            }.render(),
-            where { Users.byName.lte("Lovelace", "Ada") }.render(),
-        )
-        assertEquals(
-            where { ("age" gte 36) and (("age" gt 36) or ("id" lt ada)) }.render(),
-            where { Users.byAgeNewest.gt(36, ada) }.render(),
-        )
-        assertEquals(
-            where { ("age" lte 36) and (("age" lt 36) or ("id" gt ada)) }.render(),
-            where { Users.byAgeNewest.lt(36, ada) }.render(),
-        )
-        assertEquals(where { "id" eq ada }.render(), where { Users.byId(ada) }.render())
-        assertEquals(where { "id" eq ada }.render(), where { Users.byId eq ada }.render())
-        assertEquals(where { "id" neq ada }.render(), where { Users.byId neq ada }.render())
-        assertEquals(where { "id" gt ada }.render(), where { Users.byId gt ada }.render())
-        assertEquals(where { "id" gte ada }.render(), where { Users.byId gte ada }.render())
-        assertEquals(where { "id" lt ada }.render(), where { Users.byId lt ada }.render())
-        assertEquals(where { "id" lte ada }.render(), where { Users.byId lte ada }.render())
-        assertEquals(
-            where { "id" isIn listOf(ada, alan) }.render(),
-            where { Users.byId isIn listOf(ada, alan) }.render(),
-        )
-
-        val tooMany = assertFailsWith<IllegalArgumentException> { where { Users.byAge.gt(1, 2) } }
-        assertEquals("index users(age) takes 1 to 1 values, not 2", tooMany.message)
-        assertFailsWith<IllegalArgumentException> { where { Users.byAge gt 0.1f } }
-    }
-
-    @Test
     fun `conditions match stored documents`() = runTest {
         val db = NoSqlite { +Users }
         db.write {
@@ -279,15 +216,6 @@ internal class WhereTest {
             matching("ann") { "id" eq uuid("ann") },
             matching("ann", "bob") { "id" gt uuid("cid") },
             matching("bob", "cid") { "id" isIn listOf(uuid("bob"), uuid("cid")) },
-            matching("bob") { Users.byAge(30) },
-            matching("bob", "cid") { Users.byAge gte 18 },
-            matching("ann", "bob") { Users.byName.gt("Jones", "Cid") },
-            matching("bob") { Users.byName.gt("Smith", "Ann") },
-            matching("ann", "cid") { Users.byName.lte("Smith", "Ann") },
-            matching { Users.byNickname("bobby") },
-            matching("cid") { Users.byId(uuid("cid")) },
-            matching("ann", "bob") { Users.byId gt uuid("cid") },
-            matching("ann", "cid") { Users.byId isIn listOf(uuid("ann"), uuid("cid")) },
         )
 
         for ((condition, ids) in expected) {
