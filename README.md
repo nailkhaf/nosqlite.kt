@@ -136,17 +136,17 @@ database opens, and a removed one dropped.
 Every collection also has a built-in index on `id`, exposed as `byId` (named `nsq_idx_<collection>_id`), which is not
 declared. Calling an index looks documents up by its leading fields (`Uuid` values included, `null` matching a null or
 missing field), or with no values (`Tasks.byDone()`, `Users.byId()`) matches every indexed document. Reads without
-`orderBy` follow the index's remaining keys (or their reverse with `reversed = true`) without a temp B-tree. It finds
-any number: `list<T> { }`, `count { condition }`, `exists { condition }`, `update(value)` and `delete()` return the
-documents, how many there were, or whether any matched, and `forEach<T> { action }` and `observe<T> { }` stream or
-observe them, as on a collection.
+`orderBy` follow the index's remaining keys (or their reverse with `reversed = true` on declared indexes) without a
+temp B-tree. It finds any number: `list<T> { }`, `count { condition }`, `exists { condition }`, `update(value)` and
+`delete()` return the documents, how many there were, or whether any matched, and `forEach<T> { action }` and
+`observe<T> { }` stream or observe them, as on a collection.
 
 ### Ids
 
 Every document needs an `id`: a `kotlin.uuid.Uuid` string, stored as `Uuid.toString()`. A `Uuid` property serializes
 to that string. SQLite checks it on every write. Prefer `Uuid.generateV7()`: v7 ids start with their creation time,
 so sorting or paginating by `id` orders documents by creation time (oldest first with `Users.byId()`, newest first with
-`Users.byId(reversed = true)`). Any UUID works, but `Uuid.random()` (v4) ids sort in no meaningful order.
+`orderBy { User::id.desc }`). Any UUID works, but `Uuid.random()` (v4) ids sort in no meaningful order.
 `generateV7()` currently needs `@OptIn(ExperimentalUuidApi::class)`. `byId(value)` takes that `Uuid` and addresses the
 one document: `get<T>()` returns it or `null`, `exists()` checks whether it is there without decoding the document, and
 `update(value)` and `delete()` report whether there was one. `observe` on it emits that document, or `null` while
@@ -236,7 +236,7 @@ condition is built.
 
 Without `orderBy`, a collection read has an unspecified order, and equal sort keys have an unspecified order. Add `id`
 as the last sort key when a stable order matters. With `Uuid.generateV7()`, `Users.byId().list<User>()` reads in
-creation order (and `Users.byId(reversed = true)` newest first) using the built-in `id` index without a temp B-tree,
+creation order (and `orderBy { User::id.desc }` newest first) using the built-in `id` index without a temp B-tree,
 and a composite index ending in `id` (such as `val byDone = index { Task::done.asc; Task::id.desc }`) makes
 `Tasks.byDone().observe<Task>()` and `Tasks.byDone(false).list<Task>()` zero-sort without repeating the sort keys.
 For large lists, prefer keyset pagination over `offset`:

@@ -197,7 +197,6 @@ internal class LookupTest {
             assertEquals(listOf(grace, byron, ada, alan), Users.byAgeNewest().list<User>())
             assertEquals(listOf(alan, ada, byron, grace), Users.byAgeNewest(reversed = true).list<User>())
             assertEquals(listOf(ada, alan, byron, grace), Users.byId().list<User>())
-            assertEquals(listOf(grace, byron, alan, ada), Users.byId(reversed = true).list<User>())
             val activeByNickname = Users.byNickname().list<User>()
             assertEquals(setOf(ada, alan, byron), activeByNickname.toSet())
             assertEquals(ada, activeByNickname.last())
@@ -218,7 +217,6 @@ internal class LookupTest {
             Users.byAgeNewest(),
             Users.byAgeNewest(reversed = true),
             Users.byId(),
-            Users.byId(reversed = true),
         )) {
             val select = Queries.selectSql(Users.name, lookup.withCondition(query { }))
             val params = select.params.iterator()
