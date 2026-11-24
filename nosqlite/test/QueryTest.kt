@@ -20,6 +20,10 @@ internal class QueryTest {
 
     object Users : Collection("users") {
         val byAge = index("age")
+        val byAgeNewest = index {
+            "age".asc
+            "id".desc
+        }
     }
 
     private val ada = User(uuid("ada"), Name("Ada", "Lovelace"), 36)
@@ -124,6 +128,63 @@ internal class QueryTest {
     }
 
     @Test
+    fun `a mixed direction index serves forward and reverse sorts without a temp b-tree`() = runTest {
+        val db = database()
+
+        db.read {
+            assertEquals(listOf(linus, grace, ada, alan), Users.list<User> { orderBy { User::age.asc; User::id.desc } })
+            assertEquals(listOf(alan, ada, grace, linus), Users.list<User> { orderBy { User::age.desc; User::id.asc } })
+            assertEquals(listOf(ada, alan, grace, linus), Users.list<User> { orderBy { User::id.asc } })
+            assertEquals(listOf(linus, grace, alan, ada), Users.list<User> { orderBy { User::id.desc } })
+        }
+
+        for (order in listOf<OrderScope.() -> Unit>(
+            { User::age.asc; User::id.desc },
+            { User::age.desc; User::id.asc },
+            { User::id.asc },
+            { User::id.desc },
+        )) {
+            val sql = Queries.selectSql(Users.name, query { orderBy(order) }).sql
+            val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "1")).joinToString { it.last()!! }
+            assertTrue("USING INDEX" in plan, plan)
+            assertFalse("TEMP B-TREE" in plan, plan)
+        }
+    }
+
+    @Test
+    fun `keyset pagination on id seeks the id index without a temp b-tree`() = runTest {
+        val db = database()
+
+        db.read {
+            val firstPage = Users.list<User> {
+                orderBy { User::id.asc }
+                limit(2)
+            }
+            val secondPage = Users.list<User> {
+                where { User::id gt firstPage.last().id }
+                orderBy { User::id.asc }
+                limit(2)
+            }
+            assertEquals(listOf(ada, alan), firstPage)
+            assertEquals(listOf(grace, linus), secondPage)
+        }
+
+        val select = Queries.selectSql(
+            Users.name,
+            query {
+                where { User::id gt ada.id }
+                orderBy { User::id.asc }
+                limit(2)
+            },
+        )
+        val params = select.params.iterator()
+        val sql = Regex("\\?").replace(select.sql) { params.next().literal }
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql").joinToString { it.last()!! }
+        assertTrue("SEARCH nsq_users USING INDEX" in plan, plan)
+        assertFalse("TEMP B-TREE" in plan, plan)
+    }
+
+    @Test
     fun `invalid order fields are rejected`() {
         val error = assertFailsWith<IllegalArgumentException> { query { orderBy { "first name".desc } } }
 
@@ -179,5 +240,19 @@ internal class QueryTest {
         val db = NoSqlite { +Users }
 
         assertEquals(0, db.read { Users.count() })
+    }
+
+    @Test
+    fun `exists reports whether any document matches`() = runTest {
+        val empty = NoSqlite { +Users }
+        assertFalse(empty.read { Users.exists() })
+        assertFalse(empty.read { Users.exists { "age" eq 36 } })
+
+        val db = database()
+        db.read {
+            assertTrue(Users.exists())
+            assertTrue(Users.exists { "age" eq 36 })
+            assertFalse(Users.exists { "age" gt 50 })
+        }
     }
 }

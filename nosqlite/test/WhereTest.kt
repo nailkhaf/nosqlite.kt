@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.uuid.Uuid
 
 /** Covers conditions: the SQL they render, how values are encoded, and what they match in stored documents. */
 internal class WhereTest {
@@ -30,6 +31,10 @@ internal class WhereTest {
         assertEquals(SqlValue.Real(1.5), param { "score" eq 1.5 })
         assertEquals(SqlValue.Integer(1), param { "active".isTrue() }) // ->> gives booleans back as 1 and 0
         assertEquals(SqlValue.Integer(0), param { "active".isFalse() })
+        assertEquals(SqlValue.Integer(1), param { "active" eq true })
+        assertEquals(SqlValue.Integer(0), param { "active" neq false })
+        assertEquals(SqlValue.Integer(1), param { "flags" contains true })
+        assertEquals(SqlValue.Text(uuid("ada").toString()), param { "id" eq uuid("ada") })
     }
 
     @Test
@@ -58,8 +63,10 @@ internal class WhereTest {
     }
 
     @Test
-    fun `long and double overloads bind as integers and reals`() {
+    fun `long double boolean and uuid overloads bind as SQL scalars`() {
         fun bound(block: WhereScope.() -> Where): SqlValue = where(block).render().params.single()
+        val ada = uuid("ada")
+        val alan = uuid("alan")
 
         assertEquals(SqlValue.Integer(Int.MIN_VALUE.toLong()), bound { "age" gt Int.MIN_VALUE.toLong() })
         assertEquals(SqlValue.Integer(Int.MAX_VALUE.toLong()), bound { "age" gte Int.MAX_VALUE.toLong() })
@@ -78,6 +85,24 @@ internal class WhereTest {
         assertEquals(SqlValue.Real(-1.0), bound { "score" lt -1.0 })
         assertEquals(SqlValue.Real(2.5), bound { "score" lte 2.5 })
         assertEquals(SqlValue.Real(0.1), bound { "scores" contains 0.1 })
+
+        assertEquals(SqlValue.Integer(1), bound { "active" eq true })
+        assertEquals(SqlValue.Integer(0), bound { "active" eq false })
+        assertEquals(SqlValue.Integer(1), bound { "active" neq true })
+        assertEquals(SqlValue.Text("[1,0]"), bound { "active" isIn listOf(true, false) })
+        assertEquals(SqlValue.Integer(0), bound { "flags" contains false })
+
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" eq ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" neq ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" gt ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" gte ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" lt ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "id" lte ada })
+        assertEquals(SqlValue.Text(ada.toString()), bound { "refs" contains ada })
+        assertEquals(
+            SqlValue.Text("""["$ada","$alan"]"""),
+            bound { "id" isIn listOf(ada, alan) },
+        )
     }
 
     @Test
@@ -131,6 +156,8 @@ internal class WhereTest {
         assertEquals("0 = 1", where { "age" isIn emptyList<String>() }.render().sql)
         assertEquals("0 = 1", where { "id" isIn emptyList<Long>() }.render().sql)
         assertEquals("0 = 1", where { "score" isIn emptyList<Double>() }.render().sql)
+        assertEquals("0 = 1", where { "active" isIn emptyList<Boolean>() }.render().sql)
+        assertEquals("0 = 1", where { "id" isIn emptyList<Uuid>() }.render().sql)
     }
 
     @Test
@@ -166,6 +193,9 @@ internal class WhereTest {
             matching("bob", "cid") { "role" eq "member" },
             matching("bob") { "active".isFalse() },
             matching("ann", "cid") { "active".isTrue() },
+            matching("bob") { "active" eq false },
+            matching("ann", "cid") { "active" eq true },
+            matching("bob") { "active" neq true },
             matching { "missing".isFalse() },
             matching("bob") { "score" gt 1.0 },
             matching("ann", "cid") { "nickname".isNull() },
@@ -183,6 +213,9 @@ internal class WhereTest {
             matching { "age" isIn emptyList<String>() },
             matching("ann", "cid") { "age" isIn listOf(17, 45) },
             matching("bob") { "score" isIn listOf(2.5, 3.0) },
+            matching("ann") { "id" eq uuid("ann") },
+            matching("ann", "bob") { "id" gt uuid("cid") },
+            matching("bob", "cid") { "id" isIn listOf(uuid("bob"), uuid("cid")) },
         )
 
         for ((condition, ids) in expected) {

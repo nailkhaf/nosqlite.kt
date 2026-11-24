@@ -166,7 +166,7 @@ internal class IndexTest {
         val db = NoSqlite { +Users }
         val sql = Queries.selectSql(
             Users.name,
-            Query(Users.id(ada.id).condition, emptyList(), limit = 1, offset = 0),
+            Query(Users.byId(ada.id).condition, emptyList(), limit = 1, offset = 0),
         ).sql
 
         val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "'${ada.id}'")).joinToString { it.last()!! }
@@ -258,6 +258,62 @@ internal class IndexTest {
         }
 
         assertEquals("Collection 'twice' declares index twice(age) more than once", error.message)
+    }
+
+    @Test
+    fun `mixed direction indexes store DESC and preserve ASC index hashes`() = runTest {
+        val mixed = object : Collection("users") {
+            val byAgeAsc = index { User::age.asc }
+            val byAgeNewest = index(where = { User::active.isTrue() }) {
+                User::age.asc
+                User::id.desc
+            }
+        }
+        val db = NoSqlite { +mixed }
+        db.read { }
+
+        val sql = db.querySql("SELECT sql FROM sqlite_schema WHERE type = 'index'").map { it.single() }.toSet()
+
+        assertEquals(Users.byAge.name, mixed.byAgeAsc.name)
+        assertEquals("index users(age, id desc) where data ->> '$.active' = 1", mixed.byAgeNewest.toString())
+        assertEquals("index users(id)", Users.byId.toString())
+        assertEquals(idIndexName(Users), Users.byId.name)
+        assertEquals(listOf(idIndexName(Users), Users.byAge.name), listOf<Index>(Users.byId, Users.byAge).map { it.name })
+        assertTrue(
+            """CREATE INDEX "${mixed.byAgeNewest.name}" ON "nsq_users" (data ->> '$.age', data ->> '$.id' DESC) """ +
+                "WHERE data ->> '$.active' = 1" in sql,
+            sql.toString(),
+        )
+    }
+
+    @Test
+    fun `changing an index key direction recreates it`() = runTest {
+        withTempFile { location ->
+            val ascending = object : Collection("users") {
+                val byAge = index { "age".asc; "id".asc }
+            }
+            val mixed = object : Collection("users") {
+                val byAge = index { "age".asc; "id".desc }
+            }
+            NoSqlite(location) { +ascending }.apply { read { } }.close()
+
+            val db = NoSqlite(location) { +mixed }
+
+            assertEquals(setOf(mixed.byAge.name, idIndexName(mixed)), db.indexNames())
+            assertTrue(ascending.byAge.name != mixed.byAge.name)
+            db.close()
+        }
+    }
+
+    @Test
+    fun `empty key block index is rejected`() {
+        val error = assertFailsWith<IllegalArgumentException> {
+            object : Collection("empty") {
+                val bad = index { }
+            }
+        }
+
+        assertEquals("Index without fields", error.message)
     }
 }
 

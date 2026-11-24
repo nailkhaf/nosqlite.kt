@@ -61,7 +61,7 @@ public class QueryScope internal constructor() {
     internal fun build(): Query = Query(condition, orderBy.orEmpty(), limit ?: Int.MAX_VALUE, offset ?: 0)
 }
 
-/** Collects sort keys: `"age".desc` sorts by age, largest first. */
+/** Collects sort keys: `"age".desc` or `User::age.desc` sorts by age, largest first. */
 @QueryDsl
 public class OrderScope internal constructor() {
     internal val keys: List<Order>

@@ -65,7 +65,7 @@ internal class ObserveTest {
         db.write { Users.insert(ada) }
         db.write { Users.upsert(alan) }
         db.write { Users.update(alan.copy(age = 42)) { "id" eq alan.id.toString() } }
-        db.write { Users.id(ada.id).delete() }
+        db.write { Users.byId(ada.id).delete() }
 
         assertEquals(
             listOf(
@@ -109,11 +109,11 @@ internal class ObserveTest {
     @Test
     fun `observe one document by id`() = runTest {
         val db = database()
-        val found = collect(with(db) { Users.id(alan.id).observe<User>() })
+        val found = collect(with(db) { Users.byId(alan.id).observe<User>() })
 
         db.write { Users.insert(alan) }
-        db.write { Users.id(alan.id).update(alan.copy(age = 42)) }
-        db.write { Users.id(alan.id).delete() }
+        db.write { Users.byId(alan.id).update(alan.copy(age = 42)) }
+        db.write { Users.byId(alan.id).delete() }
 
         assertEquals(listOf(null, alan, alan.copy(age = 42), null), found)
     }
@@ -203,7 +203,7 @@ internal class ObserveTest {
         }
         db.write { Users.delete { "age" gt 100 } }
         db.write { Users.update(User(uuid("x"), 1)) { "id" eq uuid("nobody").toString() } }
-        db.write { Users.id(uuid("nobody")).delete() }
+        db.write { Users.byId(uuid("nobody")).delete() }
 
         assertEquals(mapOf("users" to 1L), db.versions.value)
     }

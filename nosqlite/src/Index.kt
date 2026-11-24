@@ -1,28 +1,72 @@
 package io.github.nailkhaf.nosqlite
 
+import kotlin.uuid.Uuid
+
 /**
- * An SQLite index over document fields, declared in a [Collection]. Indexes are synced when the database opens.
- * Each one's name is `nsq_idx_<collection>_<hash>`, and the hash is of its definition, so a changed index is dropped
- * and created again and a removed one dropped.
+ * An SQLite index on a [Collection]: either a declared index over document fields ([Many]), or the built-in unique
+ * index on every document's `id` ([Id]). Declared indexes are synced when the database opens; each one's name is
+ * `nsq_idx_<collection>_<hash>`, so a changed index is dropped and created again and a removed one dropped.
  */
-public open class Index internal constructor(
+public sealed class Index(
     internal val collection: Collection,
-    internal val paths: List<Path>,
+    internal val keys: List<Order>,
     internal val where: Where?,
 ) {
-    init {
-        require(paths.isNotEmpty()) { "Index without fields" }
+    internal abstract val name: String
+
+    internal val paths: List<Path> = keys.map { it.path }
+
+    override fun toString(): String {
+        val fields = keys.joinToString(", ") { if (it.descending) "${it.path} desc" else "${it.path}" }
+        return "index ${collection.name}($fields)" + (where?.let { " where $it" } ?: "")
     }
 
-    /** What the index is made of, as SQL: the part of `CREATE INDEX` after its table. */
-    internal val definition: String =
-        paths.joinToString(", ", prefix = "(", postfix = ")") { it.sql } +
-            (where?.let { " WHERE ${it.render(inline = true).sql}" } ?: "")
+    /** A non-unique index over declared document fields; calling it returns a [Lookup.Many]. */
+    public class Many internal constructor(
+        collection: Collection,
+        keys: List<Order>,
+        where: Where?,
+    ) : Index(collection, keys, where) {
+        init {
+            require(keys.isNotEmpty()) { "Index without fields" }
+        }
 
-    internal val name: String = indexName(collection.name, fnv1a64(definition))
+        /** What the index is made of, as SQL: the part of `CREATE INDEX` after its table. */
+        internal val definition: String =
+            keys.joinToString(", ", prefix = "(", postfix = ")") {
+                if (it.descending) "${it.path.sql} DESC" else it.path.sql
+            } + (where?.let { " WHERE ${it.render(inline = true).sql}" } ?: "")
 
-    override fun toString(): String =
-        "index ${collection.name}(${paths.joinToString(", ")})" + (where?.let { " where $it" } ?: "")
+        override val name: String = indexName(collection.name, fnv1a64(definition))
+
+        /**
+         * Looks up [values] of this index's leading fields, in order; no values matches every indexed document.
+         * A `null` value matches a null or missing field. Reads without `orderBy` follow this index's remaining keys,
+         * or their reverse when [reversed].
+         */
+        public operator fun invoke(vararg values: Any?, reversed: Boolean = false): Lookup.Many {
+            require(values.size <= paths.size) { "$this takes at most ${paths.size} values, not ${values.size}" }
+            return Lookup.Many(this, values.map(::sqlValue), reversed)
+        }
+    }
+
+    /**
+     * The built-in unique index on every document's `id`, exposed as [Collection.byId]; calling it with a [Uuid]
+     * returns a [Lookup.Id], and calling it with no values returns a [Lookup.Many] ordered by `id`.
+     */
+    public class Id internal constructor(collection: Collection) :
+        Index(collection, listOf(Order(Path(ID), descending = false)), where = null) {
+        override val name: String = indexName(collection.name, ID)
+
+        /** The document of this collection with [value] as its id. */
+        public operator fun invoke(value: Uuid): Lookup.Id = Lookup.Id(collection, value)
+
+        /**
+         * Every document of this collection, ordered by `id` (or `id` descending when [reversed]) when no `orderBy` is
+         * set.
+         */
+        public operator fun invoke(reversed: Boolean = false): Lookup.Many = Lookup.Many(this, emptyList(), reversed)
+    }
 }
 
 /** Prefix of every SQLite object nosqlite creates. */

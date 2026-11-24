@@ -2,12 +2,13 @@ package io.github.nailkhaf.nosqlite
 
 import kotlin.jvm.JvmName
 import kotlin.reflect.KProperty1
+import kotlin.uuid.Uuid
 
-// Comparisons bind an SQL scalar, the kind of value `data ->> '$.path'` yields: text, integer, real, or a boolean
-// as 1 or 0. The overloads are the restriction. An enum, Float, Char, unsigned type, value class or other Kotlin
-// type has none of these operators. The string-key form takes String, Int, Long and Double. An enum is compared by
-// its serial name, a fraction as a Double. A nullable property uses isNull and isNotNull, and passes a non-null value
-// to the operators below.
+// Comparisons bind an SQL scalar, the kind of value `data ->> '$.path'` yields: text (including Uuid as
+// Uuid.toString()), integer, real, or a boolean as 1 or 0. The overloads are the restriction. An enum, Float, Char,
+// unsigned type, value class or other Kotlin type has none of these operators. The string-key form takes String, Int,
+// Long, Double, Boolean and Uuid. An enum is compared by its serial name, a fraction as a Double. A nullable property
+// uses isNull and isNotNull, and passes a non-null value to the operators below.
 
 /** The field equals [value]. */
 context(_: WhereScope)
@@ -29,6 +30,10 @@ public infix fun Field<*, Double?>.eq(value: Double): Where = compare(Comparison
 context(_: WhereScope)
 public infix fun Field<*, Boolean?>.eq(value: Boolean): Where = compare(Comparison.Eq, value)
 
+/** The field equals [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun Field<*, Uuid?>.eq(value: Uuid): Where = compare(Comparison.Eq, value)
+
 /** The field is present and not [value]. */
 context(_: WhereScope)
 public infix fun Field<*, String?>.neq(value: String): Where = compare(Comparison.Neq, value)
@@ -48,6 +53,10 @@ public infix fun Field<*, Double?>.neq(value: Double): Where = compare(Compariso
 /** The field is present and not [value], comparing booleans as 1 and 0. */
 context(_: WhereScope)
 public infix fun Field<*, Boolean?>.neq(value: Boolean): Where = compare(Comparison.Neq, value)
+
+/** The field is present and not [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun Field<*, Uuid?>.neq(value: Uuid): Where = compare(Comparison.Neq, value)
 
 /** The field is greater than [value]. */
 context(_: WhereScope)
@@ -69,6 +78,10 @@ public infix fun Field<*, Double?>.gt(value: Double): Where = compare(Comparison
 context(_: WhereScope)
 public infix fun Field<*, Boolean?>.gt(value: Boolean): Where = compare(Comparison.Gt, value)
 
+/** The field is greater than [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun Field<*, Uuid?>.gt(value: Uuid): Where = compare(Comparison.Gt, value)
+
 /** The field is at least [value]. */
 context(_: WhereScope)
 public infix fun Field<*, String?>.gte(value: String): Where = compare(Comparison.Gte, value)
@@ -88,6 +101,10 @@ public infix fun Field<*, Double?>.gte(value: Double): Where = compare(Compariso
 /** The field is at least [value], comparing booleans as 1 and 0. */
 context(_: WhereScope)
 public infix fun Field<*, Boolean?>.gte(value: Boolean): Where = compare(Comparison.Gte, value)
+
+/** The field is at least [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun Field<*, Uuid?>.gte(value: Uuid): Where = compare(Comparison.Gte, value)
 
 /** The field is less than [value]. */
 context(_: WhereScope)
@@ -109,6 +126,10 @@ public infix fun Field<*, Double?>.lt(value: Double): Where = compare(Comparison
 context(_: WhereScope)
 public infix fun Field<*, Boolean?>.lt(value: Boolean): Where = compare(Comparison.Lt, value)
 
+/** The field is less than [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun Field<*, Uuid?>.lt(value: Uuid): Where = compare(Comparison.Lt, value)
+
 /** The field is at most [value]. */
 context(_: WhereScope)
 public infix fun Field<*, String?>.lte(value: String): Where = compare(Comparison.Lte, value)
@@ -128,6 +149,10 @@ public infix fun Field<*, Double?>.lte(value: Double): Where = compare(Compariso
 /** The field is at most [value], comparing booleans as 1 and 0. */
 context(_: WhereScope)
 public infix fun Field<*, Boolean?>.lte(value: Boolean): Where = compare(Comparison.Lte, value)
+
+/** The field is at most [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun Field<*, Uuid?>.lte(value: Uuid): Where = compare(Comparison.Lte, value)
 
 /** The text field matches [pattern]: `%` is any run of characters, `_` any one; ASCII letters ignore case. */
 context(_: WhereScope)
@@ -158,6 +183,11 @@ context(_: WhereScope)
 @JvmName("isInBoolean")
 public infix fun Field<*, Boolean?>.isIn(values: Iterable<Boolean>): Where = oneOf(values)
 
+/** The field equals one of [values], compared as [Uuid.toString]; none matches nothing. */
+context(_: WhereScope)
+@JvmName("isInUuid")
+public infix fun Field<*, Uuid?>.isIn(values: Iterable<Uuid>): Where = oneOf(values)
+
 /** The array field has an element equal to [value]. */
 context(_: WhereScope)
 public infix fun Field<*, Iterable<String>?>.contains(value: String): Where = element(value)
@@ -177,6 +207,18 @@ public infix fun Field<*, Iterable<Double>?>.contains(value: Double): Where = el
 /** The array field has an element equal to [value]. */
 context(_: WhereScope)
 public infix fun Field<*, Iterable<Boolean>?>.contains(value: Boolean): Where = element(value)
+
+/** The array field has an element equal to [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun Field<*, Iterable<Uuid>?>.contains(value: Uuid): Where = element(value)
+
+/** The field is `true`; `->>` gives booleans back as 1 and 0. */
+context(_: WhereScope)
+public fun Field<*, Boolean?>.isTrue(): Where = this eq true
+
+/** The field is `false`; a null or missing field is neither true nor false. */
+context(_: WhereScope)
+public fun Field<*, Boolean?>.isFalse(): Where = this eq false
 
 /** The field is null or missing. */
 context(_: WhereScope)
@@ -206,6 +248,10 @@ public infix fun KProperty1<*, Double?>.eq(value: Double): Where = field eq valu
 context(_: WhereScope)
 public infix fun KProperty1<*, Boolean?>.eq(value: Boolean): Where = field eq value
 
+/** The field equals [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun KProperty1<*, Uuid?>.eq(value: Uuid): Where = field eq value
+
 /** The field is present and not [value]. */
 context(_: WhereScope)
 public infix fun KProperty1<*, String?>.neq(value: String): Where = field neq value
@@ -225,6 +271,10 @@ public infix fun KProperty1<*, Double?>.neq(value: Double): Where = field neq va
 /** The field is present and not [value], comparing booleans as 1 and 0. */
 context(_: WhereScope)
 public infix fun KProperty1<*, Boolean?>.neq(value: Boolean): Where = field neq value
+
+/** The field is present and not [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun KProperty1<*, Uuid?>.neq(value: Uuid): Where = field neq value
 
 /** The field is greater than [value]. */
 context(_: WhereScope)
@@ -246,6 +296,10 @@ public infix fun KProperty1<*, Double?>.gt(value: Double): Where = field gt valu
 context(_: WhereScope)
 public infix fun KProperty1<*, Boolean?>.gt(value: Boolean): Where = field gt value
 
+/** The field is greater than [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun KProperty1<*, Uuid?>.gt(value: Uuid): Where = field gt value
+
 /** The field is at least [value]. */
 context(_: WhereScope)
 public infix fun KProperty1<*, String?>.gte(value: String): Where = field gte value
@@ -265,6 +319,10 @@ public infix fun KProperty1<*, Double?>.gte(value: Double): Where = field gte va
 /** The field is at least [value], comparing booleans as 1 and 0. */
 context(_: WhereScope)
 public infix fun KProperty1<*, Boolean?>.gte(value: Boolean): Where = field gte value
+
+/** The field is at least [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun KProperty1<*, Uuid?>.gte(value: Uuid): Where = field gte value
 
 /** The field is less than [value]. */
 context(_: WhereScope)
@@ -286,6 +344,10 @@ public infix fun KProperty1<*, Double?>.lt(value: Double): Where = field lt valu
 context(_: WhereScope)
 public infix fun KProperty1<*, Boolean?>.lt(value: Boolean): Where = field lt value
 
+/** The field is less than [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun KProperty1<*, Uuid?>.lt(value: Uuid): Where = field lt value
+
 /** The field is at most [value]. */
 context(_: WhereScope)
 public infix fun KProperty1<*, String?>.lte(value: String): Where = field lte value
@@ -305,6 +367,10 @@ public infix fun KProperty1<*, Double?>.lte(value: Double): Where = field lte va
 /** The field is at most [value], comparing booleans as 1 and 0. */
 context(_: WhereScope)
 public infix fun KProperty1<*, Boolean?>.lte(value: Boolean): Where = field lte value
+
+/** The field is at most [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun KProperty1<*, Uuid?>.lte(value: Uuid): Where = field lte value
 
 /** The text field matches [pattern]: `%` is any run of characters, `_` any one; ASCII ignores case. */
 context(_: WhereScope)
@@ -335,6 +401,11 @@ context(_: WhereScope)
 @JvmName("isInBooleanProperty")
 public infix fun KProperty1<*, Boolean?>.isIn(values: Iterable<Boolean>): Where = field isIn values
 
+/** The field equals one of [values], compared as [Uuid.toString]; none matches nothing. */
+context(_: WhereScope)
+@JvmName("isInUuidProperty")
+public infix fun KProperty1<*, Uuid?>.isIn(values: Iterable<Uuid>): Where = field isIn values
+
 /** The array field has an element equal to [value]. */
 context(_: WhereScope)
 public infix fun KProperty1<*, Iterable<String>?>.contains(value: String): Where = field contains value
@@ -354,6 +425,18 @@ public infix fun KProperty1<*, Iterable<Double>?>.contains(value: Double): Where
 /** The array field has an element equal to [value]. */
 context(_: WhereScope)
 public infix fun KProperty1<*, Iterable<Boolean>?>.contains(value: Boolean): Where = field contains value
+
+/** The array field has an element equal to [value], compared as [Uuid.toString]. */
+context(_: WhereScope)
+public infix fun KProperty1<*, Iterable<Uuid>?>.contains(value: Uuid): Where = field contains value
+
+/** The field is `true`; `->>` gives booleans back as 1 and 0. */
+context(_: WhereScope)
+public fun KProperty1<*, Boolean?>.isTrue(): Where = field.isTrue()
+
+/** The field is `false`; a null or missing field is neither true nor false. */
+context(_: WhereScope)
+public fun KProperty1<*, Boolean?>.isFalse(): Where = field.isFalse()
 
 /** The field is null or missing. */
 context(_: WhereScope)

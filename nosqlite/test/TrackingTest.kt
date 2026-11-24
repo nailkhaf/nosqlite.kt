@@ -134,9 +134,9 @@ internal class TrackingTest {
         val replaced = renamed.copy(age = 37)
 
         db.write { Contacts.insert(ada) }
-        db.write { Contacts.id(ada.id).update(renamed) }
-        db.write { Contacts.id(ada.id).update(replaced, merge = false) }
-        assertEquals(true, db.write { Contacts.id(ada.id).delete() })
+        db.write { Contacts.byId(ada.id).update(renamed) }
+        db.write { Contacts.byId(ada.id).update(replaced, merge = false) }
+        assertEquals(true, db.write { Contacts.byId(ada.id).delete() })
 
         assertEquals(
             listOf(
@@ -217,7 +217,7 @@ internal class TrackingTest {
             assertEquals(0, Contacts.update(ada.copy(age = 1)) { "id" eq uuid("nobody").toString() })
             assertEquals(0, Contacts.update(ada, merge = false) { "id" eq uuid("nobody").toString() })
             assertEquals(0, Contacts.delete { "id" eq uuid("nobody").toString() })
-            assertEquals(false, Contacts.id(uuid("nobody")).delete())
+            assertEquals(false, Contacts.byId(uuid("nobody")).delete())
             assertEquals(0, Contacts.byAge(1).delete())
         }
 
@@ -261,7 +261,7 @@ internal class TrackingTest {
 
         db.write { Contacts.insert(ada) }
         db.write(untracked = true) { Contacts.insert(alan) }
-        db.write { Contacts.id(ada.id).update(older) }
+        db.write { Contacts.byId(ada.id).update(older) }
 
         assertEquals(
             listOf(inserted(ada), updated(ada, older)),
@@ -313,7 +313,7 @@ internal class TrackingTest {
 
         db.write { Contacts.insert(ada) }
         db.write { Contacts.insert(alan) }
-        db.write { Contacts.id(ada.id).delete() }
+        db.write { Contacts.byId(ada.id).delete() }
 
         val after = Clock.System.now()
         val rows = db.read { pendingChanges() }
@@ -447,7 +447,7 @@ internal class TrackingTest {
             first.close()
 
             val second = NoSqlite(location) { +Contacts }
-            second.write { Contacts.id(ada.id).update(ada.copy(age = 37)) }
+            second.write { Contacts.byId(ada.id).update(ada.copy(age = 37)) }
 
             assertEquals(
                 listOf(
@@ -490,7 +490,7 @@ internal class TrackingTest {
     fun `insert and delete record the document before and after`() = runTest {
         val db = database()
         db.write { Contacts.insert(ada) }
-        db.write { Contacts.id(ada.id).delete() }
+        db.write { Contacts.byId(ada.id).delete() }
 
         val rows = changes(db)
         assertEquals(listOf(inserted(ada), deleted(ada)), rows)
@@ -519,9 +519,9 @@ internal class TrackingTest {
         val first = contact("p0", 1)
         db.write {
             repeat(32) { n -> Contacts.insert(contact("p$n", n)) }
-            Contacts.id(first.id).update(first.copy(age = 2))
-            Contacts.id(first.id).update(first.copy(age = 3))
-            Contacts.id(first.id).delete()
+            Contacts.byId(first.id).update(first.copy(age = 2))
+            Contacts.byId(first.id).update(first.copy(age = 3))
+            Contacts.byId(first.id).delete()
         }
 
         val rows = db.read { pendingChanges() }
@@ -542,7 +542,7 @@ internal class TrackingTest {
             db.write { Contacts.insert(ada) }
             val written = db.read { pendingChanges() }.single()
             assertEquals(written.id, db.read { pendingChanges() }.single().id)
-            db.write { Contacts.id(ada.id).update(ada.copy(age = 37)) }
+            db.write { Contacts.byId(ada.id).update(ada.copy(age = 37)) }
             val both = db.read { pendingChanges() }
             assertEquals(written.id, both.first().id)
             db.close()
@@ -597,8 +597,8 @@ internal class TrackingTest {
         val queues = collect(with(db) { observePendingChanges() })
 
         db.write { Contacts.insert(ada) }
-        db.write { Contacts.id(ada.id).update(ada.copy(age = 37)) }
-        db.write { Contacts.id(ada.id).delete() }
+        db.write { Contacts.byId(ada.id).update(ada.copy(age = 37)) }
+        db.write { Contacts.byId(ada.id).delete() }
         db.write { removePendingChanges(pendingChanges(limit = 2)) }
 
         assertEquals(
