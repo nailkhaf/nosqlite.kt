@@ -233,7 +233,9 @@ Users.list<User> {
 
 Conditions compare text, `Int`, `Long`, `Double`, `Boolean` and `Uuid`: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `isIn`,
 `contains` for an array element, `like` for a pattern (`"title" like "%milk%"`, case-insensitive for ASCII),
-`isTrue()`, `isFalse()`, `isNull()`, `isNotNull()`, combined with `and`, `or` and `not`. `Float` has no overload,
+`isTrue()`, `isFalse()`, `isNull()`, `isNotNull()`, combined with `and`, `or` and `not`. String `isIn` takes `Long`
+values, so `"age" isIn listOf(1, 2)` compiles and a `List<Int>` needs `map(Int::toLong)` (property references accept
+`List<Int>` directly). `Float` has no overload,
 because `toDouble()` is not exact and `0.1f` would not match the stored real `0.1`; write a fraction as a `Double`
 (`"ratio" eq 0.1`). `Short`, `Byte` and other number types are the same. Other values compare as they are stored,
 so an enum as its serial name (`"role" eq "member"`). A `Double` that is `NaN` or infinite is rejected when the

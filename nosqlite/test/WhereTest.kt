@@ -49,7 +49,6 @@ internal class WhereTest {
     fun `integer literals and Int values bind as integers`() {
         fun bound(block: WhereScope.() -> Where): SqlValue = where(block).render().params.single()
         val age = 18
-        val ages: List<Int> = listOf(1, 2)
 
         assertEquals(SqlValue.Integer(18), bound { "age" eq 18 })
         assertEquals(SqlValue.Integer(-2), bound { "age" neq -2 })
@@ -64,10 +63,6 @@ internal class WhereTest {
         assertEquals(
             listOf(SqlValue.Text("[1,2]")),
             where { "age" isIn listOf(1, 2) }.render().params,
-        )
-        assertEquals(
-            listOf(SqlValue.Text("[1,2]")),
-            where { "age" isIn ages }.render().params,
         )
         assertEquals(
             listOf(SqlValue.Text("[1,2]")),
@@ -167,7 +162,6 @@ internal class WhereTest {
     @Test
     fun `isIn of nothing matches nothing`() {
         assertEquals("0 = 1", where { "age" isIn emptyList<String>() }.render().sql)
-        assertEquals("0 = 1", where { "age" isIn emptyList<Int>() }.render().sql)
         assertEquals("0 = 1", where { "id" isIn emptyList<Long>() }.render().sql)
         assertEquals("0 = 1", where { "score" isIn emptyList<Double>() }.render().sql)
         assertEquals("0 = 1", where { "active" isIn emptyList<Boolean>() }.render().sql)

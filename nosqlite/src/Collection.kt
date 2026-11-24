@@ -37,17 +37,17 @@ public abstract class Collection(public val name: String, public val tracked: Bo
     internal val indexes: List<Index>
         field = mutableListOf()
 
-    /** An index on [fields], in order; with [where] only matching documents are indexed. */
-    protected fun index(vararg fields: String, where: Condition? = null): Index =
-        register(Index(this, fields.map { Order(Path(it), descending = false) }, where?.let(::where)))
+    /** An index on [first] and [rest], in order; with [where] only matching documents are indexed. */
+    protected fun index(first: String, vararg rest: String, where: Condition? = null): Index =
+        register(Index(this, (listOf(first) + rest).map { Order(Path(it), descending = false) }, where?.let(::where)))
 
-    /** An index on property [fields], named by their property names. */
-    protected fun index(vararg fields: Field<*, *>, where: Condition? = null): Index =
-        index(*fields.map { it.path }.toTypedArray(), where = where)
+    /** An index on property [first] and [rest], named by their property names. */
+    protected fun index(first: Field<*, *>, vararg rest: Field<*, *>, where: Condition? = null): Index =
+        index(first.path, *rest.map { it.path }.toTypedArray(), where = where)
 
-    /** An index on [properties], named by their property names. */
-    protected fun index(vararg properties: KProperty1<*, *>, where: Condition? = null): Index =
-        index(*properties.map { it.field }.toTypedArray(), where = where)
+    /** An index on [first] and [rest], named by their property names. */
+    protected fun index(first: KProperty1<*, *>, vararg rest: KProperty1<*, *>, where: Condition? = null): Index =
+        index(first.field, *rest.map { it.field }.toTypedArray(), where = where)
 
     /**
      * An index on the sort [keys] built in [OrderScope], each with its direction (`Task::done.asc`, `Task::id.desc`);

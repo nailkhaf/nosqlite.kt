@@ -138,12 +138,7 @@ public class WhereScope internal constructor() {
     public infix fun String.isIn(values: Iterable<String>): Where =
         Where.In(Path(this), values.map(SqlValue::Text))
 
-    /** The field equals one of [values]; none matches nothing. */
-    @JvmName("isInInt")
-    public infix fun String.isIn(values: Iterable<Int>): Where =
-        Where.In(Path(this), values.map { it.toLong().sqlInteger })
-
-    /** The field equals one of [values]; none matches nothing. */
+    /** The field equals one of [values]; none matches nothing. A `List<Int>` needs `map(Int::toLong)`. */
     @JvmName("isInLong")
     public infix fun String.isIn(values: Iterable<Long>): Where =
         Where.In(Path(this), values.map { it.sqlInteger })
