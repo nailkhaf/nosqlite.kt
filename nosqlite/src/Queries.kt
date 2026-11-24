@@ -109,7 +109,7 @@ internal object Queries {
      * the delete trigger.
      */
     fun upsert(collection: String, merge: Boolean): Statement<String, Unit> = Statement(
-        sql = "INSERT INTO ${table(collection)} (data) VALUES (jsonb(?1)) " +
+        sql = "INSERT INTO ${table(collection)} (data) VALUES (jsonb(?)) " +
             "ON CONFLICT ($ID_VALUE) DO UPDATE SET data = " +
             "${if (merge) "jsonb_patch(data, excluded.data)" else "excluded.data"};",
         encode = { json -> bindText(1, json) },
