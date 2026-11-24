@@ -277,6 +277,8 @@ internal class IndexTest {
         assertEquals(Users.byAge.name, mixed.byAgeAsc.name)
         assertEquals("index users(age, id desc) where data ->> '$.active' = 1", mixed.byAgeNewest.toString())
         assertEquals("index users(id)", Users.byId.toString())
+        assertEquals(idIndexName(Users), Users.byId.name)
+        assertEquals(listOf(idIndexName(Users), Users.byAge.name), listOf<Index>(Users.byId, Users.byAge).map { it.name })
         assertTrue(
             """CREATE INDEX "${mixed.byAgeNewest.name}" ON "nsq_users" (data ->> '$.age', data ->> '$.id' DESC) """ +
                 "WHERE data ->> '$.active' = 1" in sql,

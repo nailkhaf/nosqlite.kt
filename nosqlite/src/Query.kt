@@ -85,12 +85,6 @@ public class OrderScope internal constructor() {
             for (key in this.keys) add(Order(key.path, descending = !key.descending))
         }
 
-    /** Smallest id first (oldest first with UUID v7). */
-    public val IdIndex.asc: Unit get() = add(Order(Path(ID), descending = false))
-
-    /** Largest id first (newest first with UUID v7). */
-    public val IdIndex.desc: Unit get() = add(Order(Path(ID), descending = true))
-
     internal fun add(order: Order) {
         keys += order
     }

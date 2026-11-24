@@ -192,59 +192,59 @@ public class WhereScope internal constructor() {
     public fun String.isNotNull(): Where = Where.IsNotNull(Path(this))
 
     /** Matches documents with [values] for this index's leading fields (and its `where`, if partial). */
-    public operator fun Index.invoke(vararg values: Any?): Where = lookupCondition(lookupValues(values))
+    public operator fun Index.Many.invoke(vararg values: Any?): Where = lookupCondition(lookupValues(values))
 
     /** Matches documents after [value] in this index's order, comparing its first field. */
-    public infix fun Index.gt(value: Any): Where = rangeCondition(listOf(value), after = true, inclusive = false)
+    public infix fun Index.Many.gt(value: Any): Where = rangeCondition(listOf(value), after = true, inclusive = false)
 
     /** Matches documents after `([first], [second], ...)` in this index's order. */
-    public fun Index.gt(first: Any, second: Any, vararg rest: Any): Where =
+    public fun Index.Many.gt(first: Any, second: Any, vararg rest: Any): Where =
         rangeCondition(listOf(first, second, *rest), after = true, inclusive = false)
 
     /** Matches documents at or after [value] in this index's order, comparing its first field. */
-    public infix fun Index.gte(value: Any): Where = rangeCondition(listOf(value), after = true, inclusive = true)
+    public infix fun Index.Many.gte(value: Any): Where = rangeCondition(listOf(value), after = true, inclusive = true)
 
     /** Matches documents at or after `([first], [second], ...)` in this index's order. */
-    public fun Index.gte(first: Any, second: Any, vararg rest: Any): Where =
+    public fun Index.Many.gte(first: Any, second: Any, vararg rest: Any): Where =
         rangeCondition(listOf(first, second, *rest), after = true, inclusive = true)
 
     /** Matches documents before [value] in this index's order, comparing its first field. */
-    public infix fun Index.lt(value: Any): Where = rangeCondition(listOf(value), after = false, inclusive = false)
+    public infix fun Index.Many.lt(value: Any): Where = rangeCondition(listOf(value), after = false, inclusive = false)
 
     /** Matches documents before `([first], [second], ...)` in this index's order. */
-    public fun Index.lt(first: Any, second: Any, vararg rest: Any): Where =
+    public fun Index.Many.lt(first: Any, second: Any, vararg rest: Any): Where =
         rangeCondition(listOf(first, second, *rest), after = false, inclusive = false)
 
     /** Matches documents at or before [value] in this index's order, comparing its first field. */
-    public infix fun Index.lte(value: Any): Where = rangeCondition(listOf(value), after = false, inclusive = true)
+    public infix fun Index.Many.lte(value: Any): Where = rangeCondition(listOf(value), after = false, inclusive = true)
 
     /** Matches documents at or before `([first], [second], ...)` in this index's order. */
-    public fun Index.lte(first: Any, second: Any, vararg rest: Any): Where =
+    public fun Index.Many.lte(first: Any, second: Any, vararg rest: Any): Where =
         rangeCondition(listOf(first, second, *rest), after = false, inclusive = true)
 
     /** Matches the document with id [value]. */
-    public operator fun IdIndex.invoke(value: Uuid): Where = idCondition(value)
+    public operator fun Index.Id.invoke(value: Uuid): Where = idCondition(value)
 
     /** Matches the document with id [value]. */
-    public infix fun IdIndex.eq(value: Uuid): Where = idCondition(value)
+    public infix fun Index.Id.eq(value: Uuid): Where = idCondition(value)
 
     /** Matches documents whose id is not [value]. */
-    public infix fun IdIndex.neq(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Neq, value.sqlText)
+    public infix fun Index.Id.neq(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Neq, value.sqlText)
 
     /** Matches documents with id greater than [value]. */
-    public infix fun IdIndex.gt(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Gt, value.sqlText)
+    public infix fun Index.Id.gt(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Gt, value.sqlText)
 
     /** Matches documents with id at least [value]. */
-    public infix fun IdIndex.gte(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Gte, value.sqlText)
+    public infix fun Index.Id.gte(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Gte, value.sqlText)
 
     /** Matches documents with id less than [value]. */
-    public infix fun IdIndex.lt(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Lt, value.sqlText)
+    public infix fun Index.Id.lt(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Lt, value.sqlText)
 
     /** Matches documents with id at most [value]. */
-    public infix fun IdIndex.lte(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Lte, value.sqlText)
+    public infix fun Index.Id.lte(value: Uuid): Where = Where.Compare(Path(ID), Comparison.Lte, value.sqlText)
 
     /** Matches documents whose id is one of [values]; none matches nothing. */
-    public infix fun IdIndex.isIn(values: Iterable<Uuid>): Where = Where.In(Path(ID), values.map { it.sqlText })
+    public infix fun Index.Id.isIn(values: Iterable<Uuid>): Where = Where.In(Path(ID), values.map { it.sqlText })
 
     /** Both conditions hold. */
     public infix fun Where.and(other: Where): Where = Where.And(this, other)

@@ -59,7 +59,7 @@ internal object Queries {
             "ON ${table(collection)} ($ID_VALUE);",
     )
 
-    fun createIndex(index: Index): Command<Unit> = command(
+    fun createIndex(index: Index.Many): Command<Unit> = command(
         "CREATE INDEX ${identifier(index.name)} ON ${table(index.collection.name)} ${index.definition};",
     )
 

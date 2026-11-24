@@ -167,7 +167,11 @@ internal class LookupTest {
         db.read {
             assertEquals(listOf(ada, byron), Users.byName("Lovelace").list<User>())
             assertEquals(listOf(ada), Users.byName("Lovelace", "Ada").list<User>())
-            assertEquals(listOf(ada, grace, byron), Users.byAgeNewest(36).list<User>())
+            assertEquals(setOf(ada, grace, byron), Users.byAgeNewest(36).list<User>().toSet())
+            assertEquals(
+                listOf(grace, byron, ada),
+                Users.byAgeNewest(36).list<User> { orderBy { Users.byAgeNewest.asc } },
+            )
         }
     }
 

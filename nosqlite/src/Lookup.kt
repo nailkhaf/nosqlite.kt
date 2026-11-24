@@ -20,7 +20,7 @@ public sealed class Lookup(internal val collection: Collection) {
      * documents, with values for leading fields alone matching their prefix.
      */
     public class Many internal constructor(
-        internal val index: Index,
+        internal val index: Index.Many,
         internal val values: List<SqlValue>,
     ) : Lookup(index.collection) {
         override val condition: Where = index.lookupCondition(values)
@@ -40,7 +40,7 @@ public sealed class Lookup(internal val collection: Collection) {
  * Looks up [values] of this index's fields, in order; leading fields alone match their prefix. A `null` value matches
  * a null or missing field.
  */
-public operator fun Index.invoke(vararg values: Any?): Lookup.Many = Lookup.Many(this, lookupValues(values))
+public operator fun Index.Many.invoke(vararg values: Any?): Lookup.Many = Lookup.Many(this, lookupValues(values))
 
 internal fun sqlValue(value: Any?): SqlValue = when (value) {
     null -> SqlValue.Null
@@ -133,7 +133,7 @@ internal fun idCondition(value: Uuid): Where =
     Where.Compare(Path(ID), Comparison.Eq, SqlValue.Text(value.toString()))
 
 /** The document of this collection with [value] as its id. */
-public operator fun IdIndex.invoke(value: Uuid): Lookup.Id = Lookup.Id(collection, value)
+public operator fun Index.Id.invoke(value: Uuid): Lookup.Id = Lookup.Id(collection, value)
 
 /** The document as [T], `null` when there is none. */
 context(_: ReadScope)

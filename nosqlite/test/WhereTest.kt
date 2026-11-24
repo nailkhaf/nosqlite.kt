@@ -277,7 +277,7 @@ internal class WhereTest {
             matching("ann", "cid") { "age" isIn listOf(17, 45) },
             matching("bob") { "score" isIn listOf(2.5, 3.0) },
             matching("ann") { "id" eq uuid("ann") },
-            matching("ann", "bob") { "id" lt uuid("cid") },
+            matching("ann", "bob") { "id" gt uuid("cid") },
             matching("bob", "cid") { "id" isIn listOf(uuid("bob"), uuid("cid")) },
             matching("bob") { Users.byAge(30) },
             matching("bob", "cid") { Users.byAge gte 18 },
@@ -286,7 +286,7 @@ internal class WhereTest {
             matching("ann", "cid") { Users.byName.lte("Smith", "Ann") },
             matching { Users.byNickname("bobby") },
             matching("cid") { Users.byId(uuid("cid")) },
-            matching("ann", "bob") { Users.byId lt uuid("cid") },
+            matching("ann", "bob") { Users.byId gt uuid("cid") },
             matching("ann", "cid") { Users.byId isIn listOf(uuid("ann"), uuid("cid")) },
         )
 
