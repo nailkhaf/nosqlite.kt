@@ -23,12 +23,14 @@ by its `id`.
 
 ## Installation
 
-nosqlite 0.0.2 is available on Maven Central as one Kotlin Multiplatform library. Change tracking is part of
-that artifact. With the Kotlin toolchain, in `module.yaml`:
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.nailkhaf/nosqlite)](https://central.sonatype.com/artifact/io.github.nailkhaf/nosqlite)
+
+nosqlite is available on [Maven Central](https://central.sonatype.com/artifact/io.github.nailkhaf/nosqlite) as one
+Kotlin Multiplatform library. Change tracking is part of that artifact. With the Kotlin toolchain, in `module.yaml`:
 
 ```yaml
 dependencies:
-  - io.github.nailkhaf:nosqlite:0.0.2
+  - io.github.nailkhaf:nosqlite:<version>
 ```
 
 With Gradle:
@@ -38,7 +40,7 @@ With Gradle:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.nailkhaf:nosqlite:0.0.2")
+            implementation("io.github.nailkhaf:nosqlite:<version>")
         }
     }
 }
