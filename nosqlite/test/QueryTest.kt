@@ -254,5 +254,10 @@ internal class QueryTest {
             assertTrue(Users.exists { "age" eq 36 })
             assertFalse(Users.exists { "age" gt 50 })
         }
+
+        val sql = Queries.exists(Users.name, where { "age" eq 36 }).sql
+        assertTrue(sql.startsWith("SELECT EXISTS(SELECT 1 FROM"), sql)
+        val plan = db.querySql("EXPLAIN QUERY PLAN $sql".replace("?", "36")).joinToString { it.last()!! }
+        assertTrue(Users.byAge.name in plan, plan)
     }
 }

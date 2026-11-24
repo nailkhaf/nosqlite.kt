@@ -196,6 +196,8 @@ internal class WhereTest {
             matching("bob") { "active" eq false },
             matching("ann", "cid") { "active" eq true },
             matching("bob") { "active" neq true },
+            matching("ann", "cid") { "active" isIn listOf(true) },
+            matching("bob") { "active" isIn listOf(false) },
             matching { "missing".isFalse() },
             matching("bob") { "score" gt 1.0 },
             matching("ann", "cid") { "nickname".isNull() },
