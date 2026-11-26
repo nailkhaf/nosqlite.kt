@@ -32,7 +32,9 @@ internal class IndexTest {
     private suspend fun NoSqlite.insert(user: User) = write { Users.insert(user) }
 
     private suspend fun NoSqlite.indexNames(): Set<String?> =
-        querySql("SELECT name FROM sqlite_schema WHERE type = 'index'").map { it.single() }.toSet()
+        querySql("SELECT name FROM sqlite_schema WHERE type = 'index' AND name NOT LIKE 'sqlite%'")
+            .map { it.single() }
+            .toSet()
 
     @Test
     fun `declared indexes are created on first use`() = runTest {
@@ -40,7 +42,9 @@ internal class IndexTest {
 
         db.read { }
 
-        val sql = db.querySql("SELECT sql FROM sqlite_schema WHERE type = 'index'").map { it.single() }.toSet()
+        val sql = db.querySql(
+            "SELECT sql FROM sqlite_schema WHERE type = 'index' AND name NOT LIKE 'sqlite%'",
+        ).map { it.single() }.toSet()
         assertEquals(
             setOf(
                 """CREATE UNIQUE INDEX "${idIndexName(Users)}" ON "nsq_users" (data ->> '$.id')""",
@@ -272,7 +276,9 @@ internal class IndexTest {
         val db = NoSqlite { +mixed }
         db.read { }
 
-        val sql = db.querySql("SELECT sql FROM sqlite_schema WHERE type = 'index'").map { it.single() }.toSet()
+        val sql = db.querySql(
+            "SELECT sql FROM sqlite_schema WHERE type = 'index' AND name NOT LIKE 'sqlite%'",
+        ).map { it.single() }.toSet()
 
         assertEquals(Users.byAge.name, mixed.byAgeAsc.name)
         assertEquals("index users(age, id desc) where data ->> '$.active' = 1", mixed.byAgeNewest.toString())

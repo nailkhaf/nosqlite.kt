@@ -8,7 +8,10 @@ import kotlin.uuid.Uuid
 
 /** One recorded insert, update or delete of a tracked collection. An update that changes nothing isn't recorded. */
 public data class PendingChange(
-    /** 16 random bytes, fixed when recorded, so a retried upload can reuse it as a remote id. Not a v4 UUID. */
+    /**
+     * Primary key of the pending-change row: 16 random bytes, fixed when recorded, so a retried upload can reuse it as
+     * a remote id. Not a v4 UUID.
+     */
     public val id: Uuid,
     /** The collection's name. */
     public val collection: String,

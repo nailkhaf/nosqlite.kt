@@ -276,8 +276,9 @@ the last one isn't emitted. Changes are tracked per collection.
 ### Change tracking
 
 `Collection("contacts", tracked = true)` records every insert, update and delete in `nsq__pending_changes`.
-Each row has an `id`, the document before the change, and the document after it. `id` is 16 random bytes, read as a
-`Uuid`, assigned when the change is recorded and never changed, so a retried upload writes the same remote document.
+Each row has an `id`, the document before the change, and the document after it. `id` is the row's primary key: 16
+random bytes, read as a `Uuid`, assigned when the change is recorded and never changed, so a retried upload writes the
+same remote document.
 An insert has no before. A delete has no after. An update has both. `documentId` is the `id` of after, or of before when after is null, as a
 `Uuid`. An update that does not change the stored document records nothing.
 
