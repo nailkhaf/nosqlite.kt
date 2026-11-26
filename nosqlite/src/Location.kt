@@ -16,15 +16,13 @@ public sealed class Location {
      * [path] is a producer so callers can defer resolution (for example Android `filesDir`) until a connection
      * opens on [Dispatchers.IO].
      */
-    public class File(
+    public data class File(
         public val maxReaders: Int = 3,
         public val path: () -> String,
     ) : Location() {
         init {
             require(maxReaders >= 0) { "Negative maxReaders: $maxReaders" }
         }
-
-        override fun toString(): String = "File"
     }
 }
 
