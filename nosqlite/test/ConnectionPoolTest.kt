@@ -179,6 +179,46 @@ internal class ConnectionPoolTest {
     }
 
     @Test
+    fun `File path is produced on first use and cached for open and delete`() = runTest {
+        withTempFile { temp ->
+            var produced = 0
+            val location = Location.File(maxReaders = 2) {
+                produced += 1
+                temp.path
+            }
+            assertEquals(0, produced)
+            assertEquals("File(<deferred>)", location.toString())
+            assertEquals(0, produced)
+
+            val pool = ConnectionPool(location) {}
+            pool.withWriter { it.createTable() }
+            pool.withReader { }
+            assertEquals(1, produced)
+            assertEquals(temp.path, location.path)
+            assertEquals(1, produced)
+            assertEquals("File(${temp.path})", location.toString())
+
+            pool.close()
+            location.delete()
+            assertEquals(1, produced)
+            assertFalse(temp.exists())
+        }
+    }
+
+    @Test
+    fun `File String constructor and NoSqlite path wrap the same way`() = runTest {
+        withTempFile { temp ->
+            val fromString = Location.File(temp.path)
+            assertEquals(temp.path, fromString.path)
+
+            val db = NoSqlite(temp.path) { }
+            db.write { }
+            db.delete()
+            assertFalse(temp.exists())
+        }
+    }
+
+    @Test
     fun `write fails with Busy while another pool on the file holds the write lock`() = runTest {
         withTempFile { location ->
             val pool = ConnectionPool(location) {}

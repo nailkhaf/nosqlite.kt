@@ -75,9 +75,9 @@ public class NoSqlite(
     }
 }
 
-/** A database file at [path], with the default driver and dispatcher. */
+/** A database file at [path], with the default driver and dispatcher. Wraps [path] as `Location.File { path }`. */
 public fun NoSqlite(path: String, schema: SchemaBuilder.() -> Unit): NoSqlite =
-    NoSqlite(Location.File(path), schema = schema)
+    NoSqlite(Location.File { path }, schema = schema)
 
 /** Marks [SchemaBuilder], so its functions stay out of nested blocks. */
 @DslMarker
