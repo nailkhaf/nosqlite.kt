@@ -118,8 +118,7 @@ and documents in place.
 
 `NoSqlite()` without a path is in memory. `NoSqlite(location, driver, dispatcher) { }` takes a `Location.File` with
 its number of readers, an `SQLiteDriver` and the dispatcher connections run on, `Dispatchers.IO` by default.
-`Location.File` takes a path as a `() -> String` (or a `String`), resolved on first open or delete and cached so the
-writer, readers and delete share one path — useful on Android when `filesDir` isn't ready at construction:
+`Location.File` takes a path as `() -> String`, so Android can defer `filesDir` until a connection opens:
 `Location.File { filesDir.resolve("app.db").path }`. `NoSqlite("app.db") { }` is the same as
 `NoSqlite(Location.File { "app.db" }) { }`.
 The driver's SQLite must be 3.45 or newer for JSONB; the default `BundledSQLiteDriver` ships 3.50, and an older one

@@ -21,7 +21,7 @@ internal suspend fun <R> withTempFile(maxReaders: Int = 3, block: suspend (Locat
     }
 }
 
-internal fun Location.File.exists(): Boolean = SystemFileSystem.exists(Path(path))
+internal fun Location.File.exists(): Boolean = SystemFileSystem.exists(Path(path()))
 
 /** The bundled driver, counting the connections it opens. */
 internal class CountingDriver : SQLiteDriver {

@@ -74,7 +74,7 @@ internal class Connection(private val sqlite: SQLiteConnection) {
             val sqlite = driver.open(
                 when (location) {
                     Location.InMemory -> ":memory:"
-                    is Location.File -> location.path
+                    is Location.File -> location.path()
                 },
             )
             try {

@@ -9,7 +9,7 @@ import java.io.File
 
 fun main() {
     val dir = File(System.getProperty("user.home"), ".nosqlite-todo").apply { mkdirs() }
-    val repository = TaskRepository(Location.File(dir.resolve("todo.db").path))
+    val repository = TaskRepository(Location.File { dir.resolve("todo.db").path })
     application {
         Window(onCloseRequest = ::exitApplication, title = "Todo") {
             App(repository)

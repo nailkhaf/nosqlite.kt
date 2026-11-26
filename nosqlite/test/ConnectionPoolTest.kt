@@ -173,45 +173,39 @@ internal class ConnectionPoolTest {
 
     @Test
     fun `negative reader count is rejected`() {
-        val error = assertFailsWith<IllegalArgumentException> { Location.File("test.db", maxReaders = -1) }
+        val error = assertFailsWith<IllegalArgumentException> {
+            Location.File(maxReaders = -1) { "test.db" }
+        }
 
         assertEquals("Negative maxReaders: -1", error.message)
     }
 
     @Test
-    fun `File path is produced on first use and cached for open and delete`() = runTest {
+    fun `File path producer is used to open and delete`() = runTest {
         withTempFile { temp ->
             var produced = 0
             val location = Location.File(maxReaders = 2) {
                 produced += 1
-                temp.path
+                temp.path()
             }
-            assertEquals(0, produced)
-            assertEquals("File(<deferred>)", location.toString())
             assertEquals(0, produced)
 
             val pool = ConnectionPool(location) {}
             pool.withWriter { it.createTable() }
-            pool.withReader { }
-            assertEquals(1, produced)
-            assertEquals(temp.path, location.path)
-            assertEquals(1, produced)
-            assertEquals("File(${temp.path})", location.toString())
-
+            assertTrue(produced >= 1)
             pool.close()
+
+            val beforeDelete = produced
             location.delete()
-            assertEquals(1, produced)
+            assertTrue(produced > beforeDelete)
             assertFalse(temp.exists())
         }
     }
 
     @Test
-    fun `File String constructor and NoSqlite path wrap the same way`() = runTest {
+    fun `NoSqlite path convenience opens and deletes the file`() = runTest {
         withTempFile { temp ->
-            val fromString = Location.File(temp.path)
-            assertEquals(temp.path, fromString.path)
-
-            val db = NoSqlite(temp.path) { }
+            val db = NoSqlite(temp.path()) { }
             db.write { }
             db.delete()
             assertFalse(temp.exists())

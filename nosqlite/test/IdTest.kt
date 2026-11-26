@@ -187,7 +187,7 @@ internal class IdTest {
             db.write { Users.insert(ada) }
             db.close()
 
-            BundledSQLiteDriver().open(location.path).apply {
+            BundledSQLiteDriver().open(location.path()).apply {
                 val error = assertFailsWith<SQLiteException> {
                     execSQL("""UPDATE nsq_users SET data = jsonb('{"id":"$alanId","name":"Ada","age":36}')""")
                 }

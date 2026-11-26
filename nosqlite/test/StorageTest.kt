@@ -225,7 +225,7 @@ internal class StorageTest {
             first.write { Users.insert(ada) }
             first.close()
 
-            val second = NoSqlite(location.path) { +Users }
+            val second = NoSqlite(location.path()) { +Users }
             val stored = second.read { Users.list<JsonObject> { limit(1) } }
 
             assertEquals(listOf(ada), stored)
