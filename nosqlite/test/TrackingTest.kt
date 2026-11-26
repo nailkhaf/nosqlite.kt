@@ -379,7 +379,7 @@ internal class TrackingTest {
         val sql = db.tempTriggerSql().joinToString("\n")
         assertTrue("OLD.data" in sql && "NEW.data" in sql)
         val table = db.querySql("SELECT sql FROM sqlite_schema WHERE name = 'nsq__pending_changes'").single().single()
-        assertTrue("id BLOB NOT NULL DEFAULT (randomblob(16))" in table!!)
+        assertTrue("id BLOB NOT NULL PRIMARY KEY DEFAULT (randomblob(16))" in table!!)
         assertEquals(listOf(inserted(ada)), changes(db))
     }
 
