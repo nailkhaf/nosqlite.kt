@@ -5,5 +5,5 @@ import io.github.nailkhaf.nosqlite.Location
 import io.github.nailkhaf.todo.data.TaskRepository
 
 class TodoApplication : Application() {
-    val repository by lazy { TaskRepository(Location.File(filesDir.resolve("todo.db").path)) }
+    val repository by lazy { TaskRepository(Location.File { filesDir.resolve("todo.db").path }) }
 }
