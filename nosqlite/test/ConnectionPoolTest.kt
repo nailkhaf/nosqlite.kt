@@ -205,7 +205,7 @@ internal class ConnectionPoolTest {
     @Test
     fun `NoSqlite path convenience opens and deletes the file`() = runTest {
         withTempFile { temp ->
-            val db = NoSqlite(temp.path()) { }
+            val db = NoSqlite(temp.path) { }
             db.write { }
             db.delete()
             assertFalse(temp.exists())

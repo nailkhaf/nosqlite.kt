@@ -14,7 +14,7 @@ import kotlinx.serialization.json.Json
 /**
  * A document database. Every collection it serves is declared up front:
  * ```
- * val db = NoSqlite("app.db") {
+ * val db = NoSqlite({ "app.db" }) {
  *     +Users
  *     +Notes
  * }
@@ -75,9 +75,9 @@ public class NoSqlite(
     }
 }
 
-/** A database file at [path], with the default driver and dispatcher. Wraps [path] as `Location.File { path }`. */
-public fun NoSqlite(path: String, schema: SchemaBuilder.() -> Unit): NoSqlite =
-    NoSqlite(Location.File { path }, schema = schema)
+/** A database file at [path], with the default driver and dispatcher. */
+public fun NoSqlite(path: () -> String, schema: SchemaBuilder.() -> Unit): NoSqlite =
+    NoSqlite(Location.File(path = path), schema = schema)
 
 /** Marks [SchemaBuilder], so its functions stay out of nested blocks. */
 @DslMarker

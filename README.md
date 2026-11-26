@@ -68,7 +68,7 @@ object Users : Collection("users") {
     val byName = index(User::name / Name::last, User::name / Name::first)
 }
 
-val db = NoSqlite("app.db") { +Users }
+val db = NoSqlite({ "app.db" }) { +Users }
 
 val adaId = Uuid.generateV7()
 val alanId = Uuid.generateV7()
@@ -109,7 +109,7 @@ with(db) {
 
 A collection is a name and its indexes. Declare each one as an object extending `Collection`, `object Notes :
 Collection("notes")`, and declare its indexes there with `index(...)`. A database lists the collections it serves,
-`NoSqlite("app.db") { +Users }`, and creates their tables and indexes on the first `read` or `write`.
+`NoSqlite({ "app.db" }) { +Users }`, and creates their tables and indexes on the first `read` or `write`.
 A collection's table is `nsq_<collection>`, its indexes are `nsq_idx_<collection>_` plus a suffix, and its triggers
 are `nsq_<collection>_` plus a suffix. Collection names can't start with `idx`.
 Using a collection it doesn't list fails with `NoSqliteException.CollectionNotDeclared`.
@@ -118,9 +118,9 @@ and documents in place.
 
 `NoSqlite()` without a path is in memory. `NoSqlite(location, driver, dispatcher) { }` takes a `Location.File` with
 its number of readers, an `SQLiteDriver` and the dispatcher connections run on, `Dispatchers.IO` by default.
-`Location.File` takes a path as `() -> String`, so Android can defer `filesDir` until a connection opens:
-`Location.File { filesDir.resolve("app.db").path }`. `NoSqlite("app.db") { }` is the same as
-`NoSqlite(Location.File { "app.db" }) { }`.
+`Location.File` and `NoSqlite(path)` take a path as `() -> String`, so Android can defer `filesDir` until a
+connection opens: `Location.File { filesDir.resolve("app.db").path }`, or
+`NoSqlite({ filesDir.resolve("app.db").path }) { }`.
 The driver's SQLite must be 3.45 or newer for JSONB; the default `BundledSQLiteDriver` ships 3.50, and an older one
 fails to open with `NoSqliteException.UnsupportedSqlite`.
 `db.close()` closes its connections; `db.delete()` closes them and deletes the file with its WAL sidecars.
@@ -284,7 +284,7 @@ An insert has no before. A delete has no after. An update has both. `documentId`
 ```kotlin
 object Contacts : Collection("contacts", tracked = true)
 
-val db = NoSqlite("app.db") { +Contacts }
+val db = NoSqlite({ "app.db" }) { +Contacts }
 
 val changes = db.read { pendingChanges() }
 sync(changes)

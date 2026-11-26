@@ -20,7 +20,7 @@ import kotlin.uuid.Uuid
  *     val byName = index("name.last", "name.first")
  * }
  *
- * val db = NoSqlite("app.db") {
+ * val db = NoSqlite({ "app.db" }) {
  *     +Notes
  *     +Users
  * }
