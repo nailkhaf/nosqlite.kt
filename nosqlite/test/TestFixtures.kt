@@ -13,7 +13,7 @@ import kotlin.random.Random
 /** Runs [block] with a fresh database file in the temporary directory, deleted with its sidecars afterwards. */
 internal suspend fun <R> withTempFile(maxReaders: Int = 3, block: suspend (Location.File) -> R): R {
     val name = "nosqlite-test-${Random.nextLong().toULong()}.db"
-    val location = Location.File(Path(SystemTemporaryDirectory, name).toString(), maxReaders)
+    val location = Location.File(maxReaders) { Path(SystemTemporaryDirectory, name).toString() }
     try {
         return block(location)
     } finally {
@@ -21,7 +21,7 @@ internal suspend fun <R> withTempFile(maxReaders: Int = 3, block: suspend (Locat
     }
 }
 
-internal fun Location.File.exists(): Boolean = SystemFileSystem.exists(Path(path))
+internal fun Location.File.exists(): Boolean = SystemFileSystem.exists(Path(path()))
 
 /** The bundled driver, counting the connections it opens. */
 internal class CountingDriver : SQLiteDriver {

@@ -11,13 +11,18 @@ public sealed class Location {
     /** A private database that lives as long as its one connection. */
     public data object InMemory : Location()
 
-    /** A database file at [path], opened with one writer and [maxReaders] read-only connections in WAL mode. */
-    public class File(public val path: String, public val maxReaders: Int = 3) : Location() {
+    /**
+     * A database file at [path], opened with one writer and [maxReaders] read-only connections in WAL mode.
+     * [path] is a producer so callers can defer resolution (for example Android `filesDir`) until a connection
+     * opens on [Dispatchers.IO].
+     */
+    public data class File(
+        public val maxReaders: Int = 3,
+        public val path: () -> String,
+    ) : Location() {
         init {
             require(maxReaders >= 0) { "Negative maxReaders: $maxReaders" }
         }
-
-        override fun toString(): String = "File($path)"
     }
 }
 
@@ -27,8 +32,9 @@ internal suspend fun Location.delete() {
         is Location.InMemory -> Unit
 
         is Location.File -> withContext(Dispatchers.IO) {
+            val file = path()
             for (suffix in listOf("", "-wal", "-shm")) {
-                SystemFileSystem.delete(Path("$path$suffix"), mustExist = false)
+                SystemFileSystem.delete(Path("$file$suffix"), mustExist = false)
             }
         }
     }

@@ -173,9 +173,43 @@ internal class ConnectionPoolTest {
 
     @Test
     fun `negative reader count is rejected`() {
-        val error = assertFailsWith<IllegalArgumentException> { Location.File("test.db", maxReaders = -1) }
+        val error = assertFailsWith<IllegalArgumentException> {
+            Location.File(maxReaders = -1) { "test.db" }
+        }
 
         assertEquals("Negative maxReaders: -1", error.message)
+    }
+
+    @Test
+    fun `File path producer is used to open and delete`() = runTest {
+        withTempFile { temp ->
+            var produced = 0
+            val location = Location.File(maxReaders = 2) {
+                produced += 1
+                temp.path()
+            }
+            assertEquals(0, produced)
+
+            val pool = ConnectionPool(location) {}
+            pool.withWriter { it.createTable() }
+            assertTrue(produced >= 1)
+            pool.close()
+
+            val beforeDelete = produced
+            location.delete()
+            assertTrue(produced > beforeDelete)
+            assertFalse(temp.exists())
+        }
+    }
+
+    @Test
+    fun `NoSqlite path convenience opens and deletes the file`() = runTest {
+        withTempFile { temp ->
+            val db = NoSqlite(temp.path) { }
+            db.write { }
+            db.delete()
+            assertFalse(temp.exists())
+        }
     }
 
     @Test

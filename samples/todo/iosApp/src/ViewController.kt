@@ -11,7 +11,7 @@ import platform.UIKit.UIViewController
 
 private val repository by lazy {
     val documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, true).first() as String
-    TaskRepository(Location.File("$documents/todo.db"))
+    TaskRepository(Location.File { "$documents/todo.db" })
 }
 
 fun ViewController(): UIViewController = ComposeUIViewController { App(repository) }
