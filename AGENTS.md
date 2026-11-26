@@ -43,8 +43,12 @@ use; there is no Gradle build file. Run from the repo root.
 cached). `./kotlin build -p android` compiles main and test sources for Android; Android is build-only (no instrumented
 or host-JVM Android test run). Why is in CONTRIBUTING.md.
 
-There is no lint or formatter step. Style follows `.editorconfig` (4 spaces, 120 columns, trailing commas allowed), and
-explicit API mode makes the compiler reject public declarations without a visibility modifier.
+## Style
+
+There is no lint or formatter step. Kotlin follows the official
+[coding conventions](https://kotlinlang.org/docs/coding-conventions.html) and
+[idioms](https://kotlinlang.org/docs/idioms.html), plus `.editorconfig` (4 spaces, 120 columns, trailing commas
+allowed). Explicit API mode rejects public declarations without a visibility modifier.
 
 ## CI and protections
 
